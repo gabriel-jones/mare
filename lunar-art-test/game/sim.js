@@ -4,17 +4,19 @@ import { CELL_SIZE, DEFS, DIRS, ITEMS, dims, footprint } from './defs.js';
 import { airlockApron, habitatLayout, isRoom, trapsPlayer } from './habitat.js';
 import * as inv from './inventory.js';
 import { LIFE, STARTING, ensureLifeState, hunger, lifeDemand, roomStatus, stepLife, useLife } from './life.js';
-import { createRover, ensureBuildingState, productionDemand, stepProduction, MINING_RADIUS, REGOLITH_PER_CELL, ROVER, PROCESSOR_INPUT_CAP, PROCESSOR_OUTPUT_CAP, BELT_SPACING } from './production.js';
+import { createRover, ensureBuildingState, productionDemand, stepProduction, MINING_RADIUS, REGOLITH_PER_CELL, ROVER, PROCESSOR_INPUT_CAP, PROCESSOR_OUTPUT_CAP, BELT_SPACING, MELT } from './production.js';
+import { createMission, processorUnlocked, restoreMission, stepMission } from './mission.js';
 export { CELL_SIZE, DEFS, footprint } from './defs.js';
 /** Pure, serializable simulation. Positions use 2m cells; building anchors are minimum cells. */
 export const DAY_DURATION = 240;
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
+export const PROCESSOR_LOCKED = "Locked: the ship's processor core is cracked. Recover a replacement from the crater.";
 const PLAYER_RADIUS = 0.32;
 const key = (x, z) => `${x},${z}`;
 
 export function createState(seed = 1847) {
   if (!Number.isSafeInteger(seed)) throw new Error('Seed must be an integer.');
-  return { version: SAVE_VERSION, seed, time: 0, inventory: inv.createInventory({ metal: 240, silicon: 100, meal: STARTING.meals }), reserves: { oxygen: STARTING.oxygen, water: STARTING.water }, player: { x: 0, z: 8, y: 0, satiety: 100 }, buildings: [], nextId: 1, robots: [createRover()], miningArea: null, mined: {}, power: { generation: 0, demand: 0, stored: 0, capacity: 0, supplied: 0, powered: true } };
+  return { version: SAVE_VERSION, seed, time: 0, inventory: inv.createInventory({ metal: 240, silicon: 100, meal: STARTING.meals }), reserves: { oxygen: STARTING.oxygen, water: STARTING.water }, player: { x: 0, z: 8, y: 0, satiety: 100 }, buildings: [], nextId: 1, robots: [createRover()], miningArea: null, mined: {}, mission: createMission(), power: { generation: 0, demand: 0, stored: 0, capacity: 0, supplied: 0, powered: true } };
 }
 const validRotation = r => Number.isInteger(r) && r >= 0 && r <= 3;
 const finite = n => typeof n === 'number' && Number.isFinite(n);
@@ -81,6 +83,7 @@ export function playerObstructs(state, b) {
 export function validatePlacement(state, type, x, z, rotation = 0) {
   if (state.player.cave != null) return { ok: false, reason: 'Construction is unavailable underground.' };
   if (!DEFS[type]) return { ok: false, reason: 'Invalid building or grid position.' };
+  if (type === 'processor' && !processorUnlocked(state)) return { ok: false, reason: PROCESSOR_LOCKED };
   const reason = geometryReason(state, type, x, z, rotation);
   if (reason) return { ok: false, reason };
   if (DEFS[type].layer !== 'interior') {
@@ -156,7 +159,7 @@ export function deconstruct(state, id) {
   if (!refund(state, b)) return { ok: false, reason: 'No room in your inventory for the materials.' };
   const contents = { metal: 0, silicon: 0, crop: 0, meal: 0 };
   for (const store of [b.inv, b.out]) for (const item of ['metal', 'silicon']) contents[item] += Math.floor(store?.[item] ?? 0);
-  for (const item of b.items ?? []) if (item.type !== 'regolith') contents[item.type] += 1;
+  for (const item of b.items ?? []) if (item.type in contents) contents[item.type] += 1;
   if (b.type === 'galley') { contents.crop += b.crops; contents.meal += b.meals; }
   if (b.type === 'growbed' && b.grow >= 1) contents.crop += LIFE.harvest;
   let lost = 0;
@@ -203,6 +206,7 @@ export function tick(state, dt) {
   // Machines run on the previous tick's supply state, so derived power always matches the saved state.
   const powered = state.power.powered !== false;
   if (dt > 0) { stepProduction(state, dt, powered); stepLife(state, dt, powered); }
+  stepMission(state);
   const daylight = daylightAt(state.time), night = daylight <= 0.05;
   let generation = 0, demand = productionDemand(state) + lifeDemand(state, roomStatus(state)), capacity = 0;
   for (const b of state.buildings) {
@@ -233,11 +237,13 @@ function restoreBuilding(raw) {
       return { type: item.type, p: item.p };
     });
   }
-  const limits = { hopper: [DEFS.hopper.capacity, ['regolith']], storage: [DEFS.storage.capacity, ITEMS], processor: [PROCESSOR_INPUT_CAP, ['regolith']] }[b.type];
+  const limits = { hopper: [DEFS.hopper.capacity, ['regolith', 'ice']], storage: [DEFS.storage.capacity, ITEMS], processor: [PROCESSOR_INPUT_CAP, ['regolith']], melter: [MELT.cap, ['ice']] }[b.type];
   if (limits && raw.inv != null) {
     b.inv = {};
-    for (const item of limits[1]) { if (!count(raw.inv[item], limits[0])) throw new Error('Invalid storage contents.'); b.inv[item] = raw.inv[item]; }
+    // Ice arrived with save version 4; older stores simply hold none.
+    for (const item of limits[1]) { const n = raw.inv[item] ?? (item === 'ice' ? 0 : undefined); if (!count(n, limits[0])) throw new Error('Invalid storage contents.'); b.inv[item] = n; }
   }
+  if (b.type === 'melter' && raw.work != null) { if (!count(raw.work, 1)) throw new Error('Invalid melter progress.'); b.work = raw.work; }
   if (b.type === 'processor') {
     if (raw.out != null) { b.out = {}; for (const item of ['metal', 'silicon']) { if (!count(raw.out?.[item], PROCESSOR_OUTPUT_CAP)) throw new Error('Invalid processor output.'); b.out[item] = raw.out[item]; } }
     if (raw.work != null) { if (!count(raw.work, 1)) throw new Error('Invalid processor progress.'); b.work = raw.work; }
@@ -258,6 +264,7 @@ function restoreRobot(raw, index) {
     r.target = raw.target.id != null ? { id: raw.target.id, x: raw.target.x, z: raw.target.z } : { x: raw.target.x, z: raw.target.z };
   } else if (r.task !== 'idle') r.task = 'idle';
   if (raw.wait != null) { if (!count(raw.wait, 10)) throw new Error('Invalid robot.'); r.wait = raw.wait; }
+  if (raw.load != null) { if (!['regolith', 'ice'].includes(raw.load)) throw new Error('Invalid robot.'); r.load = raw.load; }
   return r;
 }
 /** Before version 3 a habitat was a 2x2 module with its airlock on the `rotation` side. It becomes four
@@ -277,10 +284,10 @@ function migrateModules(buildings, nextId) {
 }
 export function deserialize(text) {
   const raw = JSON.parse(text);
-  if (!raw || ![1, 2, SAVE_VERSION].includes(raw.version) || !Number.isSafeInteger(raw.seed) || !finite(raw.time) || raw.time < 0 || !Array.isArray(raw.buildings) || raw.buildings.length > 13689) throw new Error('Invalid or unsupported save.');
+  if (!raw || ![1, 2, 3, SAVE_VERSION].includes(raw.version) || !Number.isSafeInteger(raw.seed) || !finite(raw.time) || raw.time < 0 || !Array.isArray(raw.buildings) || raw.buildings.length > 13689) throw new Error('Invalid or unsupported save.');
   const state = createState(raw.seed);
   state.time = raw.time;
-  if (raw.version === SAVE_VERSION) state.inventory = inv.restore(raw.inventory);
+  if (raw.version >= 3) state.inventory = inv.restore(raw.inventory);
   else {
     // Older saves carried unlimited metal and silicon counters; whatever exceeds ten slots is lost.
     state.inventory = inv.createInventory();
@@ -302,13 +309,14 @@ export function deserialize(text) {
   const ids = new Set();
   for (const b of raw.buildings) {
     if (!b || !Number.isSafeInteger(b.id) || b.id < 1 || ids.has(b.id) || !DEFS[b.type] || !finite(b.progress) || b.progress < 0 || b.progress > 1 || typeof b.built !== 'boolean' || b.built !== (b.progress === 1) || !validRotation(b.rotation)) throw new Error('Invalid building.');
-    if (raw.version < SAVE_VERSION && DEFS[b.type].layer && b.type !== 'habitat') throw new Error('Invalid building.');
+    if (raw.version < 3 && DEFS[b.type].layer && b.type !== 'habitat') throw new Error('Invalid building.');
+    if (raw.version < 4 && b.type === 'melter') throw new Error('Invalid building.');
     ids.add(b.id);
   }
   if (!Number.isSafeInteger(raw.nextId) || raw.nextId <= Math.max(0, ...ids)) throw new Error('Invalid entity sequence.');
   let buildings = raw.buildings;
   state.nextId = raw.nextId;
-  if (raw.version < SAVE_VERSION) ({ buildings, nextId: state.nextId } = migrateModules(raw.buildings, raw.nextId));
+  if (raw.version < 3) ({ buildings, nextId: state.nextId } = migrateModules(raw.buildings, raw.nextId));
   for (const b of buildings) {
     const reason = geometryReason(state, b.type, b.x, b.z, b.rotation);
     if (reason) throw new Error(`Invalid building: ${reason}`);
@@ -319,8 +327,8 @@ export function deserialize(text) {
   // Version 1 colonies predate mining: they keep the starting rover and reserves.
   if (raw.version >= 2) {
     if (!count(raw.reserves?.oxygen, 1e9)) throw new Error('Invalid reserves.');
-    state.reserves.oxygen = raw.reserves.oxygen + (raw.version < SAVE_VERSION ? STARTING.oxygen : 0);
-    if (raw.version === SAVE_VERSION) { if (!count(raw.reserves.water, 1e9)) throw new Error('Invalid reserves.'); state.reserves.water = raw.reserves.water; }
+    state.reserves.oxygen = raw.reserves.oxygen + (raw.version < 3 ? STARTING.oxygen : 0);
+    if (raw.version >= 3) { if (!count(raw.reserves.water, 1e9)) throw new Error('Invalid reserves.'); state.reserves.water = raw.reserves.water; }
     if (!Array.isArray(raw.robots) || raw.robots.length > 64) throw new Error('Invalid robots.');
     state.robots = raw.robots.map(restoreRobot);
     if (raw.miningArea != null) {
@@ -335,6 +343,8 @@ export function deserialize(text) {
       state.mined[cell] = amount;
     }
   }
+  // Colonies from before the crater mission keep their working processors.
+  state.mission = raw.version >= 4 ? restoreMission(raw.mission) : createMission(true);
   tick(state, 0);
   return state;
 }

@@ -19,8 +19,17 @@ export function terrainData(seed){
   if(Math.hypot(x,z)<19||caves.some(c=>{const p=local(c,x,z);return Math.abs(p.side)<7&&p.depth>-16&&p.depth<7;}))continue;
   const shelf=i<27;boulders.push({x,z,radius:shelf?1.6+random()*1.7:.45+random()*1.25,height:shelf?2.8+random()*3.5:.55+random()*1.7,angle:random()*6.28,variant:i%3});
  }
- const data={hills,craters,caves,boulders};cache.set(seed,data);return data;
+ // The mission crater replaces whatever random craters and rocks fell where it sits. Filtering
+ // afterwards keeps the random stream, and so the rest of the landscape, unchanged.
+ const site=missionSite();
+ const clear=(x,z,r)=>Math.hypot(x-site.x,z-site.z)>site.radius+r;
+ const data={hills,craters:[...craters.filter(c=>clear(c.x,c.z,c.radius+4)),{x:site.x,z:site.z,radius:site.radius,depth:site.depth,aspect:1,angle:0}],caves,boulders:boulders.filter(b=>clear(b.x,b.z,b.radius+3)),site};
+ cache.set(seed,data);return data;
 }
+/** The first expedition: a shadowed crater east of the landing site, holding an old robotic lander and water ice. */
+export function missionSite(){return {x:62,z:-14,radius:13,depth:2.2,lander:{x:58.5,z:-17,radius:1.7,angle:.6}};}
+/** Grid cells (2 m) whose floor holds ice: the permanently shadowed middle of the mission crater. */
+export function iceAt(x,z){const s=missionSite();return Math.hypot(x*2-s.x,z*2-s.z)<s.radius*.55&&Math.hypot(x*2-s.lander.x,z*2-s.lander.z)>s.lander.radius+1.2;}
 export function heightAt(seed,x,z){
  const data=terrainData(seed),clearing=smooth(17,25,Math.hypot(x,z)),pad=smooth(9,14,Math.hypot(x,z+10));
  let h=((noise(seed,x*.035,z*.035)-.5)*2.5+(noise(seed+13,x*.115,z*.115)-.5)*.65+Math.sin(x*.26+z*.13)*.055)*clearing*pad;
@@ -41,13 +50,15 @@ export function terrainReason(seed,cells){
  const heights=[];
  for(const c of cells){const x=c.x*2,z=c.z*2;
   if(terrainData(seed).boulders.some(b=>Math.hypot(Math.max(Math.abs(b.x-x)-1,0),Math.max(Math.abs(b.z-z)-1,0))<b.radius))return 'A large rock blocks this footprint.';
+  const lander=missionSite().lander;if(Math.hypot(Math.max(Math.abs(lander.x-x)-1,0),Math.max(Math.abs(lander.z-z)-1,0))<lander.radius+.5)return 'The old lander is in the way.';
   for(const dx of [-1,0,1])for(const dz of [-1,0,1]){heights.push(heightAt(seed,x+dx,z+dz));if(slopeAt(seed,x+dx,z+dz)>.2)return 'Ground is too steep. Choose a flatter patch.';}
  }
  if(Math.max(...heights)-Math.min(...heights)>.38)return 'Ground is too uneven for this foundation.';return null;
 }
 export function terrainBlocked(seed,x,z,buildings=[],defs={}){
  if(buildings.some(b=>{const d=defs[b.type];if(!d)return false;return x>=b.x*2-2&&x<=(b.x+(b.rotation%2?d.d:d.w))*2&&z>=b.z*2-2&&z<=(b.z+(b.rotation%2?d.w:d.d))*2;}))return false;
- return slopeAt(seed,x,z)>.65||terrainData(seed).boulders.some(b=>Math.hypot(x-b.x,z-b.z)<b.radius+.3);
+ const lander=missionSite().lander;
+ return slopeAt(seed,x,z)>.65||Math.hypot(x-lander.x,z-lander.z)<lander.radius||terrainData(seed).boulders.some(b=>Math.hypot(x-b.x,z-b.z)<b.radius+.3);
 }
 
 // Visual voxel shelves use broad four-metre cells. Physics retains the continuous

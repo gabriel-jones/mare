@@ -14,13 +14,14 @@ export function createProductionView(scene, models) {
     regolith: [own(geometries, new THREE.IcosahedronGeometry(.2, 0)), own(materials, new THREE.MeshStandardMaterial({ color: '#8f877b', roughness: 1, flatShading: true }))],
     metal: [own(geometries, new THREE.BoxGeometry(.42, .16, .24)), own(materials, new THREE.MeshStandardMaterial({ color: '#d4dbe0', metalness: .8, roughness: .3 }))],
     silicon: [own(geometries, new THREE.BoxGeometry(.3, .08, .3)), own(materials, new THREE.MeshStandardMaterial({ color: '#25466a', metalness: .5, roughness: .2, emissive: '#0f2742', emissiveIntensity: .4 }))],
+    ice: [own(geometries, new THREE.OctahedronGeometry(.2, 0)), own(materials, new THREE.MeshStandardMaterial({ color: '#d6efff', roughness: .15, metalness: .1, emissive: '#4c86a8', emissiveIntensity: .45, flatShading: true }))],
   };
   const batches = {}, dummy = new THREE.Object3D();
   for (const [type, [geo, mat]] of Object.entries(itemLooks)) {
     const mesh = new THREE.InstancedMesh(geo, mat, 4096); mesh.castShadow = true; mesh.count = 0; mesh.frustumCulled = false; root.add(mesh); batches[type] = mesh;
   }
   function updateItems(state, time) {
-    const counts = { regolith: 0, metal: 0, silicon: 0 }, turns = beltTurns(state);
+    const counts = { regolith: 0, metal: 0, silicon: 0, ice: 0 }, turns = beltTurns(state);
     for (const b of state.buildings) {
       if (b.type !== 'conveyor' || !b.items?.length) continue;
       const [fx, fz] = DIRS[b.rotation], cx = b.x * 2, cz = b.z * 2, turn = turns.get(b.id) ?? 0;

@@ -76,6 +76,15 @@ test('modular habitat kit exports every piece at the origin and the corner belt 
  assert.ok(triangles(d)<=1300,`habitat kit: ${triangles(d)} triangles`);
  assert.ok(triangles(glb('conveyor-corner').json)<=500,'conveyor corner triangles');
 });
+test('expedition assets keep the salvageable core and the melter heater as separate nodes',()=>{
+ for(const [name,parts,budget] of [['lander',['Lander','Core'],1200],['melter',['Melter','Heater'],1300]]){
+  const {json:d}=glb(name),names=d.nodes.map(n=>n.name.replace(/\.\d+$/,''));
+  for(const part of parts)assert.ok(names.includes(part),`${name}: ${part} node`);
+  assert.ok(!d.nodes.some(n=>/Camera|Light|Plane/.test(n.name||'')),'no preview objects');
+  const triangles=d.meshes.reduce((sum,mesh)=>sum+mesh.primitives.reduce((s,p)=>s+d.accessors[p.indices].count/3,0),0);
+  assert.ok(triangles<=budget,`${name}: ${triangles} triangles`);
+ }
+});
 test('interior fittings stay light and keep their animated parts separable',()=>{
  for(const [name,parts] of [['growbed',['GrowBed','Plants']],['galley',['Galley','MealTray']],['recycler',['Recycler']]]){
   const {json:d}=glb(name),names=d.nodes.map(n=>n.name.replace(/\.\d+$/,''));

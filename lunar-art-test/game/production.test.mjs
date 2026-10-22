@@ -7,6 +7,8 @@ import { findPath } from './paths.js';
 import { count, createInventory } from './inventory.js';
 
 function build(state, type, x, z, rotation = 0) {
+  // These tests exercise production after the crater mission has repaired the ship.
+  if (type === 'processor') state.mission.installed = true;
   const r = placeBlueprint(state, type, x, z, rotation);
   assert.equal(r.ok, true, `${type} at ${x},${z}: ${r.reason}`);
   const b = state.buildings.find(b => b.id === r.id);
@@ -151,8 +153,9 @@ test('production saves round-trip exactly and version 1 colonies gain the starte
   legacy.version = 1; legacy.inventory = { metal: 240, silicon: 100 }; delete legacy.robots; delete legacy.reserves; delete legacy.miningArea; delete legacy.mined;
   legacy.buildings = [{ id: 1, type: 'hopper', x: 2, z: 2, rotation: 1, progress: 1, built: true }]; legacy.nextId = 2;
   const migrated = deserialize(JSON.stringify(legacy));
-  assert.equal(migrated.version, 3); assert.equal(migrated.robots.length, 1);
-  assert.deepEqual(migrated.buildings[0].inv, { regolith: 0 });
+  assert.equal(migrated.version, 4); assert.equal(migrated.robots.length, 1);
+  assert.deepEqual(migrated.buildings[0].inv, { regolith: 0, ice: 0 });
+  assert.equal(migrated.mission.legacy, true, 'older colonies keep their processors');
   const corrupt = JSON.parse(serialize(s));
   corrupt.buildings.find(b => b.type === 'conveyor').items = [{ type: 'gold', p: 0.2 }];
   assert.throws(() => deserialize(JSON.stringify(corrupt)), /belt/);

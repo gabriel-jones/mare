@@ -1,6 +1,6 @@
 import { daylightAt } from './sim.js';
 import { DEFS } from './defs.js';
-import { processorReady, remainingRegolith, roverHasWork, ROVER, RECIPE } from './production.js';
+import { processorReady, melterReady, remainingRegolith, roverHasWork, total, ROVER, RECIPE, MELT } from './production.js';
 import { LIFE, roomStatus } from './life.js';
 
 const roomCache={state:null,time:-1,result:null};
@@ -19,8 +19,14 @@ export function buildingStatus(building,state){
   return {icon:'battery',text:`${Math.round(charge*100)}%`,tone:charge<=.15?'low':'charge',fill:charge};
  }
  if(building.type==='hopper'){
-  const amount=building.inv?.regolith??0;
-  return amount?{icon:'ore',text:String(Math.floor(amount)),tone:amount>=DEFS.hopper.capacity?'low':'charge',fill:amount/DEFS.hopper.capacity}:null;
+  const ice=building.inv?.ice??0,amount=(building.inv?.regolith??0)+ice;
+  return amount?{icon:ice>amount/2?'water':'ore',text:String(Math.floor(amount)),tone:amount>=DEFS.hopper.capacity?'low':'charge',fill:amount/DEFS.hopper.capacity}:null;
+ }
+ if(building.type==='melter'){
+  if(!building.inv)return null;
+  if(state.reserves.water>=MELT.waterCap)return {icon:'water',text:'Tanks full',tone:'inactive'};
+  if(melterReady(state,building))return state.power.powered===false?{icon:'power',text:'No power',tone:'warning'}:{icon:'water',text:`Melting · ${building.inv.ice}`,tone:'charge',fill:building.work};
+  return {icon:'water',text:'Needs ice',tone:'inactive'};
  }
  if(building.type==='storage'){
   const inv=building.inv??{},count=(inv.metal??0)+(inv.silicon??0)+(inv.regolith??0);
@@ -61,12 +67,12 @@ export function robotStatus(robot,state){
  const load=robot.cargo/ROVER.capacity;
  if(robot.task==='blocked')return {icon:'rover',text:'No route',tone:'warning'};
  if(robot.charge<=0)return {icon:'battery',text:'Battery flat',tone:'warning'};
- if(robot.task==='mining')return {icon:'rover',text:`Mining ${Math.floor(robot.cargo)}/${ROVER.capacity}`,tone:'charge',fill:load};
+ if(robot.task==='mining')return {icon:'rover',text:`${robot.load==='ice'?'Ice':'Mining'} ${Math.floor(robot.cargo)}/${ROVER.capacity}`,tone:'charge',fill:load};
  if(robot.task==='toMine')return {icon:'rover',text:'To mine',tone:'charge',fill:load};
  if(robot.task==='toHopper')return {icon:'rover',text:robot.charge<ROVER.low?'Low battery':'Returning',tone:robot.charge<ROVER.low?'low':'charge',fill:load};
  if(robot.task==='docked'){
   const hopper=state.buildings.find(b=>b.id===robot.target?.id);
-  if(robot.cargo>=1&&hopper?.inv?.regolith>=DEFS.hopper.capacity)return {icon:'ore',text:'Hopper full',tone:'low'};
+  if(robot.cargo>=1&&total(hopper?.inv)>=DEFS.hopper.capacity)return {icon:'ore',text:'Hopper full',tone:'low'};
   if(robot.cargo>=1)return {icon:'ore',text:'Unloading',tone:'charge',fill:load};
   if(robot.charge<.95)return state.power.powered===false?{icon:'power',text:'No power',tone:'warning'}:{icon:'battery',text:`Charging ${Math.round(robot.charge*100)}%`,tone:'charge',fill:robot.charge};
   return areaStatus(robot,state);

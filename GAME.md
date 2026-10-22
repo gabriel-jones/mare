@@ -315,7 +315,7 @@ Implemented: the starting mining rover, designated mining areas, finite regolith
 - **Storage crate.** 1 × 1, 10 metal, holds 80 items. Pressing E within about 3.5 m moves its metal and silicon into the player's inventory. Regolith in a crate stays there.
 - **Dismantling.** The Dismantle build tool (click or drag) or Delete/Backspace on a finished structure refunds its full cost plus any refined contents; carried regolith is spilled.
 
-The story beat of the Starship's damaged regolith processor (repaired after the crater mission) is deliberately deferred to Phase D. For now the processor is a normal buildable machine.
+The story beat of the Starship's damaged regolith processor (repaired after the crater mission) was deferred to Phase D, where it is now implemented.
 
 Throughput at these values: one rover delivers about 75 regolith/min; one processor refines about 40/min, so a second processor is the first natural expansion. A two-solar, two-battery base browns out overnight once the processor runs, which surfaces the storage requirement. All numbers are provisional.
 
@@ -341,3 +341,14 @@ Decisions for this phase: water is a stopgap (a starting reserve plus a recycler
 - **Saves.** Version 3. Older saves convert each 2×2 habitat module to four squares, with the front-left square becoming an airlock unless the module faced another module; materials move into slots and the colony gains starting water, meals and 30 oxygen.
 
 All numbers are provisional.
+
+## The crater expedition — Phase D (2026-10-22)
+
+Decisions for this phase: the lander lies in the open in a surface crater (caves come later); the processor is locked until the ship is repaired; ice is mined by the rover and melted at the base; horror stays at the level of glimpses — nothing touches the player.
+
+- **Ship AI.** A panel under the resource bar shows the ship AI's message, the current task, a step counter and the distance to the target. Eight steps: build a solar array, paint a habitat with an airlock, build a hopper and set a mining area, investigate the crater, salvage the core, install it at the ship, build a processor, and melt five units of ice. Steps already satisfied are skipped. Targets get a cyan beam with a pulsing ring, and a chevron at the astronaut's feet points to targets more than 9 m away.
+- **The crater and lander.** A 13 m crater about 60 m east of the base (2.2 m deep, gentle enough to walk and drive). The derelict robotic lander sits tilted on its floor with gold foil, gouged and pried-open panels and a broken dish; its core glows cyan until taken. Nothing can be built on the lander.
+- **Repair.** Hold E beside the lander for three seconds to pull the processor core (it needs a free slot), carry it, and press E within 6.5 m of the Starship to install it. Until then the processor shows a lock in the Build menu: "Locked: the ship's processor core is cracked. Recover a replacement from the crater."
+- **Ice.** The shadowed inner floor holds 32 ice cells, drawn as pale blue shards that shrink as they are dug. A mining area that touches ice mines only its ice cells, so regolith never reaches a melter. The rover carries one material at a time and the hopper takes both, outputting whichever it holds more of. The ice melter (I, 1×2, 24 metal and 6 silicon) takes ice at its input port and turns each unit into 1 water every 3 s at 1.5 kW, up to 200 water; its heater coil glows while it works. Labels: Melting, Needs ice, No power, Tanks full.
+- **Something on the rim.** Three-toed tracks lead from the lander over the east rim. Once the crater objective is reached and the astronaut is near the crater, a tall dark figure can appear on the rim 15–26 m away, always off the direction the astronaut faces. It slips away when the astronaut comes within 11 m, moves toward it, leaves, or after 9 s, then stays away for 35–75 s. The first sighting prompts a nervous remark from the ship AI. It is presentation only and never saved.
+- **Saves.** Version 4 adds `mission`. Older colonies count as already repaired, keep their processors and pick up the objectives where their base already stands.

@@ -1,5 +1,6 @@
 import { CELL_SIZE, DEFS, DIRS, footprint, ports } from './defs.js';
 import { findPath, robotBlockedCells, cellPassable } from './paths.js';
+import { iceAt } from './terrain.js';
 
 // Provisional tuning. One item is one abstract unit of bulk material.
 export const BELT_SPEED = 1.5;
@@ -8,6 +9,7 @@ export const REGOLITH_PER_CELL = 40;
 export const MINING_RADIUS = 3;
 export const RECIPE = Object.freeze({ input: 4, time: 6, metal: 2, silicon: 1, oxygen: 1, power: 3 });
 export const PROCESSOR_INPUT_CAP = 16, PROCESSOR_OUTPUT_CAP = 12;
+export const MELT = Object.freeze({ time: 3, water: 1, power: 1.5, cap: 12, waterCap: 200 });
 export const ROVER = Object.freeze({ speed: 3, capacity: 20, mineRate: 2, unloadRate: 10, drain: 1 / 300, chargeRate: 1 / 25, chargePower: 1.5, low: 0.25 });
 
 export function createRover(id = 1) {
@@ -17,19 +19,22 @@ export function createRover(id = 1) {
 export function ensureBuildingState(b) {
   if (!b.built) return b;
   if (b.type === 'conveyor') b.items ??= [];
-  if (b.type === 'hopper') b.inv ??= { regolith: 0 };
-  if (b.type === 'storage') b.inv ??= { regolith: 0, metal: 0, silicon: 0 };
+  if (b.type === 'hopper') { b.inv ??= { regolith: 0 }; b.inv.ice ??= 0; }
+  if (b.type === 'storage') { b.inv ??= { regolith: 0, metal: 0, silicon: 0 }; b.inv.ice ??= 0; }
   if (b.type === 'processor') { b.inv ??= { regolith: 0 }; b.out ??= { metal: 0, silicon: 0 }; b.work ??= 0; }
+  if (b.type === 'melter') { b.inv ??= { ice: 0 }; b.work ??= 0; }
   return b;
 }
 const key = (x, z) => `${x},${z}`;
-const total = inv => Object.values(inv ?? {}).reduce((s, n) => s + n, 0);
+export const total = inv => Object.values(inv ?? {}).reduce((s, n) => s + n, 0);
 export const processorReady = b => b.built && b.inv.regolith >= RECIPE.input && total(b.out) + RECIPE.metal + RECIPE.silicon <= PROCESSOR_OUTPUT_CAP;
+export const melterReady = (state, b) => b.built && b.inv.ice >= 1 && state.reserves.water < MELT.waterCap;
 const roverCharging = r => r.task === 'docked' && r.charge < 1;
 
 export function productionDemand(state) {
   let kw = 0;
   for (const b of state.buildings) if (b.type === 'processor' && processorReady(b)) kw += RECIPE.power;
+  for (const b of state.buildings) if (b.type === 'melter' && melterReady(state, b)) kw += MELT.power;
   for (const r of state.robots ?? []) if (roverCharging(r)) kw += ROVER.chargePower;
   return kw;
 }
@@ -64,6 +69,7 @@ const beltCanAccept = belt => belt.built && belt.type === 'conveyor' && (belt.it
 function machineAccept(b, item) {
   if (b.type === 'storage' && total(b.inv) < DEFS.storage.capacity) { b.inv[item] += 1; return true; }
   if (b.type === 'processor' && item === 'regolith' && b.inv.regolith < PROCESSOR_INPUT_CAP) { b.inv.regolith += 1; return true; }
+  if (b.type === 'melter' && item === 'ice' && b.inv.ice < MELT.cap) { b.inv.ice += 1; return true; }
   return false;
 }
 /** Where the item at the front of `belt` would go, or null. */
@@ -104,7 +110,11 @@ function pushOutputs(b, index, take) {
 function stepMachines(state, index, dt, powered) {
   for (const b of state.buildings) {
     if (!b.built) continue;
-    if (b.type === 'hopper') pushOutputs(b, index, () => b.inv.regolith > 0 ? (b.inv.regolith--, 'regolith') : null);
+    if (b.type === 'hopper') pushOutputs(b, index, () => { const item = b.inv.ice > b.inv.regolith ? 'ice' : 'regolith'; return b.inv[item] > 0 ? (b.inv[item]--, item) : null; });
+    if (b.type === 'melter' && melterReady(state, b) && powered) {
+      b.work = Math.min(1, b.work + dt / MELT.time);
+      if (b.work >= 1) { b.work = 0; b.inv.ice -= 1; state.reserves.water = Math.min(MELT.waterCap, state.reserves.water + MELT.water); if (state.mission) state.mission.melted += MELT.water; }
+    }
     if (b.type !== 'processor') continue;
     if (processorReady(b) && powered) {
       b.work = Math.min(1, b.work + dt / RECIPE.time);
@@ -133,9 +143,10 @@ export function miningCells(state) {
   const blocked = robotBlockedCells(state), cells = [];
   for (let x = a.x - MINING_RADIUS; x <= a.x + MINING_RADIUS; x++) for (let z = a.z - MINING_RADIUS; z <= a.z + MINING_RADIUS; z++) {
     if (occupied.has(key(x, z)) || (x >= -4 && x <= 4 && z >= -8 && z <= -2) || !cellPassable(state, blocked, x, z)) continue;
-    cells.push({ x, z, remaining: REGOLITH_PER_CELL - (state.mined[key(x, z)] ?? 0) });
+    cells.push({ x, z, kind: iceAt(x, z) ? 'ice' : 'regolith', remaining: REGOLITH_PER_CELL - (state.mined[key(x, z)] ?? 0) });
   }
-  return cells;
+  // An area touching ice is an ice mine, so regolith never ends up on a melter's belt.
+  return cells.some(c => c.kind === 'ice') ? cells.filter(c => c.kind === 'ice') : cells;
 }
 export const roverHasWork = (state, r) => !!nearestMiningCell(state, r);
 export const remainingRegolith = state => miningCells(state).reduce((s, c) => s + Math.max(0, c.remaining), 0);
@@ -151,7 +162,8 @@ function markUnreachable(state, r, target) {
 function nearestMiningCell(state, r) {
   let best = null, bestDistance = Infinity;
   for (const c of miningCells(state)) {
-    if (c.remaining <= 0 || isUnreachable(state, r, c.x, c.z)) continue;
+    // A part-filled bucket only takes more of the same material; a leftover fraction is tipped out.
+    if (c.remaining <= 0 || isUnreachable(state, r, c.x, c.z) || (r.cargo >= 1 && c.kind !== (r.load ?? 'regolith'))) continue;
     const d = Math.hypot(c.x * CELL_SIZE - r.x, c.z * CELL_SIZE - r.z);
     if (d < bestDistance) { best = c; bestDistance = d; }
   }
@@ -238,7 +250,9 @@ function stepRover(state, r, dt, powered, topology) {
   }
   if (r.task === 'mining') {
     const cell = miningCells(state).find(c => c.x === r.target?.x && c.z === r.target?.z);
-    if (!cell || cell.remaining <= 0 || full(r)) { r.task = 'idle'; return chooseTask(state, r); }
+    if (!cell || cell.remaining <= 0 || full(r) || (r.cargo >= 1 && cell.kind !== (r.load ?? 'regolith'))) { r.task = 'idle'; return chooseTask(state, r); }
+    if (cell.kind !== (r.load ?? 'regolith')) r.cargo = 0;
+    r.load = cell.kind;
     const amount = Math.min(ROVER.mineRate * (r.charge > 0 ? 1 : 0.3) * dt, cell.remaining, ROVER.capacity - r.cargo);
     r.cargo = Math.min(ROVER.capacity, r.cargo + amount);
     state.mined[key(cell.x, cell.z)] = Math.min(REGOLITH_PER_CELL, (state.mined[key(cell.x, cell.z)] ?? 0) + amount);
@@ -248,8 +262,8 @@ function stepRover(state, r, dt, powered, topology) {
     const hopper = state.buildings.find(b => b.id === r.target?.id && b.built);
     if (!hopper) { r.task = 'idle'; r.target = null; return; }
     // Whole units enter the hopper; any fractional remainder stays aboard.
-    const space = DEFS.hopper.capacity - hopper.inv.regolith, units = Math.min(Math.floor(r.cargo), space, Math.ceil(ROVER.unloadRate * dt));
-    if (units > 0) { hopper.inv.regolith += units; r.cargo -= units; }
+    const space = DEFS.hopper.capacity - total(hopper.inv), units = Math.min(Math.floor(r.cargo), space, Math.ceil(ROVER.unloadRate * dt));
+    if (units > 0) { hopper.inv[r.load ?? 'regolith'] += units; r.cargo -= units; }
     if (powered) r.charge = Math.min(1, r.charge + ROVER.chargeRate * dt);
     const unloaded = r.cargo < 1, charged = r.charge >= 0.95 || (!powered && r.charge > ROVER.low);
     if (unloaded && charged && nearestMiningCell(state, r)) { r.task = 'idle'; chooseTask(state, r); }

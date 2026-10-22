@@ -1,0 +1,85 @@
+import { missionSite } from './terrain.js';
+import * as inv from './inventory.js';
+
+/** The ship AI's objectives, in order. Each starts with a message; `done` is checked every tick, so
+ * work finished early simply skips ahead. `target` names where the waypoint points. */
+export const SHIP = Object.freeze({ x: 0, z: -10, reach: 6.5 });
+export const SALVAGE_TIME = 3;
+const has = (s, type) => s.buildings.some(b => b.type === type && b.built);
+export const STEPS = Object.freeze([
+  { id: 'power', objective: 'Build a solar array', message: "Ship AI online. We're down in one piece, mostly. First, power: build a solar array (P).", done: s => has(s, 'solar') },
+  { id: 'shelter', objective: 'Paint a habitat and attach an airlock', message: "Power's flowing. You'll need somewhere to breathe and eat: paint a habitat (H) and fit an airlock (Q) to it.", done: s => has(s, 'habitat') && has(s, 'airlock') },
+  { id: 'mining', objective: 'Build a hopper and set a mining area', message: 'Good. Now give the rover a job. Build a regolith hopper (O), then mark a mining area (M).', done: s => has(s, 'hopper') && !!s.miningArea },
+  { id: 'crater', objective: 'Investigate the crater to the east', message: "Bad news. The landing cracked our processor core, so we can't refine anything. There's an old robotic lander in the crater about 60 metres east. Its core should fit. Go and take a look.", legacy: "Our processor has been running on a bypass since landing, and it won't hold. There's an old robotic lander in the crater about 60 metres east with a compatible core. Go and take a look.", target: 'lander', done: s => s.mission.visited },
+  { id: 'salvage', objective: 'Hold E at the lander to pull its core', message: "That's it. Its panels have been pried open, and not by us. The core is still seated. Hold E beside it.", target: 'lander', done: s => s.mission.salvage >= 1 },
+  { id: 'repair', objective: 'Take the core to the Starship and press E', message: "Got it. Bring it back to the ship and I'll talk you through the install.", target: 'ship', done: s => s.mission.installed },
+  { id: 'refine', objective: 'Build a regolith processor', message: 'Core installed. Refining is back online: build a regolith processor (X) and belt the hopper into it.', done: s => has(s, 'processor') },
+  { id: 'ice', objective: 'Mine crater ice and melt it into water', message: "That crater floor never sees the Sun, and it's full of water ice. Set a mining area on the ice, then belt the hopper into an ice melter (I).", target: 'ice', done: s => s.mission.melted >= 5 },
+]);
+export const FINALE = "Water's flowing. One more thing: the tracks around that lander weren't from any rover I know. I'll keep watching the rim.";
+export const SIGHTING = 'Movement on the crater rim? My sensors show nothing out there. Probably nothing.';
+
+export function createMission(legacy = false) {
+  return { step: 0, visited: false, salvage: 0, installed: false, legacy, melted: 0, sighted: false };
+}
+/** Colonies from before the crater mission keep their processors; new ones must repair the ship first. */
+export const processorUnlocked = state => !!(state.mission?.installed || state.mission?.legacy);
+
+const distance = (p, q) => Math.hypot(p.x - q.x, p.z - q.z);
+const onSurface = state => state.player.cave == null;
+export const nearLander = state => { const l = missionSite().lander; return onSurface(state) && distance(state.player, l) < l.radius + 1.6; };
+export const nearShip = state => onSurface(state) && distance(state.player, SHIP) < SHIP.reach;
+
+export function stepMission(state) {
+  const m = state.mission, site = missionSite();
+  if (onSurface(state) && distance(state.player, site.lander) < 12) m.visited = true;
+  while (m.step < STEPS.length && STEPS[m.step].done(state)) m.step++;
+}
+/** The current objective for the HUD, or the closing message once every step is done. */
+export function objective(state) {
+  const m = state.mission, step = STEPS[m.step];
+  if (!step) return { done: true, message: FINALE, step: m.step, count: STEPS.length };
+  const site = missionSite();
+  const target = { lander: site.lander, ship: SHIP, ice: site }[step.target] ?? null;
+  return { id: step.id, objective: step.objective, message: (m.legacy && step.legacy) || step.message, step: m.step, count: STEPS.length, target: target && { x: target.x, z: target.z } };
+}
+/** What pressing or holding E would do at the lander or the ship, or null. */
+export function missionAction(state) {
+  const m = state.mission;
+  if (m.salvage < 1 && nearLander(state)) return { verb: 'Hold to pull the processor core', hold: true, progress: m.salvage };
+  if (!m.installed && nearShip(state) && inv.count(state.inventory, 'core') > 0) return { verb: 'Install the processor core' };
+  return null;
+}
+/** Holding E beside the lander works the core loose over a few seconds. */
+export function salvage(state, dt) {
+  const m = state.mission;
+  if (m.salvage >= 1) return { ok: false, reason: 'The lander has nothing left worth taking.' };
+  if (!nearLander(state)) return { ok: false, reason: 'Move next to the lander.' };
+  if (inv.room(state.inventory, 'core') < 1) return { ok: false, reason: 'Free an inventory slot for the core.' };
+  m.salvage = Math.min(1, m.salvage + dt / SALVAGE_TIME);
+  if (m.salvage < 1) return { ok: true, reason: 'Working the core loose…' };
+  inv.add(state.inventory, 'core', 1);
+  return { ok: true, done: true, reason: 'Processor core recovered.' };
+}
+export function installCore(state) {
+  const m = state.mission;
+  if (m.installed) return { ok: false, reason: 'The core is already installed.' };
+  if (!nearShip(state)) return { ok: false, reason: 'Move closer to the Starship.' };
+  if (!inv.remove(state.inventory, 'core', 1)) return { ok: false, reason: "You aren't carrying the core." };
+  m.installed = true;
+  return { ok: true, reason: 'Processor core installed. Regolith processors can be built.' };
+}
+/** Returns the ship AI's remark the first time the player glimpses the watcher. */
+export function noteSighting(state) {
+  if (state.mission.sighted) return null;
+  state.mission.sighted = true;
+  return SIGHTING;
+}
+export function restoreMission(raw) {
+  const m = createMission();
+  const bool = v => typeof v === 'boolean';
+  if (!raw || !Number.isInteger(raw.step) || raw.step < 0 || raw.step > STEPS.length || !bool(raw.visited) || !bool(raw.installed) || !bool(raw.legacy) || !bool(raw.sighted)
+    || typeof raw.salvage !== 'number' || !(raw.salvage >= 0 && raw.salvage <= 1) || typeof raw.melted !== 'number' || !(raw.melted >= 0 && raw.melted < 1e9)) throw new Error('Invalid mission.');
+  for (const k of Object.keys(m)) m[k] = raw[k];
+  return m;
+}

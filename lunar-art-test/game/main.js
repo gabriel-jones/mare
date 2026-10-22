@@ -1,5 +1,5 @@
 import { crossCavePortal } from './travel.js';
-import {DEFS,createState,validatePlacement,placeBlueprint,construct,tick,serialize,deserialize,cancelBlueprint,deconstruct,setMiningArea,rotateBelt,playerObstructs,interact,removalCheck} from './sim.js';
+import {DEFS,createState,validatePlacement,placeBlueprint,construct,tick,serialize,deserialize,cancelBlueprint,deconstruct,setMiningArea,rotateBelt,playerObstructs,interact,removalCheck,PROCESSOR_LOCKED} from './sim.js';
 import {DIRS,ITEM_INFO,footprint} from './defs.js';
 import {movePlayer,nearestBlueprint,buildingCenter,resetLocomotion,interpolatePose,RUN_SPEED} from './controller.js';
 import {MINING_RADIUS} from './production.js';
@@ -7,6 +7,8 @@ import {count} from './inventory.js';
 import {eat,lifeAction} from './life.js';
 import {createWorld} from './world.js';
 import {createUI} from './ui.js';
+import {objective,missionAction,salvage,installCore,processorUnlocked,noteSighting} from './mission.js';
+import {createWatcher,stepWatcher} from './watcher.js';
 
 // ?sandbox=1 plays a throwaway colony that never touches the real save.
 const KEY=new URLSearchParams(location.search).has('sandbox')?'lunar-frontier.sandbox':'lunar-frontier.phase-a.v1';
@@ -15,7 +17,8 @@ const SHORTCUTS={...Object.fromEntries(Object.entries(DEFS).map(([type,def])=>[d
 const canvas=document.querySelector('#game'),boot=document.querySelector('#boot');
 let state=createState(),selectedType=null,rotation=0,world,ui,selectedSlot=0;
 let placementReason='',constructionReason='',hover=null,targetId=null,constructing=false,speed=1,saveStatus='Not saved',beltPath=null,paintPath=null,erasing=null;
-let jumpVelocity=0,accumulator=0,last=performance.now(),uiClock=0,autoClock=0;
+let jumpVelocity=0,accumulator=0,last=performance.now(),uiClock=0,autoClock=0,salvageReason='';
+const watcher=createWatcher();
 const keys=new Set();
 resetLocomotion(state.player);
 let previousPose={...state.player};
@@ -66,7 +69,8 @@ function nearbyUse(){
 function view(){
  const nearest=state.player.cave==null?nearestBlueprint(state,DEFS,100):null,c=nearest?buildingCenter(nearest,DEFS):null;
  const guidance=nearest?`${DEFS[nearest.type].name} blueprint: ${Math.ceil(Math.hypot(c.x-state.player.x,c.z-state.player.z))}m away. Walk within 5m, then hold E.`:null;
- return {selectedType,rotation,placementReason,constructionReason,nearbyBuilding:nearby(),use:nearbyUse(),selectedSlot,foodSlot:foodSlot(),guidance,constructing,night:Math.sin(state.time/240*Math.PI*2+Math.PI/3)<=0,paused:false,saveStatus:saveStatus+(speed>1?' · Time ×12':''),timeScale:speed};
+ const goal=objective(state),distance=goal.target?Math.round(Math.hypot(goal.target.x-state.player.x,goal.target.z-state.player.z)):null;
+ return {objective:{...goal,distance},missionUse:missionAction(state),locked:processorUnlocked(state)?{}:{processor:PROCESSOR_LOCKED},selectedType,rotation,placementReason,constructionReason,nearbyBuilding:nearby(),use:nearbyUse(),selectedSlot,foodSlot:foodSlot(),guidance,constructing,night:Math.sin(state.time/240*Math.PI*2+Math.PI/3)<=0,paused:false,saveStatus:saveStatus+(speed>1?' · Time ×12':''),timeScale:speed};
 }
 function point(event){hover=world?.pick(event.clientX,event.clientY);canvas.dataset.hoverCell=hover?`${hover.x},${hover.z}`:'';if(!hover){world?.clearGhost();return;}if(beltPath)extendBeltPath(hover);if(paintPath)extendPaintPath(hover);targetId=hover.buildingId??null;canvas.dataset.targetId=String(targetId??'');if(erasing)eraseAt();refreshGhost();}
 const MAX_PAINT=120;
@@ -203,7 +207,15 @@ function fixedUpdate(dt){
  updatePortals(dt);
  if((state.player.y??0)>0||jumpVelocity>0){jumpVelocity-=1.62*dt;state.player.y=Math.max(0,(state.player.y??0)+jumpVelocity*dt);if(state.player.y===0)jumpVelocity=0;}
  constructing=false;constructionReason='';
- if(state.player.cave==null&&keys.has('e')){const b=nearby();if(b){const r=construct(state,b.id,dt);constructing=r.ok!==false;if(!r.ok)constructionReason=r.reason;if(b.built)completed(b);}}
+ const action=keys.has('e')?missionAction(state):null;
+ if(action?.hold){
+  // Holding E at the lander works the core loose; the astronaut kneels into the build pose.
+  const r=salvage(state,dt);constructing=r.ok;
+  if(r.done)notify(r.reason);
+  else if(!r.ok&&r.reason!==salvageReason)notify(r.reason);
+  salvageReason=r.ok?'':r.reason;
+ }
+ else if(state.player.cave==null&&keys.has('e')){const b=nearby();if(b){const r=construct(state,b.id,dt);constructing=r.ok!==false;if(!r.ok)constructionReason=r.reason;if(b.built)completed(b);}}
  if(constructing&&state.player.speed<=.1){
   const b=nearby();
   if(b){const center=buildingCenter(b,DEFS),target=Math.atan2(center.x-state.player.x,center.z-state.player.z),delta=Math.atan2(Math.sin(target-state.player.facing),Math.cos(target-state.player.facing));state.player.facing+=delta*(1-Math.exp(-dt/.065));}
@@ -244,7 +256,9 @@ async function start(){
    if(k===' '&&!(state.player.y>0)){jumpVelocity=1.8;}
    if(k==='escape')select(null);
    if(k==='r'){rotation=(rotation+1)%4;refreshGhost();}
-   if(k==='e'&&!nearby())useNearby();
+   const mission=k==='e'?missionAction(state):null;
+   if(mission&&!mission.hold)notify(installCore(state).reason);
+   else if(k==='e'&&!mission&&!nearby())useNearby();
    if(k==='f')eatSelected();
    if(k==='delete'||k==='backspace')cancel();
    if(/^[0-9]$/.test(k)){selectedSlot=(Number(k)+9)%10;ui.update(state,view());}
@@ -260,7 +274,8 @@ async function start(){
   function frame(now){
    const dt=Math.min((now-last)/1000,.1);last=now;accumulator+=dt;
    while(accumulator>=1/30){fixedUpdate(1/30);accumulator-=1/30;}
-   world.update(state,dt,interpolatePose(previousPose,state.player,accumulator/(1/30)));uiClock+=dt;autoClock+=dt;
+   if(stepWatcher(watcher,state,dt)==='vanished'){const remark=noteSighting(state);if(remark)setTimeout(()=>ui.say(remark),1500);}
+   world.update(state,dt,interpolatePose(previousPose,state.player,accumulator/(1/30)),watcher);uiClock+=dt;autoClock+=dt;
    if(uiClock>.1){ui.update(state,view());refreshGhost();uiClock=0;}
    if(autoClock>20){try{localStorage.setItem(KEY,serialize(state));saveStatus='Autosaved locally';}catch{}autoClock=0;}
    requestAnimationFrame(frame);

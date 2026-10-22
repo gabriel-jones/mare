@@ -3,13 +3,14 @@ export const CELL_SIZE = 2;
 // Facing index matches Three.js rotation.y = facing * PI/2 applied to a model whose front is +Z.
 export const DIRS = Object.freeze([[0, 1], [1, 0], [0, -1], [-1, 0]]);
 /** Items that travel on belts and fill machines. */
-export const ITEMS = Object.freeze(['regolith', 'metal', 'silicon']);
+export const ITEMS = Object.freeze(['regolith', 'metal', 'silicon', 'ice']);
 /** Items the player can carry. `food` is how much satiety eating one restores. */
 export const ITEM_INFO = Object.freeze({
   metal: { name: 'Metal', stack: 200 },
   silicon: { name: 'Silicon', stack: 200 },
   crop: { name: 'Potatoes', stack: 30, food: 15 },
   meal: { name: 'Meal', stack: 10, food: 40 },
+  core: { name: 'Processor core', stack: 1 },
 });
 const allSides = [0, 1, 2, 3].map(dir => ({ x: 0, z: 0, dir }));
 // `layer`: 'floor' squares form rooms, 'interior' objects stand on finished floor of the `needs` room type,
@@ -28,6 +29,7 @@ export const DEFS = Object.freeze({
   lamp: { name: 'Work light', key: 'l', w: 1, d: 1, cost: { metal: 4, silicon: 1 }, buildTime: 1.5, description: 'Lights the base at night. Consumes 0.2 kW.' },
   conveyor: { name: 'Conveyor belt', key: 'c', w: 1, d: 1, cost: { metal: 1 }, buildTime: 0.25, walkable: true, description: 'Carries items forward. Drag a route; it can turn corners.' },
   processor: { name: 'Regolith processor', key: 'x', w: 2, d: 3, cost: { metal: 45, silicon: 15 }, buildTime: 7, inputs: [{ x: 0, z: 0, dir: 2 }], outputs: [{ x: 0, z: 2, dir: 0 }], description: 'Refines regolith into metal and silicon, venting oxygen to colony reserves. Uses 3 kW while running.' },
+  melter: { name: 'Ice melter', key: 'i', w: 1, d: 2, cost: { metal: 24, silicon: 6 }, buildTime: 4, inputs: [{ x: 0, z: 0, dir: 2 }], description: 'Melts ice from a belt into the colony water reserve. Uses 1.5 kW while melting.' },
   storage: { name: 'Storage crate', key: 'v', w: 1, d: 1, cost: { metal: 10 }, buildTime: 2, capacity: 80, inputs: allSides, description: 'Accepts items from belts on any side. Press E nearby to collect.' },
 });
 export const ROOM_TYPES = Object.freeze(Object.keys(DEFS).filter(type => DEFS[type].layer === 'floor'));

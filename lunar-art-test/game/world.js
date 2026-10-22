@@ -7,6 +7,8 @@ import { createProductionView } from './production-view.js';
 import { createHabitatView } from './habitat-view.js';
 import { airlockOf, habitatLayout, isRoom } from './habitat.js';
 import { surfaceHeightAt as heightAt } from './terrain.js';
+import { melterReady } from './production.js';
+import { createExpeditionView } from './expedition-view.js';
 import { createTerrainView } from './terrain-view.js';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -23,7 +25,7 @@ export async function createWorld(canvas, initialState) {
   renderer.toneMapping=THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure=1.12;
   const loader=new GLTFLoader();
-  const assetNames=['starship','launchpad','solar','battery','hopper','habitat-kit','lamp','conveyor','conveyor-corner','processor','storage','growbed','galley','recycler','rover','rock-a','rock-b','rock-c','cave-mouth'];
+  const assetNames=['starship','launchpad','solar','battery','hopper','habitat-kit','lamp','conveyor','conveyor-corner','processor','storage','growbed','galley','recycler','melter','lander','rover','rock-a','rock-b','rock-c','cave-mouth'];
   const loaded=await Promise.all(assetNames.map(name=>loader.loadAsync(`./assets/${name}.glb`).then(g=>[name,g.scene]).catch(e=>{console.error('Asset failed:',name,e);return [name,null];})));
   const models=new Map(loaded);
   const astronautGLTF=await loader.loadAsync('./assets/astronaut-v2.glb').catch(e=>{console.error('Animated astronaut failed',e);return null;});
@@ -132,7 +134,7 @@ export async function createWorld(canvas, initialState) {
     if(template){
       const root=template.clone(true),part=name=>{let found=null;root.traverse(n=>{if(!found&&n.name.replace(/\.\d+$/,'')===name)found=n;});return found;};
       if(type==='conveyor'&&turn<0)root.scale.x=-1;
-      return {root,roof:null,emits:type==='lamp'||DEFS[type].layer==='interior',plants:part('Plants'),tray:part('MealTray')};
+      return {root,roof:null,emits:type==='lamp'||DEFS[type].layer==='interior',plants:part('Plants'),tray:part('MealTray'),heater:part('Heater')};
     }
     const root=new THREE.Group(),w=DEFS[type].w*2,d=DEFS[type].d*2;
     box(root,dark,0,.12,0,w-.12,.24,d-.12);
@@ -192,8 +194,9 @@ export async function createWorld(canvas, initialState) {
   function resize(){const r=canvas.getBoundingClientRect(),width=Math.max(1,r.width),height=Math.max(1,r.height);renderer.setSize(width,height,false);const aspect=width/height;camera.left=-viewHeight*aspect/2;camera.right=viewHeight*aspect/2;camera.top=viewHeight/2;camera.bottom=-viewHeight/2;camera.updateProjectionMatrix();}
   function zoom(e){e.preventDefault();viewHeight=THREE.MathUtils.clamp(viewHeight*Math.exp(e.deltaY*.001),20,180);resize();}
   canvas.addEventListener('wheel',zoom,{passive:false});
-  function update(next,dt,renderPose=next.player){
-    state=next;
+  const expedition=createExpeditionView(scene,models);let watcherState=null;
+  function update(next,dt,renderPose=next.player,watcher=null){
+    state=next;watcherState=watcher;
     if(lastSeed!==state.seed){terrainView.dispose();terrainView=createTerrainView(state.seed,terrainRoot,models);lastSeed=state.seed;drapeGrid();}
     terrainView.update(state.buildings,footprint,state.player);
     const underground=state.player.cave!=null;
@@ -245,7 +248,9 @@ export async function createWorld(canvas, initialState) {
       if(!b.built)o.root.scale.y=.35+.65*(b.progress||0);
       else o.root.scale.y=1;
       if(o.emits){const powered=b.built&&state.power.powered!==false;o.ownedMaterials.forEach(m=>{m.emissiveIntensity=b.built?(m.userData.baseEmission||0)*(powered?1:0):.85;});}
+      if(o.heater&&b.built){const glow=melterReady(state,b)&&state.power.powered!==false?1:0;o.heater.traverse(n=>{if(n.isMesh)n.material.emissiveIntensity=(n.material.userData.baseEmission||0)*glow;});}
     }
+    expedition.update(state,dt,watcherState);
     updateLights(daylight);
     productionView.update(state,dt,daylight);
     follow.set(player.position.x,player.position.y+1.05,player.position.z);
@@ -253,7 +258,7 @@ export async function createWorld(canvas, initialState) {
     if(underground)caveView.update(state,dt);else updateStatuses();
     renderer.render(scene,camera);canvas.dataset.drawCalls=String(renderer.info.render.calls);canvas.dataset.triangles=String(renderer.info.render.triangles);
   }
-  function dispose(){disposed=true;caveView?.dispose();productionView.dispose();habitatView.dispose();statusLayer.remove();terrainView.dispose();grid.geometry.dispose();grid.material.dispose();actor?.dispose();reflection.dispose();canvas.removeEventListener('wheel',zoom);for(const o of structures.values()){o.ownedMaterials?.forEach(m=>m.dispose());scene.remove(o.ports);}geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());renderer.dispose();}
+  function dispose(){disposed=true;caveView?.dispose();expedition.dispose();productionView.dispose();habitatView.dispose();statusLayer.remove();terrainView.dispose();grid.geometry.dispose();grid.material.dispose();actor?.dispose();reflection.dispose();canvas.removeEventListener('wheel',zoom);for(const o of structures.values()){o.ownedMaterials?.forEach(m=>m.dispose());scene.remove(o.ports);}geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());renderer.dispose();}
   resize();update(initialState,1);
   return {renderer,scene,camera,update,pick,setGhost,clearGhost,resize,dispose};
 }

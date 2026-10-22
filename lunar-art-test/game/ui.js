@@ -17,6 +17,7 @@ const ICONS = {
   conveyor: '<path d="M3 15h18M3 19h18M7 15v4m5-4v4m5-4v4"/><path d="m9 6 3 3-3 3m4-6 3 3-3 3"/>',
   processor: '<path d="M3 21V11h6l3-3h4v13Zm13-13V3h4v18M7 15h2m2 0h2"/><circle cx="18" cy="13" r="1"/>',
   storage: '<path d="M4 8 12 4l8 4v8l-8 4-8-4Z"/><path d="m4 8 8 4 8-4M12 12v8"/>',
+  melter: '<path d="M4 12a4 4 0 0 1 4-4h8a4 4 0 0 1 0 8H8a4 4 0 0 1-4-4Z"/><path d="M9 8v8m6-8v8M12 19v2M7 3l2 2 2-2"/>',
   mine: '<path d="M4 4h16v16H4z" stroke-dasharray="3 2"/><path d="m8 15 3-5 2 2 1.5-2L17 15Z"/>',
   dismantle: '<path d="M5 19 15 9m-1-4 5 5-2 2-5-5Z"/><path d="m4 4 4 4M8 4 4 8"/>',
 };
@@ -25,14 +26,16 @@ const ITEM_ICONS = {
   silicon: '<path d="m12 3 8 5v8l-8 5-8-5V8Z"/><path d="m4 8 8 5 8-5M12 13v8"/>',
   crop: '<path d="M7 11c0-4 3-7 6-7s5 3 5 6c0 5-3 10-7 10-3 0-4-3-4-9Z"/><path d="M11 9h.01M14 13h.01M10 15h.01"/>',
   meal: '<path d="M3 12h18a9 9 0 0 1-18 0Z"/><path d="M9 8c0-2 2-2 2-4m3 4c0-2 2-2 2-4"/>',
+  core: '<path d="M7 4h10v16H7Z"/><path d="M10 8h4v8h-4ZM4 7h3m-3 5h3m-3 5h3m10-10h3m-3 5h3m-3 5h3"/>',
 };
+const LOCK = '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>';
 const TOOLS = {
   ...DEFS,
   mine: { name: 'Mining area', key: 'm', description: 'Choose a 7 × 7 patch for the rover to excavate. It unloads at the nearest hopper.' },
   dismantle: { name: 'Dismantle', key: 'z', description: 'Click or drag over structures and blueprints to take them down. Materials are returned.' },
 };
 // Palette sections, in menu order.
-const GROUPS = [['Power & industry', ['solar', 'battery', 'lamp', 'hopper', 'conveyor', 'processor', 'storage']], ['Rooms', ['habitat', 'greenhouse', 'airlock']], ['Fittings', ['growbed', 'galley', 'recycler']], ['Tools', ['mine', 'dismantle']]];
+const GROUPS = [['Power & industry', ['solar', 'battery', 'lamp', 'hopper', 'conveyor', 'processor', 'melter', 'storage']], ['Rooms', ['habitat', 'greenhouse', 'airlock']], ['Fittings', ['growbed', 'galley', 'recycler']], ['Tools', ['mine', 'dismantle']]];
 const svg = (paths, width = 1.5) => `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
 const number = (value) => Math.round(Number(value) || 0).toLocaleString();
 const costText = def => def.cost ? Object.entries(def.cost).map(([item, n]) => `${n} ${item}`).join(', ') : 'Free';
@@ -49,6 +52,11 @@ export function createUI(root, callbacks = {}) {
       <span title="Battery charge"><span class="battery-symbol"></span><strong data-value="battery">0 / 0</strong><small>kJ</small></span>
       <span class="food-resource" title="How fed you are. Hungry below 35%: slower walking and building."><span>Food</span><span class="food-meter"><i></i></span><strong data-value="food">100%</strong></span>
     </div>
+    <section class="objective" aria-label="Ship AI" aria-live="polite">
+      <header><span class="objective-source">Ship AI</span><small class="objective-step"></small></header>
+      <p class="objective-message"></p>
+      <div class="objective-task"><i></i><strong></strong><small class="objective-distance"></small></div>
+    </section>
     <div class="hotbar" role="toolbar" aria-label="Inventory">
       ${Array.from({ length: 10 }, (_, i) => `<button type="button" class="slot" data-slot="${i}" aria-pressed="false"><kbd>${slotKey(i)}</kbd><span class="slot-icon"></span><strong></strong></button>`).join('')}
     </div>
@@ -70,7 +78,8 @@ export function createUI(root, callbacks = {}) {
   const menu = root.querySelector('.build-menu'), toggle = root.querySelector('.build-toggle'), tools = root.querySelector('.selection-tools'), label = root.querySelector('.selected-name'), reasonLabel = root.querySelector('.selected-reason'), notice = root.querySelector('.notification'), hint = root.querySelector('.context-hint');
   const rotateButton = root.querySelector('[data-action=rotate]'), foodMeter = root.querySelector('.food-meter i'), food = root.querySelector('.food-resource');
   const items = [...root.querySelectorAll('[data-build]')], slots = [...root.querySelectorAll('[data-slot]')];
-  let noticeTimer, hintKey = '';
+  const panel = root.querySelector('.objective'), panelMessage = panel.querySelector('.objective-message'), panelTask = panel.querySelector('.objective-task strong'), panelStep = panel.querySelector('.objective-step'), panelDistance = panel.querySelector('.objective-distance');
+  let noticeTimer, hintKey = '', objectiveKey = '', aiNote = null, freshTimer;
   const setOpen = open => { menu.hidden = !open; toggle.setAttribute('aria-expanded', String(open)); };
   const onClick = event => {
     const button = event.target.closest('button'); if (!button) return;
@@ -113,16 +122,41 @@ export function createUI(root, callbacks = {}) {
       reasonLabel.textContent = invalid ? view.placementReason : ''; reasonLabel.hidden = !invalid;
       const held = state.inventory[view.foodSlot ?? view.selectedSlot], edible = ITEM_INFO[held?.item]?.food && satiety < 100;
       const lines = [];
-      if (view.use && !view.nearbyBuilding) lines.push(`<kbd>E</kbd> ${view.use.verb}`);
+      if (view.missionUse) lines.push(`<kbd>E</kbd> ${view.missionUse.verb}${view.missionUse.hold && view.missionUse.progress > 0 ? ` <span class="hint-progress"><i style="transform:scaleX(${view.missionUse.progress})"></i></span>` : ''}`);
+      else if (view.use && !view.nearbyBuilding) lines.push(`<kbd>E</kbd> ${view.use.verb}`);
       if (edible && (status.label || satiety < 70)) lines.push(`<kbd>F</kbd> Eat ${held.item === 'meal' ? 'meal' : 'raw potato'}`);
       const next = lines.join('<span class="hint-gap"></span>');
       if (next !== hintKey) { hintKey = next; hint.innerHTML = next; hint.hidden = !next; }
       for (const item of items) {
         const active = item.dataset.build === selected; item.setAttribute('aria-pressed', String(active)); item.classList.toggle('selected', active);
         const def = TOOLS[item.dataset.build]; item.classList.toggle('unaffordable', Object.entries(def.cost ?? {}).some(([key, cost]) => count(state.inventory, key) < cost));
+        const locked = view.locked?.[item.dataset.build];
+        if (item.classList.contains('locked') !== !!locked) {
+          item.classList.toggle('locked', !!locked);
+          item.querySelector('kbd').innerHTML = locked ? svg(LOCK, 1.8) : def.key.toUpperCase();
+          item.title = locked ?? `${def.description}${def.cost ? ` · ${costText(def)}` : ''}`;
+        }
+      }
+      const goal = view.objective;
+      panel.hidden = !goal || state.player.cave != null;
+      if (goal) {
+        const key = `${goal.step}`;
+        if (key !== objectiveKey) {
+          const first = !objectiveKey; objectiveKey = key;
+          if (!first) { panel.classList.add('fresh'); clearTimeout(freshTimer); freshTimer = setTimeout(() => panel.classList.remove('fresh'), 4000); }
+        }
+        const note = aiNote && aiNote.until > performance.now() ? aiNote.text : null;
+        panelMessage.textContent = note ?? goal.message;
+        panel.classList.toggle('aside', !!note);
+        panelTask.textContent = goal.done ? 'All objectives complete' : goal.objective;
+        panel.classList.toggle('complete', !!goal.done);
+        panelStep.textContent = goal.done ? '' : `${goal.step + 1} / ${goal.count}`;
+        panelDistance.textContent = goal.distance != null && goal.distance > 6 ? `${goal.distance} m` : '';
       }
     },
+    /** A passing remark from the ship AI, shown over the current objective for a while. */
+    say(text) { aiNote = { text, until: performance.now() + 14000 }; panel.classList.add('fresh'); clearTimeout(freshTimer); freshTimer = setTimeout(() => panel.classList.remove('fresh'), 4000); },
     notify(message) { clearTimeout(noticeTimer); notice.textContent = message; notice.hidden = false; noticeTimer = setTimeout(() => { notice.hidden = true; }, 2600); },
-    dispose() { clearTimeout(noticeTimer); root.removeEventListener('click', onClick); window.removeEventListener('keydown', onKey); root.replaceChildren(); root.classList.remove('game-ui'); },
+    dispose() { clearTimeout(noticeTimer); clearTimeout(freshTimer); root.removeEventListener('click', onClick); window.removeEventListener('keydown', onKey); root.replaceChildren(); root.classList.remove('game-ui'); },
   };
 }

@@ -79,3 +79,20 @@ button:focus-visible { outline:2px solid #edbd79;outline-offset:4px; }
 .build-item.selected kbd { border-color:#edbd7980;color:var(--amber); }
 @media(max-width:900px) { .hotbar { left:auto;right:14px;transform:none; } .game-ui .slot { width:40px;height:40px; } }
 @media(max-width:600px) { .context-hint { bottom:78px; } .build-menu { width:min(392px,calc(100vw - 28px)); } }
+.objective { position:absolute;top:74px;left:24px;width:min(340px,calc(100% - 48px));padding:11px 14px 12px;border:1px solid var(--line);border-left:2px solid #7fe3ff;border-radius:4px;background:rgba(14,18,22,.78);backdrop-filter:blur(8px);transition:border-color .4s,box-shadow .4s; }
+.objective header { display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px; }
+.objective-source { font:700 10px Inter,ui-sans-serif,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#7fe3ff; }
+.objective-step { font-size:10px;color:#8d979c;font-variant-numeric:tabular-nums; }
+.objective-message { margin:0 0 9px;font-size:12px;line-height:1.45;color:#d7d9d3; }
+.objective.aside .objective-message { color:#e8c99a;font-style:italic; }
+.objective-task { display:flex;align-items:center;gap:8px;font-size:12px; }
+.objective-task i { width:9px;height:9px;border:1.5px solid #7fe3ff;border-radius:2px;flex-shrink:0; }
+.objective-task strong { flex:1;font-weight:600;color:#f2f2e9; }
+.objective-distance { color:#7fe3ff;font-variant-numeric:tabular-nums; }
+.objective.complete .objective-task i { background:#7fe3ff; }
+.objective.fresh { border-color:#7fe3ff99;box-shadow:0 0 0 1px #7fe3ff55,0 0 24px #7fe3ff33; }
+.build-item.locked { opacity:.45; }
+.build-item.locked kbd svg { width:12px;height:12px;color:#e8c99a; }
+.hint-progress { display:inline-block;width:70px;height:5px;margin-left:4px;border-radius:3px;background:#ffffff22;overflow:hidden;vertical-align:middle; }
+.hint-progress i { display:block;height:100%;background:#7fe3ff;transform-origin:left; }
+@media(max-width:600px) { .objective { top:62px;left:14px;width:calc(100% - 28px);padding:9px 11px; } .objective-message { font-size:11px; } }

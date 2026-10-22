@@ -8,14 +8,15 @@ Dependencies are installed in the parent directory (`npm install` there). Origin
 
 - WASD: screen-relative movement with brisk acceleration and stopping. Shift: run. Space: lunar-gravity jump. Scroll: zoom.
 - Click a build card or press its letter (shown in the Build menu; press again to deselect). Number keys 1–9 and 0 select inventory slots; F eats. R rotates the footprint in four directions; ground arrows show machine ports (cyan in, amber out). Click ground to place. With the conveyor, drag a route: it follows the pointer around corners, backtracking trims it, and dragging over existing belts turns them to match (click one belt to point it the current way). Escape dismisses placement.
-- Walk within5m and hold E to construct. Blueprints turn red while you stand where the finished structure would trap you. Belts are walkable.
+- Walk within 5 m and hold E to construct. Blueprints turn red while you stand where the finished structure would trap you. Belts are walkable.
 - To take things down, choose Build → Tools → Dismantle (Z). Click a structure or blueprint, or drag across several, for a full refund. Fittings come off before the floor beneath them. The red highlight shows what will go; if something can't be removed yet, the reason is shown instead. Pressing Delete or Backspace while pointing at a structure also works.
 - Production: build a hopper, then set a Mining area. The rover mines, unloads at the nearest hopper and recharges. Belt the hopper's output into a processor's input, and its output into a storage crate. Press E beside a crate to collect metal and silicon. Oxygen goes to the colony reserve.
 - Rooms: drag to paint habitat (H) or greenhouse (G) squares; touching squares join into one building with solid walls. Add an airlock (Q) against the room, arrow facing out; it is the only way in. Inside, the whole building's roof lifts away. Rooms fill from the oxygen reserve and need power to stay pressurised.
 - Food: put grow beds (T) in a greenhouse, then press E on a ripe bed to harvest potatoes. Load two into a galley (K) in a habitat with E, and take the meal with E. A water recycler (Y) tops up water. Eat with F when the Food meter runs low; hunger slows you but never kills.
+- Ship AI: the panel at top left gives the next task; a cyan beam and a chevron at your feet point the way. The processor stays locked until you hold E at the old lander in the crater to the east, then press E at the Starship to install its core. The crater's shadowed floor has ice: set a mining area on it, belt the hopper into an ice melter (I) and it fills the water reserve.
 - `?sandbox=1` plays a throwaway colony saved separately from your real one.
 - Save/Load and 20-second autosave use browser storage. New colony requires inline confirmation. No server-side save or co-op yet.
-- Time×12 speeds the day/night and power simulation for testing; normal cycle is240seconds. Recipes and timings are provisional.
+- Time×12 speeds the day/night and power simulation for testing; normal cycle is 240 seconds. Recipes and timings are provisional.
 
 ## Development
 
@@ -29,7 +30,9 @@ Rooms: `habitat.js` derives joined rooms, one-metre wall segments, airlocks, wal
 
 Life support: `life.js` steps pressurisation, grow beds, the galley, the recycler and hunger, and handles eating and E interactions; `inventory.js` is the ten-slot carried inventory. Grow bed, galley and recycler models are built by the same Blender script; their `Plants` and `MealTray` nodes are animated at runtime. `life.test.mjs` covers the loop and the version 2 save migration.
 
-Current limits: shared electrical grid, one mining rover, a single regolith recipe, water only from the starting reserve and recyclers. No quests, combat, multiplayer, launch or orbital-view gameplay yet. Those are subsequent implementation phases, described in the root planning documents.
+Expedition: `mission.js` holds the ship AI's eight objectives, the processor lock, salvage and install; `watcher.js` decides when the rim figure appears and slips away (never saved); `expedition-view.js` draws the lander, tracks, ice, waypoint and figure. The lander and ice melter are built by `blender/build_expedition.py`. `mission.test.mjs` covers the objective flow, the ice-to-water chain, the watcher and the version 3 migration.
+
+Current limits: shared electrical grid, one mining rover, a single regolith recipe. No combat, multiplayer, launch or orbital-view gameplay yet. Those are subsequent implementation phases, described in the root planning documents.
 
 Terrain: `terrain.js` owns deterministic basin height, craters, cave landmarks and boulders; `terrain-view.js` renders the surface. New construction rejects slopes over 0.2 gradient, foundation height differences over 0.38 m and intersecting large rocks. Movement blocks slopes above 0.65 and solid boulders. Cave mouths now lead to explorable procedural passages; alien behavior is not implemented yet. Legacy saves bypass new terrain placement validation to preserve colonies.
 
