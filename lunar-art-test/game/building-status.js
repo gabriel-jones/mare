@@ -1,6 +1,6 @@
 import { daylightAt } from './sim.js';
 import { DEFS } from './defs.js';
-import { processorReady, melterReady, remainingRegolith, roverHasWork, total, ROVER, RECIPE, MELT, PROCESSOR_INPUT_CAP } from './production.js';
+import { processorReady, melterReady, remainingRegolith, roverHasWork, hasMelter, miningCells, dockSpace, total, ROVER, RECIPE, MELT, PROCESSOR_INPUT_CAP } from './production.js';
 import { LIFE, roomStatus } from './life.js';
 
 const roomCache={state:null,time:-1,result:null};
@@ -17,7 +17,7 @@ const noPower={text:'No power',read:'GRID OFFLINE',tone:'warning',glyph:'power'}
 // The prototype has one shared power network. Every battery displays its share
 // of the pooled charge; independent battery storage can replace this later.
 export function buildingStatus(building,state){
- if(!building.built)return {text:'Blueprint',read:`${Math.floor(building.progress*100)}% BUILT · HOLD E`,tone:'construction',fill:building.progress};
+ if(!building.built)return {text:'Blueprint',read:`${Math.floor(building.progress*100)}% BUILT · HOLD E`,tone:'construction',fill:building.progress,glyph:'build'};
  const daylight=daylightAt(state.time);
  if(building.type==='battery'){
   const charge=state.power.capacity>0?Math.max(0,Math.min(1,state.power.stored/state.power.capacity)):0;
@@ -70,7 +70,7 @@ export function buildingStatus(building,state){
 }
 
 export function robotStatus(robot,state){
- const hasHopper=state.buildings.some(b=>b.type==='hopper'&&b.built);
+ const hasDock=state.buildings.some(b=>(b.type==='hopper'||b.type==='melter')&&b.built);
  const load=robot.cargo/ROVER.capacity,cargo=`${robot.load==='ice'?'ICE':'REGOLITH'} ${Math.floor(robot.cargo)} / ${ROVER.capacity}`,battery=`BATTERY ${Math.round(robot.charge*100)}%`;
  if(robot.task==='blocked')return {text:'No route',read:'CLEAR A PATH',tone:'warning'};
  if(robot.charge<=0)return {text:'Battery flat',read:battery,tone:'warning'};
@@ -78,18 +78,19 @@ export function robotStatus(robot,state){
  if(robot.task==='toMine')return {text:'To mine',read:battery,tone:'charge',fill:load};
  if(robot.task==='toHopper')return {text:robot.charge<ROVER.low?'Low battery':'Returning',read:cargo,tone:robot.charge<ROVER.low?'low':'charge',fill:load};
  if(robot.task==='docked'){
-  const hopper=state.buildings.find(b=>b.id===robot.target?.id);
-  if(robot.cargo>=1&&total(hopper?.inv)>=DEFS.hopper.capacity)return {text:'Hopper full',read:cargo,tone:'low'};
+  const dock=state.buildings.find(b=>b.id===robot.target?.id);
+  if(robot.cargo>=1&&dock&&dockSpace(dock,robot.load)<1)return {text:dock.type==='melter'?'Waiting at melter':'Hopper full',read:cargo,tone:'low'};
   if(robot.cargo>=1)return {text:'Unloading',read:cargo,tone:'charge',fill:load};
   if(robot.charge<.95)return state.power.powered===false?noPower:{text:'Charging',read:battery,tone:'charge',fill:robot.charge,glyph:'charging'};
   return areaStatus(robot,state);
  }
- if(!hasHopper)return {text:'Needs a hopper',read:'BUILD A HOPPER',tone:'inactive'};
+ if(!hasDock)return {text:'Needs a hopper',read:'BUILD A HOPPER OR MELTER',tone:'inactive'};
  return areaStatus(robot,state);
 }
 function areaStatus(robot,state){
- if(!state.miningArea)return {text:'Idle',read:'SET A MINING AREA (M)',tone:'inactive'};
- if(remainingRegolith(state)<1)return {text:'Area exhausted',read:'SET A NEW MINING AREA',tone:'low'};
- if(!roverHasWork(state,robot))return {text:'Area unreachable',read:'CLEAR A PATH',tone:'warning'};
- return null;
+ if(!state.miningAreas.length)return {text:'Idle',read:'ADD A MINING ZONE',tone:'inactive'};
+ if(remainingRegolith(state,robot.area??null)<1)return {text:'Zone exhausted',read:'ADD A NEW MINING ZONE',tone:'low'};
+ if(roverHasWork(state,robot))return null;
+ if(!hasMelter(state)&&miningCells(state,robot.area??null).some(c=>c.kind==='ice'&&c.remaining>0))return {text:'Needs a melter',read:'ICE GOES STRAIGHT INTO A MELTER',tone:'warning',glyph:'ice'};
+ return {text:'Zone unreachable',read:'CLEAR A PATH',tone:'warning'};
 }

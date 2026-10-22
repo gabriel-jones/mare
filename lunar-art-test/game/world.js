@@ -84,6 +84,7 @@ export async function createWorld(canvas, initialState) {
     ice:'<path d="M12 2v20M3.3 7l17.4 10M3.3 17l17.4-10M9 3.5l3 2.5 3-2.5M9 20.5l3-2.5 3 2.5"/>',
     water:'<path d="M12 3s-6 6.8-6 11a6 6 0 0 0 12 0c0-4.2-6-11-6-11z"/>',
     alert:'<path d="M12 3 2.5 20h19z"/><path d="M12 9.5v4.5M12 17v.5"/>',
+    build:'<path d="m14 4 6 6-3 3-2-2-8 9-3-3 9-8-2-2 3-3Z"/>',
   };
   function updateStatuses(){
     const entries=[],rooms=habitatLayout(state.buildings);
@@ -102,7 +103,7 @@ export async function createWorld(canvas, initialState) {
     const live=new Set(entries.map(e=>e.key));
     for(const [id,label] of statusLabels)if(!live.has(id)){label.remove();statusLabels.delete(id);}
     const rect=canvas.getBoundingClientRect(),placed=[];
-    // Glyphs only for faults and charging batteries; the lamps on each machine carry every other state.
+    // Glyphs only for faults, charging and blueprints; the lamps on each machine carry every other state.
     for(const e of entries)e.glyph=e.status?.glyph??(e.status?.tone==='warning'?'alert':null);
     const visible=entries.filter(e=>e.glyph&&e.anchor);
     const shown=new Set(visible.map(e=>e.key));
@@ -112,20 +113,23 @@ export async function createWorld(canvas, initialState) {
       let label=statusLabels.get(id);
       if(!label){
         label=document.createElement('div');label.className='callout';label.dataset.buildingId=id;
-        label.innerHTML='<svg class="callout-glyph" viewBox="0 0 24 24" aria-hidden="true"></svg>';label.setAttribute('role','img');
+        label.innerHTML='<span class="callout-bubble"><svg class="callout-ring" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="14.5"/><circle class="arc" cx="16" cy="16" r="14.5" pathLength="100"/></svg><svg class="callout-glyph" viewBox="0 0 24 24" aria-hidden="true"></svg></span>';label.setAttribute('role','img');
         statusLayer.append(label);statusLabels.set(id,label);
       }
-      if(label.dataset.glyph!==glyph){label.dataset.glyph=glyph;label.dataset.tone=glyph==='charging'?'charge':'warning';label.firstElementChild.innerHTML=GLYPHS[glyph]??GLYPHS.alert;}
+      if(label.dataset.glyph!==glyph||label.dataset.tone!==status.tone){label.dataset.glyph=glyph;label.dataset.tone=status.tone;label.querySelector('.callout-glyph').innerHTML=GLYPHS[glyph]??GLYPHS.alert;}
+      // Blueprints and charging wear a progress ring around the bubble.
+      const ring=status.fill!=null&&(glyph==='build'||glyph==='charging')?Math.round(Math.max(0,Math.min(1,status.fill))*100):-1;
+      if(label.dataset.ring!==String(ring)){label.dataset.ring=String(ring);label.querySelector('.arc').style.strokeDashoffset=String(100-Math.max(0,ring));}
       if(label.dataset.status!==status.text){label.dataset.status=status.text;label.setAttribute('aria-label',`${name}: ${status.text}`);}
       statusPoint.copy(anchor.position);statusPoint.y+=height+.25;statusPoint.project(camera);
       const x=rect.left+(statusPoint.x+1)*rect.width/2,y=rect.top+(1-statusPoint.y)*rect.height/2;
       const offscreen=statusPoint.z<-1||statusPoint.z>1||x<40||x>rect.right-40||y<90||y>rect.bottom-80;
       label.classList.toggle('on',!offscreen);if(offscreen)continue;
       // Glyphs sit centred over their machine and step up a tier when a nearer one already holds the spot.
-      const w=24,h=24;
+      const w=32,h=38;
       let spot=null;
       for(let tier=0;tier<4&&!spot;tier++){
-        const lift=12+tier*(h+4),r={left:x-w/2,right:x+w/2,top:y-lift-h,bottom:y-lift,lift};
+        const lift=8+tier*(h+4),r={left:x-w/2,right:x+w/2,top:y-lift-h,bottom:y-lift,lift};
         if(!placed.some(p=>r.left<p.right+4&&r.right>p.left-4&&r.top<p.bottom+2&&r.bottom>p.top-2))spot=r;
       }
       if(!spot){label.classList.remove('on');continue;}

@@ -7,6 +7,7 @@ export const BELT_SPEED = 1.5;
 export const BELT_SPACING = 0.34;
 export const REGOLITH_PER_CELL = 40;
 export const MINING_RADIUS = 3;
+export const MAX_MINING_AREAS = 4;
 export const RECIPE = Object.freeze({ input: 4, time: 6, metal: 2, silicon: 1, oxygen: 1, power: 3 });
 export const PROCESSOR_INPUT_CAP = 16, PROCESSOR_OUTPUT_CAP = 12;
 export const MELT = Object.freeze({ time: 3, water: 1, power: 1.5, cap: 12, waterCap: 200 });
@@ -136,20 +137,27 @@ function stepMachines(state, index, dt, powered) {
 
 // --- Mining rover ---------------------------------------------------------
 
-export function miningCells(state) {
-  const a = state.miningArea;
-  if (!a) return [];
+/** Diggable cells of every mining zone, or of zone `areaId` alone. Each cell carries its zone's `area` id. */
+export function miningCells(state, areaId = null) {
+  const areas = (state.miningAreas ?? []).filter(a => areaId == null || a.id === areaId);
+  if (!areas.length) return [];
   const occupied = new Set(state.buildings.flatMap(b => footprint(b.type, b.x, b.z, b.rotation).map(c => key(c.x, c.z))));
-  const blocked = robotBlockedCells(state), cells = [];
-  for (let x = a.x - MINING_RADIUS; x <= a.x + MINING_RADIUS; x++) for (let z = a.z - MINING_RADIUS; z <= a.z + MINING_RADIUS; z++) {
-    if (occupied.has(key(x, z)) || (x >= -4 && x <= 4 && z >= -8 && z <= -2) || !cellPassable(state, blocked, x, z)) continue;
-    cells.push({ x, z, kind: iceAt(x, z) ? 'ice' : 'regolith', remaining: REGOLITH_PER_CELL - (state.mined[key(x, z)] ?? 0) });
-  }
-  // An area touching ice is an ice mine, so regolith never ends up on a melter's belt.
-  return cells.some(c => c.kind === 'ice') ? cells.filter(c => c.kind === 'ice') : cells;
+  const blocked = robotBlockedCells(state);
+  return areas.flatMap(a => {
+    const cells = [];
+    for (let x = a.x - MINING_RADIUS; x <= a.x + MINING_RADIUS; x++) for (let z = a.z - MINING_RADIUS; z <= a.z + MINING_RADIUS; z++) {
+      if (occupied.has(key(x, z)) || (x >= -4 && x <= 4 && z >= -8 && z <= -2) || !cellPassable(state, blocked, x, z)) continue;
+      cells.push({ x, z, area: a.id, kind: iceAt(x, z) ? 'ice' : 'regolith', remaining: REGOLITH_PER_CELL - (state.mined[key(x, z)] ?? 0) });
+    }
+    // A zone touching ice is an ice mine; its regolith is left alone.
+    return cells.some(c => c.kind === 'ice') ? cells.filter(c => c.kind === 'ice') : cells;
+  });
 }
+/** What a zone yields: 'ice' or 'regolith', or null once nothing diggable is left in it. */
+export function areaKind(state, areaId) { return miningCells(state, areaId)[0]?.kind ?? null; }
 export const roverHasWork = (state, r) => !!nearestMiningCell(state, r);
-export const remainingRegolith = state => miningCells(state).reduce((s, c) => s + Math.max(0, c.remaining), 0);
+export const remainingRegolith = (state, areaId = null) => miningCells(state, areaId).reduce((s, c) => s + Math.max(0, c.remaining), 0);
+export const hasMelter = state => state.buildings.some(b => b.type === 'melter' && b.built);
 const roverCell = r => ({ x: Math.round(r.x / CELL_SIZE), z: Math.round(r.z / CELL_SIZE) });
 // Cells and docks a rover recently failed to reach, so it tries the next candidate instead of retrying forever.
 const unreachable = new WeakMap();
@@ -161,18 +169,20 @@ function markUnreachable(state, r, target) {
 }
 function nearestMiningCell(state, r) {
   let best = null, bestDistance = Infinity;
-  for (const c of miningCells(state)) {
+  // Ice only goes to a melter, so it is not dug until one stands.
+  const melts = hasMelter(state);
+  for (const c of miningCells(state, r.area ?? null)) {
     // A part-filled bucket only takes more of the same material; a leftover fraction is tipped out.
-    if (c.remaining <= 0 || isUnreachable(state, r, c.x, c.z) || (r.cargo >= 1 && c.kind !== (r.load ?? 'regolith'))) continue;
+    if (c.remaining <= 0 || (c.kind === 'ice' && !melts) || isUnreachable(state, r, c.x, c.z) || (r.cargo >= 1 && c.kind !== (r.load ?? 'regolith'))) continue;
     const d = Math.hypot(c.x * CELL_SIZE - r.x, c.z * CELL_SIZE - r.z);
     if (d < bestDistance) { best = c; bestDistance = d; }
   }
   return best;
 }
-/** Free docking cells beside a hopper, never on its belt output or another structure. */
+/** Free docking cells beside a hopper or melter, never on its belt ports or another structure. */
 export function dockingCells(state, hopper, occupied, blocked) {
   const cells = footprint(hopper.type, hopper.x, hopper.z, hopper.rotation), inside = new Set(cells.map(c => key(c.x, c.z)));
-  const outputs = new Set(ports(hopper, 'outputs').map(p => key(p.neighbor.x, p.neighbor.z))), result = new Map();
+  const outputs = new Set([...ports(hopper, 'outputs'), ...ports(hopper, 'inputs')].map(p => key(p.neighbor.x, p.neighbor.z))), result = new Map();
   for (const c of cells) for (const [dx, dz] of DIRS) {
     const x = c.x + dx, z = c.z + dz, k = key(x, z);
     if (inside.has(k) || outputs.has(k) || occupied.has(k) || !cellPassable(state, blocked, x, z)) continue;
@@ -180,12 +190,17 @@ export function dockingCells(state, hopper, occupied, blocked) {
   }
   return [...result.values()];
 }
-function nearestHopper(state, r) {
+/** Room left in `dock` for the rover's load: regolith goes to hoppers, ice straight into melters. */
+export function dockSpace(dock, load = 'regolith') {
+  if (dock.type === 'melter') return load === 'ice' ? MELT.cap - (dock.inv?.ice ?? 0) : 0;
+  return load === 'ice' ? 0 : DEFS.hopper.capacity - total(dock.inv);
+}
+function nearestDock(state, r, types) {
   const occupied = new Set(state.buildings.flatMap(b => footprint(b.type, b.x, b.z, b.rotation).map(c => key(c.x, c.z))));
   const blocked = robotBlockedCells(state);
   let best = null, bestDistance = Infinity;
   for (const b of state.buildings) {
-    if (b.type !== 'hopper' || !b.built) continue;
+    if (!types.includes(b.type) || !b.built) continue;
     for (const c of dockingCells(state, b, occupied, blocked)) {
       if (isUnreachable(state, r, c.x, c.z)) continue;
       const d = Math.hypot(c.x * CELL_SIZE - r.x, c.z * CELL_SIZE - r.z);
@@ -224,7 +239,8 @@ function drive(state, r, goal, dt, topology) {
 // A nearly full bucket is not worth another trip to a fresh cell.
 const full = r => r.cargo > ROVER.capacity - 1;
 function chooseTask(state, r) {
-  const hopper = nearestHopper(state, r), work = nearestMiningCell(state, r);
+  const work = nearestMiningCell(state, r), loaded = r.cargo >= 1;
+  const hopper = nearestDock(state, r, loaded ? [r.load === 'ice' ? 'melter' : 'hopper'] : ['hopper', 'melter']);
   if (hopper && (full(r) || r.charge < ROVER.low || (r.cargo > 0 && !work) || (!work && r.charge < 1))) {
     r.task = 'toHopper'; r.target = { id: hopper.hopper.id, x: hopper.cell.x, z: hopper.cell.z };
   } else if (work && !full(r)) {
@@ -259,11 +275,14 @@ function stepRover(state, r, dt, powered, topology) {
     return;
   }
   if (r.task === 'docked') {
-    const hopper = state.buildings.find(b => b.id === r.target?.id && b.built);
-    if (!hopper) { r.task = 'idle'; r.target = null; return; }
-    // Whole units enter the hopper; any fractional remainder stays aboard.
-    const space = DEFS.hopper.capacity - total(hopper.inv), units = Math.min(Math.floor(r.cargo), space, Math.ceil(ROVER.unloadRate * dt));
-    if (units > 0) { hopper.inv[r.load ?? 'regolith'] += units; r.cargo -= units; }
+    const dock = state.buildings.find(b => b.id === r.target?.id && b.built);
+    if (!dock) { r.task = 'idle'; r.target = null; return; }
+    const load = r.load ?? 'regolith';
+    // Cargo this dock never takes (ice parked at a hopper in an old save) sends the rover on.
+    if (r.cargo >= 1 && (dock.type === 'melter') !== (load === 'ice')) { r.task = 'idle'; r.target = null; return chooseTask(state, r); }
+    // Whole units go in; any fractional remainder stays aboard. A melter takes ice as fast as it melts.
+    const units = Math.min(Math.floor(r.cargo), dockSpace(dock, load), Math.ceil(ROVER.unloadRate * dt));
+    if (units > 0) { dock.inv[load] += units; r.cargo -= units; }
     if (powered) r.charge = Math.min(1, r.charge + ROVER.chargeRate * dt);
     const unloaded = r.cargo < 1, charged = r.charge >= 0.95 || (!powered && r.charge > ROVER.low);
     if (unloaded && charged && nearestMiningCell(state, r)) { r.task = 'idle'; chooseTask(state, r); }
@@ -275,5 +294,8 @@ export function stepProduction(state, dt, powered) {
   stepBelts(state, index, dt);
   stepMachines(state, index, dt, powered);
   const topology = state.buildings.filter(b => b.built && (!DEFS[b.type].walkable || DEFS[b.type].enclosed)).map(b => b.id).join(',');
-  for (const r of state.robots) stepRover(state, r, dt, powered, topology);
+  for (const r of state.robots) {
+    if (r.area != null && !state.miningAreas?.some(a => a.id === r.area)) delete r.area;
+    stepRover(state, r, dt, powered, topology);
+  }
 }

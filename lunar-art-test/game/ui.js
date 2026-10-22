@@ -2,6 +2,8 @@ import { DEFS } from './sim.js';
 import { ITEM_INFO } from './defs.js';
 import { count } from './inventory.js';
 import { hunger } from './life.js';
+import { robotStatus, lampLevel } from './building-status.js';
+import { areaKind, remainingRegolith, MAX_MINING_AREAS } from './production.js';
 
 const ICONS = {
   solar: '<path d="M4 4h16l2 13H2L4 4Zm8 0v13M3 10h18M8 17l-1 4m9-4 1 4M6 21h12"/>',
@@ -30,7 +32,7 @@ const ITEM_ICONS = {
 const LOCK = '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>';
 const TOOLS = {
   ...DEFS,
-  mine: { name: 'Mining area', key: 'm', description: 'Choose a 7 × 7 patch for the rover to excavate. It unloads at the nearest hopper.' },
+  mine: { name: 'Mining zone', key: 'm', description: 'Mark a 7 × 7 zone for rovers to dig (up to four). Regolith goes to the nearest hopper, ice straight into a melter. Assign rovers in Robots (G).' },
   dismantle: { name: 'Dismantle', key: 'z', description: 'Click or drag over structures and blueprints to take them down. Materials are returned.' },
 };
 // Palette sections, in menu order.
@@ -39,6 +41,7 @@ const svg = (paths, width = 1.5) => `<svg viewBox="0 0 24 24" aria-hidden="true"
 const number = (value) => Math.round(Number(value) || 0).toLocaleString();
 const costText = def => def.cost ? Object.entries(def.cost).map(([item, n]) => `${n} ${item}`).join(', ') : 'Free';
 const slotKey = i => String((i + 1) % 10);
+const ROVER_ICON = '<path d="M3 15h18v-4l-3-4H9l-2 4H3zM7 11h11M12 7V4h3"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>';
 
 export function createUI(root, callbacks = {}) {
   root.classList.add('game-ui');
@@ -64,7 +67,9 @@ export function createUI(root, callbacks = {}) {
       <div id="build-menu" class="build-menu" aria-label="Construction" hidden>
         ${GROUPS.map(([title, types]) => `<h3>${title}</h3>${types.map(type => { const def = TOOLS[type]; return `<button type="button" class="build-item" data-build="${type}" aria-pressed="false" title="${def.description}${def.cost ? ` · ${costText(def)}` : ''}">${svg(ICONS[type] || ICONS.habitat)}<span>${def.name}</span><kbd>${def.key?.toUpperCase() ?? ''}</kbd></button>`; }).join('')}`).join('')}
       </div>
+      <div class="robots-panel" aria-label="Robots" hidden></div>
       <button type="button" class="build-toggle" data-action="build" aria-expanded="false" aria-controls="build-menu">${buildIcon}<span>Build</span><kbd>B</kbd></button>
+      <button type="button" class="build-toggle robots-toggle" data-action="robots" aria-expanded="false" aria-label="Robots" title="Robots (G)">${svg(ROVER_ICON, 1.6)}<kbd>G</kbd></button>
       <div class="selection-tools" hidden>
         <span class="selected-name"></span>
         <small class="selected-reason"></small>
@@ -79,23 +84,52 @@ export function createUI(root, callbacks = {}) {
   const items = [...root.querySelectorAll('[data-build]')], slots = [...root.querySelectorAll('[data-slot]')];
   const panel = root.querySelector('.objective'), panelMessage = panel.querySelector('.objective-message'), panelTask = panel.querySelector('.objective-task strong'), panelStep = panel.querySelector('.objective-step'), panelDistance = panel.querySelector('.objective-distance');
   let noticeTimer, hintKey = '', objectiveKey = '', aiNote = null, freshTimer;
-  const setOpen = open => { menu.hidden = !open; toggle.setAttribute('aria-expanded', String(open)); };
+  const robotsPanel = root.querySelector('.robots-panel'), robotsToggle = root.querySelector('.robots-toggle');
+  const setRobots = open => { robotsPanel.hidden = !open; robotsToggle.setAttribute('aria-expanded', String(open)); if (open) { menu.hidden = true; toggle.setAttribute('aria-expanded', 'false'); robotsKey = ''; robotsAt = 0; } };
+  const setOpen = open => { menu.hidden = !open; toggle.setAttribute('aria-expanded', String(open)); if (open) setRobots(false); };
+  let robotsKey = '', robotsAt = 0;
+  // Rows are rebuilt only when rovers or zones come and go, so an open zone picker is never torn down mid-choice.
+  function renderRobots(state) {
+    const areas = state.miningAreas ?? [], key = state.robots.map(r => r.id).join() + '|' + areas.map(a => a.id).join();
+    if (key !== robotsKey) {
+      robotsKey = key;
+      robotsPanel.innerHTML = `<h3>Rovers</h3>${state.robots.map(r => `<div class="robot-row" data-robot="${r.id}"><i class="robot-dot"></i><div><strong>Rover ${r.id}</strong><small data-field="status"></small></div><select data-assign="${r.id}" aria-label="Rover ${r.id} zone"><option value="">Auto</option>${areas.map(a => `<option value="${a.id}">Zone ${a.id}</option>`).join('')}</select></div>`).join('')}
+        <h3>Mining zones</h3>${areas.map(a => `<div class="zone-row" data-zone="${a.id}"><span class="zone-tag">${a.id}</span><div><strong>Zone ${a.id}</strong><small data-field="zone"></small></div><button type="button" data-remove-zone="${a.id}" aria-label="Remove zone ${a.id}" title="Remove zone">×</button></div>`).join('') || '<p class="robots-empty">No zones yet. Rovers wait until you mark one.</p>'}
+        <button type="button" class="zone-add" data-build="mine" ${areas.length >= MAX_MINING_AREAS ? 'disabled' : ''}>Mark a zone<kbd>M</kbd></button>`;
+    }
+    for (const r of state.robots) {
+      const row = robotsPanel.querySelector(`[data-robot="${r.id}"]`), status = robotStatus(r, state);
+      row.dataset.level = lampLevel(status);
+      row.querySelector('[data-field=status]').textContent = `${status?.text ?? 'Ready'} · ${Math.round(r.charge * 100)}%${r.cargo >= 1 ? ` · ${Math.floor(r.cargo)} ${r.load ?? 'regolith'}` : ''}`;
+      const select = row.querySelector('select'); if (document.activeElement !== select) select.value = String(r.area ?? '');
+    }
+    for (const a of areas) {
+      const kind = areaKind(state, a.id), left = Math.round(remainingRegolith(state, a.id)), crew = state.robots.filter(r => r.area === a.id).length;
+      robotsPanel.querySelector(`[data-zone="${a.id}"] [data-field=zone]`).textContent = kind && left ? `${kind === 'ice' ? 'Ice' : 'Regolith'} · ${left} left${crew ? ` · ${crew} assigned` : ''}` : 'Exhausted';
+    }
+  }
   const onClick = event => {
     const button = event.target.closest('button'); if (!button) return;
-    if (button.dataset.build) { callbacks.onSelect?.(button.dataset.build); setOpen(false); }
+    if (button.dataset.build) { callbacks.onSelect?.(button.dataset.build); setOpen(false); setRobots(false); }
+    else if (button.dataset.removeZone) callbacks.onRemoveZone?.(Number(button.dataset.removeZone));
+    else if (button.dataset.action === 'robots') setRobots(robotsPanel.hidden);
     else if (button.dataset.slot) callbacks.onSlot?.(Number(button.dataset.slot));
     else if (button.dataset.action === 'build') setOpen(menu.hidden);
     else if (button.dataset.action === 'rotate') callbacks.onRotate?.();
     else if (button.dataset.action === 'cancel') { callbacks.onCancel?.(); setOpen(false); }
     button.blur();
   };
-  const onKey = event => { if (event.key === 'Escape') setOpen(false); };
-  root.addEventListener('click', onClick); window.addEventListener('keydown', onKey);
+  const onKey = event => { if (event.key === 'Escape') { setOpen(false); setRobots(false); } };
+  const onChange = event => { const id = event.target.dataset?.assign; if (id) { callbacks.onAssign?.(Number(id), event.target.value ? Number(event.target.value) : null); event.target.blur(); } };
+  root.addEventListener('click', onClick); root.addEventListener('change', onChange); window.addEventListener('keydown', onKey);
   return {
     toggleMenu() { setOpen(menu.hidden); },
+    toggleRobots() { setRobots(robotsPanel.hidden); },
     update(state, view = {}) {
       const selected = view.selectedType || null;
       root.querySelector('.construction').hidden = state.player.cave != null;
+      const now = performance.now();
+      if (!robotsPanel.hidden && now - robotsAt > 250) { robotsAt = now; renderRobots(state); }
       fields.oxygen.textContent = number(state.reserves?.oxygen);
       fields.water.textContent = number(state.reserves?.water);
       fields.power.textContent = `${number(state.power.generation)} / ${number(state.power.demand)}`;
@@ -157,6 +191,6 @@ export function createUI(root, callbacks = {}) {
     /** A passing remark from the ship AI, shown over the current objective for a while. */
     say(text) { aiNote = { text, until: performance.now() + 14000 }; panel.classList.add('fresh'); clearTimeout(freshTimer); freshTimer = setTimeout(() => panel.classList.remove('fresh'), 4000); },
     notify(message) { clearTimeout(noticeTimer); notice.textContent = message; notice.hidden = false; noticeTimer = setTimeout(() => { notice.hidden = true; }, 2600); },
-    dispose() { clearTimeout(noticeTimer); clearTimeout(freshTimer); root.removeEventListener('click', onClick); window.removeEventListener('keydown', onKey); root.replaceChildren(); root.classList.remove('game-ui'); },
+    dispose() { clearTimeout(noticeTimer); clearTimeout(freshTimer); root.removeEventListener('click', onClick); root.removeEventListener('change', onChange); window.removeEventListener('keydown', onKey); root.replaceChildren(); root.classList.remove('game-ui'); },
   };
 }

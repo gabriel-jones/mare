@@ -1,8 +1,7 @@
 import { crossCavePortal } from './travel.js';
-import {DEFS,createState,validatePlacement,placeBlueprint,construct,tick,serialize,deserialize,cancelBlueprint,deconstruct,setMiningArea,rotateBelt,playerObstructs,interact,removalCheck,PROCESSOR_LOCKED} from './sim.js';
+import {DEFS,createState,validatePlacement,placeBlueprint,construct,tick,serialize,deserialize,cancelBlueprint,deconstruct,setMiningArea,miningAreaReason,removeMiningArea,assignRover,rotateBelt,playerObstructs,interact,removalCheck,PROCESSOR_LOCKED} from './sim.js';
 import {DIRS,ITEM_INFO,footprint} from './defs.js';
 import {movePlayer,nearestBlueprint,buildingCenter,resetLocomotion,interpolatePose,RUN_SPEED} from './controller.js';
-import {MINING_RADIUS} from './production.js';
 import {count} from './inventory.js';
 import {eat,lifeAction} from './life.js';
 import {createWorld} from './world.js';
@@ -155,8 +154,8 @@ function refreshGhost(){
   world?.setGhost('dismantle',b.x,b.z,0,false,refused?[]:[{x:b.x,z:b.z,valid:false,cells:footprint(b.type,b.x,b.z,b.rotation)}]);return;
  }
  if(selectedType==='mine'){
-  const ok=Math.abs(hover.x)<=58-MINING_RADIUS&&Math.abs(hover.z)<=58-MINING_RADIUS;
-  placementReason=ok?'Click to set the mining area':'Outside the mining range.';world?.setGhost('mine',hover.x,hover.z,0,ok);return;
+  const reason=miningAreaReason(state,hover.x,hover.z);
+  placementReason=reason??'Click to mark a mining zone';world?.setGhost('mine',hover.x,hover.z,0,!reason);return;
  }
  if(selectedType==='conveyor'){
   const line=beltLine(),blocked=line.find(c=>!c.valid);
@@ -198,7 +197,7 @@ function updatePortals(dt){
 }
 function completed(b){
  notify(`${DEFS[b.type].name} complete.`);
- if(b.type==='hopper'&&!state.miningArea)setTimeout(()=>notify('Rover ready: choose Mining area in Build and click nearby ground.'),2300);
+ if(b.type==='hopper'&&!state.miningAreas.length)setTimeout(()=>notify('Rover ready: press M and click nearby ground to mark a mining zone.'),2300);
 }
 function fixedUpdate(dt){
  const dx=(keys.has('d')?1:0)-(keys.has('a')?1:0),dz=(keys.has('s')?1:0)-(keys.has('w')?1:0);
@@ -228,7 +227,7 @@ async function start(){
  try{
   let restored=false;
   try{const raw=localStorage.getItem(KEY);if(raw){state=deserialize(raw);resetPlayer();restored=true;saveStatus='Restored local save';}}catch(e){saveStatus='New colony · save unreadable';}
-  ui=createUI(document.querySelector('#ui'),{onSelect:select,onSlot:i=>{if(selectedSlot===i)eatSelected();selectedSlot=i;ui.update(state,view());},onRotate:()=>{rotation=(rotation+1)%4;refreshGhost();},onSave:save,onLoad:load,onReset:()=>{state=createState(Math.floor(Math.random()*999999));selectedType=null;resetPlayer();targetId=null;keys.clear();world?.clearGhost();save();notify('New lunar landing created.');},onCancel:()=>select(null),onTimeToggle:()=>{speed=speed===1?12:1;notify(speed===1?'Normal day/night speed.':'Day/night simulation ×12. Movement stays normal.');}});
+  ui=createUI(document.querySelector('#ui'),{onSelect:select,onAssign:(robot,area)=>{const r=assignRover(state,robot,area);if(!r.ok)notify(r.reason);},onRemoveZone:id=>notify(removeMiningArea(state,id).reason),onSlot:i=>{if(selectedSlot===i)eatSelected();selectedSlot=i;ui.update(state,view());},onRotate:()=>{rotation=(rotation+1)%4;refreshGhost();},onSave:save,onLoad:load,onReset:()=>{state=createState(Math.floor(Math.random()*999999));selectedType=null;resetPlayer();targetId=null;keys.clear();world?.clearGhost();save();notify('New lunar landing created.');},onCancel:()=>select(null),onTimeToggle:()=>{speed=speed===1?12:1;notify(speed===1?'Normal day/night speed.':'Day/night simulation ×12. Movement stays normal.');}});
   world=await createWorld(canvas,state);
   canvas.addEventListener('pointermove',point);
   canvas.addEventListener('pointerleave',()=>{if(beltPath||paintPath||erasing)return;hover=null;world.clearGhost();});
@@ -251,11 +250,12 @@ async function start(){
   canvas.addEventListener('contextmenu',e=>e.preventDefault());
   window.addEventListener('keydown',e=>{
    if(/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)||e.ctrlKey||e.metaKey||e.altKey)return;
-   const k=e.key.toLowerCase();if(['w','a','s','d','e','f',' ','r','b','escape'].includes(k)||SHORTCUTS[k]||/^[0-9]$/.test(k))e.preventDefault();
+   const k=e.key.toLowerCase();if(['w','a','s','d','e','f',' ','r','b','g','escape'].includes(k)||SHORTCUTS[k]||/^[0-9]$/.test(k))e.preventDefault();
    keys.add(k);if(e.repeat)return;
    if(k===' '&&!(state.player.y>0)){jumpVelocity=1.8;}
    if(k==='escape')select(null);
    if(k==='b')ui.toggleMenu();
+   if(k==='g')ui.toggleRobots();
    if(k==='r'){rotation=(rotation+1)%4;refreshGhost();}
    const mission=k==='e'?missionAction(state):null;
    if(mission&&!mission.hold)notify(installCore(state).reason);

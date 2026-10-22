@@ -3,7 +3,7 @@ import { DIRS } from './defs.js';
 import { surfaceHeightAt as heightAt } from './terrain.js';
 import { ROVER, MINING_RADIUS, REGOLITH_PER_CELL, beltTurns } from './production.js';
 
-// Presentation for the Phase B logistics layer: rovers, belt items and the mining area.
+// Presentation for the Phase B logistics layer: rovers, belt items and the mining zones.
 export function createProductionView(scene, models) {
   const root = new THREE.Group(); scene.add(root);
   const geometries = [], materials = [];
@@ -85,17 +85,30 @@ export function createProductionView(scene, models) {
     for (const [id, view] of rovers) if (!live.has(id)) { root.remove(view.root); rovers.delete(id); }
   }
 
-  // Mining area: draped outline plus excavated cells that darken and widen as they deplete.
-  const dashes = new THREE.InstancedMesh(own(geometries, new THREE.BoxGeometry(1, .06, .16)), own(materials, new THREE.MeshBasicMaterial({ color: '#f0a650', transparent: true, opacity: .9, depthWrite: false })), 256);
+  // Mining zones: draped outlines with a number plate, plus excavated cells that darken and widen as they deplete.
+  const dashes = new THREE.InstancedMesh(own(geometries, new THREE.BoxGeometry(1, .06, .16)), own(materials, new THREE.MeshBasicMaterial({ color: '#f0a650', transparent: true, opacity: .9, depthWrite: false })), 256 * 4);
+  const plates = new Map();
+  function plate(id) {
+    if (plates.has(id)) return plates.get(id);
+    const canvas = document.createElement('canvas'); canvas.width = canvas.height = 64;
+    const g = canvas.getContext('2d');
+    g.fillStyle = '#13171bdd'; g.fillRect(4, 4, 56, 56); g.strokeStyle = '#f0a650'; g.lineWidth = 4; g.strokeRect(4, 4, 56, 56);
+    g.fillStyle = '#f0a650'; g.font = '700 38px Inter, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(id), 32, 35);
+    const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true }));
+    sprite.scale.setScalar(1.1); sprite.renderOrder = 4; root.add(sprite); plates.set(id, sprite);
+    return sprite;
+  }
   dashes.count = 0; dashes.frustumCulled = false; root.add(dashes);
   const digMaterial = own(materials, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, transparent: true, opacity: .85, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
   let digMesh = null, areaKey = '', minedKey = '';
   const ground = new THREE.Color('#a49b8f'), pit = new THREE.Color('#4f4a44'), color = new THREE.Color();
   function updateMining(state) {
-    const a = state.miningArea, key = a ? `${state.seed}:${a.x},${a.z}` : '';
+    const areas = state.miningAreas ?? [], key = `${state.seed}:` + areas.map(a => `${a.id}@${a.x},${a.z}`).join('|');
     if (key !== areaKey) {
       areaKey = key; dashes.count = 0;
-      if (a) {
+      for (const [id, sprite] of plates) if (!areas.some(a => a.id === id)) { root.remove(sprite); sprite.material.map.dispose(); sprite.material.dispose(); plates.delete(id); }
+      for (const a of areas) {
         const x0 = (a.x - MINING_RADIUS) * 2 - 1, x1 = (a.x + MINING_RADIUS) * 2 + 1, z0 = (a.z - MINING_RADIUS) * 2 - 1, z1 = (a.z + MINING_RADIUS) * 2 + 1;
         const edge = (ax, az, bx, bz) => {
           const length = Math.hypot(bx - ax, bz - az), steps = Math.round(length / 1.4);
@@ -106,8 +119,9 @@ export function createProductionView(scene, models) {
           }
         };
         edge(x0, z0, x1, z0); edge(x1, z0, x1, z1); edge(x1, z1, x0, z1); edge(x0, z1, x0, z0);
-        dashes.instanceMatrix.needsUpdate = true;
+        plate(a.id).position.set(x0, heightAt(state.seed, x0, z0) + .7, z0);
       }
+      dashes.instanceMatrix.needsUpdate = true;
     }
     const entries = Object.entries(state.mined ?? {}), signature = `${state.seed}:${entries.length}:${Math.round(entries.reduce((s, [, n]) => s + n, 0))}`;
     if (signature === minedKey) return;
@@ -132,6 +146,6 @@ export function createProductionView(scene, models) {
   return {
     rovers,
     update(state, dt, daylight) { time += dt; updateItems(state, time); updateRovers(state, dt, daylight); updateMining(state); },
-    dispose() { scene.remove(root); digMesh?.geometry.dispose(); geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); },
+    dispose() { scene.remove(root); digMesh?.geometry.dispose(); for (const p of plates.values()) { p.material.map.dispose(); p.material.dispose(); } geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); },
   };
 }

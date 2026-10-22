@@ -79,7 +79,8 @@ test('the rover digs crater ice into a hopper, and a belted melter fills the wat
   const water = s.reserves.water;
   s.robots[0].x = hopper.x * 2 - 4; s.robots[0].z = hopper.z * 2;
   run(s, 150);
-  assert.ok(hopper.inv.ice + melter.inv.ice + s.mission.melted > 0, `ice reached the base (hopper ${hopper.inv.ice}, melter ${melter.inv.ice})`);
+  assert.ok(melter.inv.ice + s.mission.melted > 0, `ice reached the melter (melter ${melter.inv.ice})`);
+  assert.equal(hopper.inv.ice, 0, 'the rover takes ice straight to the melter, never the hopper');
   assert.equal(hopper.inv.regolith, 0, 'only ice was dug');
   assert.ok(s.reserves.water > water, `water rose from ${water} to ${s.reserves.water}`);
   assert.ok(s.mission.melted > 0);

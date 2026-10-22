@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createState, placeBlueprint, tick, serialize, deserialize, deconstruct, collectStorage, setMiningArea, validatePlacement, rotateBelt, DEFS } from './sim.js';
+import { createState, placeBlueprint, tick, serialize, deserialize, deconstruct, collectStorage, setMiningArea, removeMiningArea, assignRover, validatePlacement, rotateBelt, DEFS } from './sim.js';
 import { ports } from './defs.js';
 import { beltTurns, ensureBuildingState, miningCells, remainingRegolith, ROVER, RECIPE, REGOLITH_PER_CELL, BELT_SPACING } from './production.js';
 import { findPath } from './paths.js';
@@ -150,10 +150,10 @@ test('production saves round-trip exactly and version 1 colonies gain the starte
   run(restored, 5); run(s, 5);
   assert.deepEqual(restored.robots[0].x, s.robots[0].x, 'restored rover replans to the same route');
   const legacy = JSON.parse(serialize(createState(7)));
-  legacy.version = 1; legacy.inventory = { metal: 240, silicon: 100 }; delete legacy.robots; delete legacy.reserves; delete legacy.miningArea; delete legacy.mined;
+  legacy.version = 1; legacy.inventory = { metal: 240, silicon: 100 }; delete legacy.robots; delete legacy.reserves; delete legacy.miningAreas; delete legacy.nextAreaId; delete legacy.mined;
   legacy.buildings = [{ id: 1, type: 'hopper', x: 2, z: 2, rotation: 1, progress: 1, built: true }]; legacy.nextId = 2;
   const migrated = deserialize(JSON.stringify(legacy));
-  assert.equal(migrated.version, 4); assert.equal(migrated.robots.length, 1);
+  assert.equal(migrated.version, 5); assert.equal(migrated.robots.length, 1);
   assert.deepEqual(migrated.buildings[0].inv, { regolith: 0, ice: 0 });
   assert.equal(migrated.mission.legacy, true, 'older colonies keep their processors');
   const corrupt = JSON.parse(serialize(s));
@@ -194,4 +194,35 @@ test('redirecting a belt keeps its items', () => {
   assert.equal(rotateBelt(s, b.id, 1).ok, true);
   assert.equal(b.rotation, 1); assert.equal(b.items.length, 1);
   assert.equal(rotateBelt(s, b.id, 4).ok, false);
+});
+
+test('mining zones: several at once, no overlaps, capped, and removing one frees its rovers', () => {
+  const s = createState();
+  assert.equal(setMiningArea(s, -5, 5).id, 1);
+  assert.match(setMiningArea(s, -3, 6).reason, /Overlaps zone 1/);
+  assert.equal(setMiningArea(s, 5, 5).id, 2);
+  assert.equal(setMiningArea(s, -5, 14).ok, true); assert.equal(setMiningArea(s, 5, 14).ok, true);
+  assert.match(setMiningArea(s, 15, 14).reason, /At most 4/);
+  assert.equal(assignRover(s, 1, 2).ok, true); assert.equal(s.robots[0].area, 2);
+  assert.equal(assignRover(s, 1, 9).ok, false);
+  const restored = deserialize(serialize(s));
+  assert.deepEqual(restored.miningAreas, s.miningAreas); assert.equal(restored.robots[0].area, 2);
+  assert.equal(removeMiningArea(s, 2).ok, true); assert.equal(s.robots[0].area, undefined, 'rover falls back to Auto');
+  assert.equal(setMiningArea(s, 5, 5).id, 5, 'zone numbers are never reused');
+});
+
+test('an assigned rover only digs its own zone', () => {
+  const { s } = factory();
+  setMiningArea(s, -5, 5); const far = setMiningArea(s, -5, 14).id;
+  assignRover(s, 1, far); run(s, 40);
+  const mined = Object.keys(s.mined).map(k => k.split(',').map(Number));
+  assert.ok(mined.length > 0, 'the rover dug');
+  assert.ok(mined.every(([, z]) => z >= 11), 'every dug cell is in the assigned zone');
+});
+
+test('version 4 saves turn their single mining area into zone 1', () => {
+  const s = createState(); setMiningArea(s, -5, 5);
+  const raw = JSON.parse(serialize(s)); raw.version = 4; raw.miningArea = { x: -5, z: 5 }; delete raw.miningAreas; delete raw.nextAreaId; delete raw.robots[0].area;
+  const restored = deserialize(JSON.stringify(raw));
+  assert.deepEqual(restored.miningAreas, [{ id: 1, x: -5, z: 5 }]); assert.equal(restored.nextAreaId, 2);
 });

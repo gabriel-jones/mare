@@ -4,19 +4,19 @@ import { CELL_SIZE, DEFS, DIRS, ITEMS, dims, footprint } from './defs.js';
 import { airlockApron, habitatLayout, isRoom, trapsPlayer } from './habitat.js';
 import * as inv from './inventory.js';
 import { LIFE, STARTING, ensureLifeState, hunger, lifeDemand, roomStatus, stepLife, useLife } from './life.js';
-import { createRover, ensureBuildingState, productionDemand, stepProduction, MINING_RADIUS, REGOLITH_PER_CELL, ROVER, PROCESSOR_INPUT_CAP, PROCESSOR_OUTPUT_CAP, BELT_SPACING, MELT } from './production.js';
+import { createRover, ensureBuildingState, productionDemand, stepProduction, MINING_RADIUS, MAX_MINING_AREAS, REGOLITH_PER_CELL, ROVER, PROCESSOR_INPUT_CAP, PROCESSOR_OUTPUT_CAP, BELT_SPACING, MELT } from './production.js';
 import { createMission, processorUnlocked, restoreMission, stepMission } from './mission.js';
 export { CELL_SIZE, DEFS, footprint } from './defs.js';
 /** Pure, serializable simulation. Positions use 2m cells; building anchors are minimum cells. */
 export const DAY_DURATION = 240;
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
 export const PROCESSOR_LOCKED = "Locked: the ship's processor core is cracked. Recover a replacement from the crater.";
 const PLAYER_RADIUS = 0.32;
 const key = (x, z) => `${x},${z}`;
 
 export function createState(seed = 1847) {
   if (!Number.isSafeInteger(seed)) throw new Error('Seed must be an integer.');
-  return { version: SAVE_VERSION, seed, time: 0, inventory: inv.createInventory({ metal: 240, silicon: 100, meal: STARTING.meals }), reserves: { oxygen: STARTING.oxygen, water: STARTING.water }, player: { x: 0, z: 8, y: 0, satiety: 100 }, buildings: [], nextId: 1, robots: [createRover()], miningArea: null, mined: {}, mission: createMission(), power: { generation: 0, demand: 0, stored: 0, capacity: 0, supplied: 0, powered: true } };
+  return { version: SAVE_VERSION, seed, time: 0, inventory: inv.createInventory({ metal: 240, silicon: 100, meal: STARTING.meals }), reserves: { oxygen: STARTING.oxygen, water: STARTING.water }, player: { x: 0, z: 8, y: 0, satiety: 100 }, buildings: [], nextId: 1, robots: [createRover()], miningAreas: [], nextAreaId: 1, mined: {}, mission: createMission(), power: { generation: 0, demand: 0, stored: 0, capacity: 0, supplied: 0, powered: true } };
 }
 const validRotation = r => Number.isInteger(r) && r >= 0 && r <= 3;
 const finite = n => typeof n === 'number' && Number.isFinite(n);
@@ -195,11 +195,36 @@ export function rotateBelt(state, id, rotation) {
   b.rotation = rotation;
   return { ok: true, reason: 'Belt redirected.' };
 }
+/** Why a mining zone can't be centred on cell x,z, or null. */
+export function miningAreaReason(state, x, z) {
+  if (state.player.cave != null) return 'Mining zones are set on the surface.';
+  if (!Number.isSafeInteger(x) || !Number.isSafeInteger(z) || Math.abs(x) > 58 - MINING_RADIUS || Math.abs(z) > 58 - MINING_RADIUS) return 'Outside the mining range.';
+  if (state.miningAreas.length >= MAX_MINING_AREAS) return `At most ${MAX_MINING_AREAS} mining zones. Remove one in the Robots panel.`;
+  const clash = state.miningAreas.find(a => Math.abs(a.x - x) <= MINING_RADIUS * 2 && Math.abs(a.z - z) <= MINING_RADIUS * 2);
+  return clash ? `Overlaps zone ${clash.id}.` : null;
+}
 export function setMiningArea(state, x, z) {
-  if (state.player.cave != null) return { ok: false, reason: 'Mining areas are set on the surface.' };
-  if (!Number.isSafeInteger(x) || !Number.isSafeInteger(z) || Math.abs(x) > 58 - MINING_RADIUS || Math.abs(z) > 58 - MINING_RADIUS) return { ok: false, reason: 'Outside the mining range.' };
-  state.miningArea = { x, z };
-  return { ok: true, reason: 'Mining area set. The rover will dig here and unload at the nearest hopper.' };
+  const reason = miningAreaReason(state, x, z);
+  if (reason) return { ok: false, reason };
+  const id = state.nextAreaId++;
+  state.miningAreas.push({ id, x, z });
+  return { ok: true, id, reason: `Zone ${id} marked. Rovers on Auto dig the nearest zone; ice goes straight into a melter.` };
+}
+export function removeMiningArea(state, id) {
+  const before = state.miningAreas.length;
+  state.miningAreas = state.miningAreas.filter(a => a.id !== id);
+  if (state.miningAreas.length === before) return { ok: false, reason: 'No such zone.' };
+  for (const r of state.robots) if (r.area === id) delete r.area;
+  return { ok: true, reason: `Zone ${id} removed.` };
+}
+/** Ties a rover to one zone, or back to Auto (nearest zone with work) with `areaId` null. */
+export function assignRover(state, robotId, areaId) {
+  const r = state.robots.find(r => r.id === robotId);
+  if (!r) return { ok: false, reason: 'No such rover.' };
+  if (areaId != null && !state.miningAreas.some(a => a.id === areaId)) return { ok: false, reason: 'No such zone.' };
+  if (areaId == null) delete r.area; else r.area = areaId;
+  if (r.task === 'toMine' || r.task === 'mining') { r.task = 'idle'; r.target = null; }
+  return { ok: true, reason: areaId == null ? 'Rover set to Auto.' : `Rover assigned to zone ${areaId}.` };
 }
 export function daylightAt(time) { return Math.max(0, Math.sin(time / DAY_DURATION * Math.PI * 2 + Math.PI / 3)); }
 export function tick(state, dt) {
@@ -270,6 +295,7 @@ function restoreRobot(raw, index) {
   } else if (r.task !== 'idle') r.task = 'idle';
   if (raw.wait != null) { if (!count(raw.wait, 10)) throw new Error('Invalid robot.'); r.wait = raw.wait; }
   if (raw.load != null) { if (!['regolith', 'ice'].includes(raw.load)) throw new Error('Invalid robot.'); r.load = raw.load; }
+  if (raw.area != null) { if (!Number.isSafeInteger(raw.area)) throw new Error('Invalid robot.'); r.area = raw.area; }
   return r;
 }
 /** Before version 3 a habitat was a 2x2 module with its airlock on the `rotation` side. It becomes four
@@ -289,7 +315,7 @@ function migrateModules(buildings, nextId) {
 }
 export function deserialize(text) {
   const raw = JSON.parse(text);
-  if (!raw || ![1, 2, 3, SAVE_VERSION].includes(raw.version) || !Number.isSafeInteger(raw.seed) || !finite(raw.time) || raw.time < 0 || !Array.isArray(raw.buildings) || raw.buildings.length > 13689) throw new Error('Invalid or unsupported save.');
+  if (!raw || ![1, 2, 3, 4, SAVE_VERSION].includes(raw.version) || !Number.isSafeInteger(raw.seed) || !finite(raw.time) || raw.time < 0 || !Array.isArray(raw.buildings) || raw.buildings.length > 13689) throw new Error('Invalid or unsupported save.');
   const state = createState(raw.seed);
   state.time = raw.time;
   if (raw.version >= 3) state.inventory = inv.restore(raw.inventory);
@@ -339,10 +365,15 @@ export function deserialize(text) {
     if (raw.version >= 3) { if (!count(raw.reserves.water, 1e9)) throw new Error('Invalid reserves.'); state.reserves.water = raw.reserves.water; }
     if (!Array.isArray(raw.robots) || raw.robots.length > 64) throw new Error('Invalid robots.');
     state.robots = raw.robots.map(restoreRobot);
-    if (raw.miningArea != null) {
-      if (!Number.isSafeInteger(raw.miningArea.x) || !Number.isSafeInteger(raw.miningArea.z) || Math.abs(raw.miningArea.x) > 58 || Math.abs(raw.miningArea.z) > 58) throw new Error('Invalid mining area.');
-      state.miningArea = { x: raw.miningArea.x, z: raw.miningArea.z };
+    // Before version 5 there was one unnamed mining area; it becomes zone 1.
+    const areas = raw.version >= 5 ? raw.miningAreas : raw.miningArea != null ? [{ id: 1, ...raw.miningArea }] : [];
+    if (!Array.isArray(areas) || areas.length > MAX_MINING_AREAS) throw new Error('Invalid mining area.');
+    for (const a of areas) {
+      if (!a || !Number.isSafeInteger(a.id) || a.id < 1 || state.miningAreas.some(b => b.id === a.id) || !Number.isSafeInteger(a.x) || !Number.isSafeInteger(a.z) || Math.abs(a.x) > 58 || Math.abs(a.z) > 58) throw new Error('Invalid mining area.');
+      state.miningAreas.push({ id: a.id, x: a.x, z: a.z });
     }
+    state.nextAreaId = Math.max(raw.version >= 5 && Number.isSafeInteger(raw.nextAreaId) ? raw.nextAreaId : 1, ...state.miningAreas.map(a => a.id + 1));
+    for (const r of state.robots) if (r.area != null && !state.miningAreas.some(a => a.id === r.area)) throw new Error('Invalid robot.');
     if (!raw.mined || typeof raw.mined !== 'object' || Array.isArray(raw.mined)) throw new Error('Invalid mining record.');
     const mined = Object.entries(raw.mined);
     if (mined.length > 13689) throw new Error('Invalid mining record.');

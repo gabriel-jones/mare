@@ -34,12 +34,20 @@ button:focus-visible { outline:2px solid #edbd79;outline-offset:4px; }
 .notification { position:absolute;bottom:92px;left:24px;padding:9px 13px;border-radius:4px;max-width:calc(100% - 48px);background:var(--panel);color:#e3caaa;font-size:12px; }
 @media(max-width:600px) { .resource-bar { top:14px;left:14px;max-width:calc(100% - 28px);gap:12px;padding:9px 11px; }.resource-bar>span { gap:5px;font-size:10px; }.resource-bar strong { font-size:11px; }.construction { bottom:16px;left:14px; }.notification { left:14px;bottom:82px; }.selected-name { max-width:115px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; } }
 .building-status-layer { position:fixed;inset:0;z-index:3;pointer-events:none;overflow:hidden; }
-/* Status glyphs: one luminous line symbol floating over the machine; faults pulse, charging breathes. */
-.callout { position:absolute;left:0;top:0;--c:#ff7d45;--lift:6px;will-change:transform;opacity:0;visibility:hidden;transition:opacity .25s,visibility 0s .25s; }
+/* Status glyphs: a small dark bubble over the machine holding one luminous line symbol; blueprints and charging wear a progress ring. */
+.callout { position:absolute;left:0;top:0;--c:#ff7d45;--lift:8px;will-change:transform;opacity:0;visibility:hidden;transition:opacity .25s,visibility 0s .25s; }
 .callout.on { opacity:1;visibility:visible;transition:opacity .25s; }
 .callout[data-tone=charge] { --c:#6fe0a9; }
-.callout-glyph { position:absolute;left:-11px;bottom:var(--lift);width:22px;height:22px;overflow:visible;fill:none;stroke:var(--c);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 1.5px #0b1013) drop-shadow(0 0 5px color-mix(in srgb,var(--c) 70%,transparent));animation:glyph-float 2.6s ease-in-out infinite; }
-.callout[data-tone=warning] .callout-glyph { animation:glyph-float 2.6s ease-in-out infinite,glyph-pulse 1.2s ease-in-out infinite; }
+.callout[data-tone=construction] { --c:#7fd3ea; }
+.callout[data-tone=low] { --c:#f2b45a; }
+.callout-bubble { position:absolute;left:-16px;bottom:calc(var(--lift) + 6px);width:32px;height:32px;display:grid;place-items:center;border-radius:50%;background:radial-gradient(circle at 50% 35%,#1d252bf2,#0b1013f0);box-shadow:0 2px 8px #0008,0 0 12px color-mix(in srgb,var(--c) 22%,transparent);animation:glyph-float 2.6s ease-in-out infinite; }
+.callout-bubble::after { content:"";position:absolute;left:50%;bottom:-5px;width:8px;height:8px;margin-left:-4px;background:#0b1013f0;transform:rotate(45deg);border-radius:0 0 2px 0;z-index:-1; }
+.callout-ring { position:absolute;inset:0;width:32px;height:32px;transform:rotate(-90deg);fill:none;stroke-width:2; }
+.callout-ring circle { stroke:color-mix(in srgb,var(--c) 28%,transparent); }
+.callout-ring .arc { stroke:var(--c);stroke-dasharray:100;stroke-dashoffset:100;stroke-linecap:round;transition:stroke-dashoffset .3s;filter:drop-shadow(0 0 2px var(--c)); }
+.callout[data-ring="-1"] .callout-ring .arc { opacity:0; }
+.callout-glyph { width:17px;height:17px;overflow:visible;fill:none;stroke:var(--c);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 4px color-mix(in srgb,var(--c) 60%,transparent)); }
+.callout[data-tone=warning] .callout-glyph { animation:glyph-pulse 1.2s ease-in-out infinite; }
 .callout[data-glyph=charging] .callout-glyph { fill:color-mix(in srgb,var(--c) 30%,transparent); }
 @keyframes glyph-float { 50% { translate:0 -3px; } }
 @keyframes glyph-pulse { 50% { opacity:.45; } }
@@ -95,3 +103,23 @@ button:focus-visible { outline:2px solid #edbd79;outline-offset:4px; }
 .hint-progress { display:inline-block;width:70px;height:5px;margin-left:4px;border-radius:3px;background:#ffffff22;overflow:hidden;vertical-align:middle; }
 .hint-progress i { display:block;height:100%;background:#7fe3ff;transform-origin:left; }
 @media(max-width:600px) { .objective { top:62px;left:14px;width:calc(100% - 28px);padding:9px 11px; } .objective-message { font-size:11px; } }
+.robots-toggle svg { color:#9fd8c0; }
+.game-ui .robots-toggle { gap:7px;padding:13px 12px; }
+.game-ui .robots-toggle[aria-expanded=true] { border-color:#9fd8c0; }
+.robots-panel { position:absolute;left:0;bottom:calc(100% + 12px);width:300px;padding:6px 6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--panel);box-shadow:0 6px 30px #0005;backdrop-filter:blur(12px);pointer-events:auto;font-size:12px; }
+.robots-panel h3 { margin:8px 8px 4px;font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#8d979c; }
+.robot-row,.zone-row { display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:3px; }
+.robot-row>div,.zone-row>div { flex:1;display:grid;gap:2px;min-width:0; }
+.robot-row small,.zone-row small { color:#9aa4a6;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.robot-dot { width:8px;height:8px;border-radius:50%;background:#58e0a0;box-shadow:0 0 6px currentColor;color:#58e0a0;flex-shrink:0; }
+.robot-row[data-level=low] .robot-dot { background:#f2b45a;color:#f2b45a; }
+.robot-row[data-level=fault] .robot-dot { background:#ff6a32;color:#ff6a32; }
+.robot-row[data-level=idle] .robot-dot { background:#56616a;color:transparent; }
+.robots-panel select { pointer-events:auto;padding:4px 6px;border:1px solid var(--line);border-radius:3px;background:#1b2024;color:#e6e8e2;font:inherit; }
+.zone-tag { width:20px;height:20px;display:grid;place-items:center;border:1px solid #f0a650;border-radius:3px;color:#f0a650;font-weight:700;font-size:11px; }
+.game-ui .zone-row button { width:26px;height:26px;border:0;background:transparent;font-size:18px;border-radius:3px;color:#9aa4a6; }
+.game-ui .zone-row button:hover { color:#ff8a62;background:#3a2b26; }
+.robots-empty { margin:4px 8px 6px;color:#8d979c;font-size:11px; }
+.game-ui .zone-add { display:flex;align-items:center;justify-content:space-between;width:calc(100% - 8px);margin:6px 4px 0;padding:8px 10px;border-radius:3px;font-size:12px; }
+.zone-add kbd { min-width:18px;height:18px;display:inline-grid;place-items:center;border:1px solid #ffffff2a;border-radius:3px;font:600 10px Inter,ui-sans-serif,sans-serif;color:#aab3b6; }
+.game-ui .zone-add:disabled { opacity:.4;pointer-events:none; }
