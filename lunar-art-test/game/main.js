@@ -1,6 +1,6 @@
 import { crossCavePortal } from './travel.js';
-import {DEFS,createState,validatePlacement,placeBlueprint,construct,tick,serialize,deserialize,cancelBlueprint,deconstruct,setMiningArea,rotateBelt,playerObstructs,interact} from './sim.js';
-import {DIRS,ITEM_INFO} from './defs.js';
+import {DEFS,createState,validatePlacement,placeBlueprint,construct,tick,serialize,deserialize,cancelBlueprint,deconstruct,setMiningArea,rotateBelt,playerObstructs,interact,removalCheck} from './sim.js';
+import {DIRS,ITEM_INFO,footprint} from './defs.js';
 import {movePlayer,nearestBlueprint,buildingCenter,resetLocomotion,interpolatePose,RUN_SPEED} from './controller.js';
 import {MINING_RADIUS} from './production.js';
 import {count} from './inventory.js';
@@ -11,10 +11,10 @@ import {createUI} from './ui.js';
 // ?sandbox=1 plays a throwaway colony that never touches the real save.
 const KEY=new URLSearchParams(location.search).has('sandbox')?'lunar-frontier.sandbox':'lunar-frontier.phase-a.v1';
 // Build shortcuts are letters; number keys 1-9 and 0 pick inventory slots.
-const SHORTCUTS={...Object.fromEntries(Object.entries(DEFS).map(([type,def])=>[def.key,type])),m:'mine'};
+const SHORTCUTS={...Object.fromEntries(Object.entries(DEFS).map(([type,def])=>[def.key,type])),m:'mine',z:'dismantle'};
 const canvas=document.querySelector('#game'),boot=document.querySelector('#boot');
 let state=createState(),selectedType=null,rotation=0,world,ui,selectedSlot=0;
-let placementReason='',constructionReason='',hover=null,targetId=null,constructing=false,speed=1,saveStatus='Not saved',beltPath=null,paintPath=null;
+let placementReason='',constructionReason='',hover=null,targetId=null,constructing=false,speed=1,saveStatus='Not saved',beltPath=null,paintPath=null,erasing=null;
 let jumpVelocity=0,accumulator=0,last=performance.now(),uiClock=0,autoClock=0;
 const keys=new Set();
 resetLocomotion(state.player);
@@ -23,11 +23,26 @@ function resetPlayer(){resetLocomotion(state.player);previousPose={...state.play
 function notify(message){ui?.notify(message);}
 function save(){try{localStorage.setItem(KEY,serialize(state));saveStatus='Saved locally';notify('Colony saved on this browser.');}catch(e){saveStatus='Save unavailable';notify('Could not save: browser storage is unavailable.');}}
 function load(){try{const raw=localStorage.getItem(KEY);if(!raw){notify('No saved colony yet.');return;}state=deserialize(raw);resetPlayer();keys.clear();selectedType=null;world?.clearGhost();saveStatus='Loaded';notify('Saved colony restored.');}catch(e){notify('Save could not be loaded. Current colony is unchanged.');}}
-function select(type){selectedType=type;if(type!=='conveyor'&&type!=='airlock')rotation=0;placementReason='';beltPath=null;paintPath=null;if(!type)world?.clearGhost();canvas.focus({preventScroll:true});if(type==='mine')notify('Click the ground to set where the rover digs.');}
+function select(type){selectedType=type;if(type!=='conveyor'&&type!=='airlock')rotation=0;placementReason='';beltPath=null;paintPath=null;erasing=null;if(!type)world?.clearGhost();canvas.focus({preventScroll:true});if(type==='mine')notify('Click the ground to set where the rover digs.');}
 function cancel(){
  const b=state.buildings.find(b=>b.id===targetId);
  if(b){const r=b.built?deconstruct(state,b.id):cancelBlueprint(state,b.id);notify(r.reason);targetId=null;refreshGhost();}
  else select(null);
+}
+/** Dismantle tool: removes whatever the pointer is over, once per structure per drag. */
+function eraseAt(){
+ const b=state.buildings.find(b=>b.id===targetId);
+ if(!b||erasing.tried.has(b.id))return;
+ erasing.tried.add(b.id);
+ const r=b.built?deconstruct(state,b.id):cancelBlueprint(state,b.id);
+ if(r.ok){erasing.removed++;erasing.done=r.reason;}else erasing.reason=r.reason;
+ targetId=null;
+}
+function finishErase(){
+ const {removed,reason,done}=erasing;erasing=null;
+ if(removed===1&&!reason)notify(done);
+ else if(removed||reason)notify([removed&&`Dismantled ${removed} structure${removed>1?'s':''} · materials returned`,reason].filter(Boolean).join(' · '));
+ refreshGhost();
 }
 function nearby(){
  if(state.player.cave!=null)return null;
@@ -53,7 +68,7 @@ function view(){
  const guidance=nearest?`${DEFS[nearest.type].name} blueprint: ${Math.ceil(Math.hypot(c.x-state.player.x,c.z-state.player.z))}m away. Walk within 5m, then hold E.`:null;
  return {selectedType,rotation,placementReason,constructionReason,nearbyBuilding:nearby(),use:nearbyUse(),selectedSlot,foodSlot:foodSlot(),guidance,constructing,night:Math.sin(state.time/240*Math.PI*2+Math.PI/3)<=0,paused:false,saveStatus:saveStatus+(speed>1?' · Time ×12':''),timeScale:speed};
 }
-function point(event){hover=world?.pick(event.clientX,event.clientY);canvas.dataset.hoverCell=hover?`${hover.x},${hover.z}`:'';if(!hover){world?.clearGhost();return;}if(beltPath)extendBeltPath(hover);if(paintPath)extendPaintPath(hover);targetId=hover.buildingId??null;canvas.dataset.targetId=String(targetId??'');refreshGhost();}
+function point(event){hover=world?.pick(event.clientX,event.clientY);canvas.dataset.hoverCell=hover?`${hover.x},${hover.z}`:'';if(!hover){world?.clearGhost();return;}if(beltPath)extendBeltPath(hover);if(paintPath)extendPaintPath(hover);targetId=hover.buildingId??null;canvas.dataset.targetId=String(targetId??'');if(erasing)eraseAt();refreshGhost();}
 const MAX_PAINT=120;
 /** Adds a staircase of edge-touching cells from the last painted cell to `cell`. Screen-horizontal drags run
  * diagonally across the grid, and squares meeting only at corners would not join into one room. */
@@ -128,6 +143,13 @@ function beltLine(){
 }
 function refreshGhost(){
  if(state.player.cave!=null||!selectedType||!hover){world?.clearGhost();return;}
+ if(selectedType==='dismantle'){
+  const b=state.buildings.find(b=>b.id===targetId);
+  if(!b){placementReason='Click or drag over structures to dismantle them';world?.clearGhost();return;}
+  const refused=removalCheck(state,b.id);
+  placementReason=refused??`Click to dismantle ${DEFS[b.type].name.toLowerCase()}`;
+  world?.setGhost('dismantle',b.x,b.z,0,false,refused?[]:[{x:b.x,z:b.z,valid:false,cells:footprint(b.type,b.x,b.z,b.rotation)}]);return;
+ }
  if(selectedType==='mine'){
   const ok=Math.abs(hover.x)<=58-MINING_RADIUS&&Math.abs(hover.z)<=58-MINING_RADIUS;
   placementReason=ok?'Click to set the mining area':'Outside the mining range.';world?.setGhost('mine',hover.x,hover.z,0,ok);return;
@@ -197,7 +219,7 @@ async function start(){
   ui=createUI(document.querySelector('#ui'),{onSelect:select,onSlot:i=>{if(selectedSlot===i)eatSelected();selectedSlot=i;ui.update(state,view());},onRotate:()=>{rotation=(rotation+1)%4;refreshGhost();},onSave:save,onLoad:load,onReset:()=>{state=createState(Math.floor(Math.random()*999999));selectedType=null;resetPlayer();targetId=null;keys.clear();world?.clearGhost();save();notify('New lunar landing created.');},onCancel:()=>select(null),onTimeToggle:()=>{speed=speed===1?12:1;notify(speed===1?'Normal day/night speed.':'Day/night simulation ×12. Movement stays normal.');}});
   world=await createWorld(canvas,state);
   canvas.addEventListener('pointermove',point);
-  canvas.addEventListener('pointerleave',()=>{if(beltPath||paintPath)return;hover=null;world.clearGhost();});
+  canvas.addEventListener('pointerleave',()=>{if(beltPath||paintPath||erasing)return;hover=null;world.clearGhost();});
   canvas.addEventListener('pointerdown',e=>{
    canvas.focus({preventScroll:true});
    if(e.button===2){select(null);return;}
@@ -205,12 +227,14 @@ async function start(){
    point(e);
    if(selectedType==='conveyor'&&hover){beltPath=[{x:hover.x,z:hover.z}];try{canvas.setPointerCapture(e.pointerId);}catch{}refreshGhost();}
    else if(DEFS[selectedType]?.paint&&hover){paintPath=[{x:hover.x,z:hover.z}];try{canvas.setPointerCapture(e.pointerId);}catch{}refreshGhost();}
+   else if(selectedType==='dismantle'&&hover){erasing={tried:new Set(),removed:0,reason:''};try{canvas.setPointerCapture(e.pointerId);}catch{}eraseAt();refreshGhost();}
    else commandPlace();
   });
   canvas.addEventListener('pointerup',e=>{
    if(e.button!==0)return;
    if(beltPath&&selectedType==='conveyor'){point(e);placeBelts();}
    else if(paintPath&&DEFS[selectedType]?.paint){point(e);placePaint();}
+   else if(erasing)finishErase();
   });
   canvas.addEventListener('contextmenu',e=>e.preventDefault());
   window.addEventListener('keydown',e=>{

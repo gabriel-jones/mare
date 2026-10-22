@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createState, placeBlueprint, construct, deconstruct, validatePlacement, playerObstructs, DEFS } from './sim.js';
+import { createState, placeBlueprint, construct, deconstruct, validatePlacement, playerObstructs, removalCheck, DEFS } from './sim.js';
 import { movePlayer } from './controller.js';
 import { habitatLayout, roomAt, wallBlocks } from './habitat.js';
 import { createInventory } from './inventory.js';
@@ -85,7 +85,11 @@ test('interior objects stand on finished floor of the right room type', () => {
   assert.equal(validatePlacement(s, 'galley', 0, 0).ok, true);
   build(s, 'growbed', 2, 0);
   assert.match(validatePlacement(s, 'growbed', 2, 0).reason, /already/);
-  assert.match(deconstruct(s, s.buildings.find(b => b.type === 'greenhouse').id).reason, /grow bed/);
+  const greenhouse = s.buildings.find(b => b.type === 'greenhouse');
+  assert.match(removalCheck(s, greenhouse.id), /grow bed/, 'the dismantle preview refuses without removing anything');
+  assert.ok(s.buildings.includes(greenhouse));
+  assert.match(deconstruct(s, greenhouse.id).reason, /grow bed/);
+  assert.equal(removalCheck(s, s.buildings.find(b => b.type === 'growbed').id), null);
   const floor = placeBlueprint(s, 'habitat', 1, 2), bench = placeBlueprint(s, 'galley', 1, 2);
   s.player = { ...s.player, x: 2, z: 7 };
   assert.match(construct(s, bench.id, 5).reason, /floor/);

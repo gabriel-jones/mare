@@ -160,6 +160,7 @@ export async function createWorld(canvas, initialState) {
   const blueprintColor=[new THREE.Color('#79d5ed'),new THREE.Color('#ff715d')],blueprintEmissive=[new THREE.Color('#2c8ca9'),new THREE.Color('#a3301f')];
   const ghost=new THREE.Group();scene.add(ghost);let ghostKey='';
   const ghostGood=new THREE.MeshBasicMaterial({color:'#8cddb9',transparent:true,opacity:.3,depthWrite:false}),ghostBad=new THREE.MeshBasicMaterial({color:'#ff715d',transparent:true,opacity:.35,depthWrite:false});materials.add(ghostGood);materials.add(ghostBad);
+  const ghostRemove=new THREE.MeshBasicMaterial({color:'#ff3b2f',transparent:true,opacity:.5,depthWrite:false});materials.add(ghostRemove);
   // Flat ground arrows: belt travel, machine inputs (cyan, pointing in) and outputs (amber, pointing out).
   const arrowShape=new THREE.Shape();arrowShape.moveTo(-.38,-.32);arrowShape.lineTo(0,.38);arrowShape.lineTo(.38,-.32);arrowShape.lineTo(0,-.12);arrowShape.closePath();
   const arrowGeo=new THREE.ShapeGeometry(arrowShape);arrowGeo.rotateX(-Math.PI/2);arrowGeo.rotateY(Math.PI);geometries.add(arrowGeo);
@@ -173,19 +174,21 @@ export async function createWorld(canvas, initialState) {
     for(const p of machinePorts(b,'outputs'))groundArrow(parent,look.output,(p.cell.x+p.neighbor.x),(p.cell.z+p.neighbor.z),p.dir,scale,lift);
   }
   function setGhost(type,x,z,rotation,valid,line=null){
-    if(type!=='mine'&&!DEFS[type]){clearGhost();return;}
+    if(type!=='mine'&&type!=='dismantle'&&!DEFS[type]){clearGhost();return;}
     const items=line??[{x,z,rotation,valid}],key=type+JSON.stringify(items);if(key===ghostKey)return;ghostKey=key;ghost.clear();
     for(const item of items){
-      const cells=type==='mine'?Array.from({length:(MINING_RADIUS*2+1)**2},(_,i)=>({x:item.x-MINING_RADIUS+i%(MINING_RADIUS*2+1),z:item.z-MINING_RADIUS+Math.floor(i/(MINING_RADIUS*2+1))})):footprint(type,item.x,item.z,item.rotation);
-      for(const c of cells)box(ghost,item.valid?ghostGood:ghostBad,c.x*2,(habitatView.floorAt(state,c.x*2,c.z*2)??heightAt(state.seed,c.x*2,c.z*2))+.08,c.z*2,type==='mine'?1.7:1.94,.13,type==='mine'?1.7:1.94);
+      // Dismantle items carry the target's cells and are drawn as a red volume over it.
+      const cells=type==='mine'?Array.from({length:(MINING_RADIUS*2+1)**2},(_,i)=>({x:item.x-MINING_RADIUS+i%(MINING_RADIUS*2+1),z:item.z-MINING_RADIUS+Math.floor(i/(MINING_RADIUS*2+1))})):item.cells??footprint(type,item.x,item.z,item.rotation);
+      const tall=type==='dismantle'?2.3:.13;
+      for(const c of cells)box(ghost,type==='dismantle'?ghostRemove:item.valid?ghostGood:ghostBad,c.x*2,(habitatView.floorAt(state,c.x*2,c.z*2)??heightAt(state.seed,c.x*2,c.z*2))+.08+tall/2-.065,c.z*2,type==='mine'?1.7:1.94,tall,type==='mine'?1.7:1.94);
       if(type==='conveyor')groundArrow(ghost,beltArrow,item.x*2,item.z*2,item.rotation,1.1,.3);
-      else if(type!=='mine')portArrows(ghost,{type,x:item.x,z:item.z,rotation:item.rotation},true);
+      else if(type!=='mine'&&type!=='dismantle')portArrows(ghost,{type,x:item.x,z:item.z,rotation:item.rotation},true);
     }
     ghost.visible=true;grid.material.opacity=.28;
   }
   function clearGhost(){ghost.visible=false;ghostKey='';grid.material.opacity=0;}
   const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2(),hit=new THREE.Vector3();
-  function pick(clientX,clientY){if(state.player.cave!=null)return null;const r=canvas.getBoundingClientRect();if(!r.width||!r.height)return null;pointer.set((clientX-r.left)/r.width*2-1,-(clientY-r.top)/r.height*2+1);raycaster.setFromCamera(pointer,camera);const hits=raycaster.intersectObject(terrainView.ground);if(!hits.length)return null;hit.copy(hits[0].point);const x=Math.round(hit.x/2),z=Math.round(hit.z/2);const b=state.buildings.find(b=>footprint(b.type,b.x,b.z,b.rotation).some(c=>c.x===x&&c.z===z));return {x,z,worldX:hit.x,worldZ:hit.z,...(b?{buildingId:b.id}:{})};}
+  function pick(clientX,clientY){if(state.player.cave!=null)return null;const r=canvas.getBoundingClientRect();if(!r.width||!r.height)return null;pointer.set((clientX-r.left)/r.width*2-1,-(clientY-r.top)/r.height*2+1);raycaster.setFromCamera(pointer,camera);const hits=raycaster.intersectObject(terrainView.ground);if(!hits.length)return null;hit.copy(hits[0].point);const x=Math.round(hit.x/2),z=Math.round(hit.z/2);const here=state.buildings.filter(b=>footprint(b.type,b.x,b.z,b.rotation).some(c=>c.x===x&&c.z===z)),b=here.find(b=>!isRoom(b))??here[0];return {x,z,worldX:hit.x,worldZ:hit.z,...(b?{buildingId:b.id}:{})};}
   function resize(){const r=canvas.getBoundingClientRect(),width=Math.max(1,r.width),height=Math.max(1,r.height);renderer.setSize(width,height,false);const aspect=width/height;camera.left=-viewHeight*aspect/2;camera.right=viewHeight*aspect/2;camera.top=viewHeight/2;camera.bottom=-viewHeight/2;camera.updateProjectionMatrix();}
   function zoom(e){e.preventDefault();viewHeight=THREE.MathUtils.clamp(viewHeight*Math.exp(e.deltaY*.001),20,180);resize();}
   canvas.addEventListener('wheel',zoom,{passive:false});

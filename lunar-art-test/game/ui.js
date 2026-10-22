@@ -18,6 +18,7 @@ const ICONS = {
   processor: '<path d="M3 21V11h6l3-3h4v13Zm13-13V3h4v18M7 15h2m2 0h2"/><circle cx="18" cy="13" r="1"/>',
   storage: '<path d="M4 8 12 4l8 4v8l-8 4-8-4Z"/><path d="m4 8 8 4 8-4M12 12v8"/>',
   mine: '<path d="M4 4h16v16H4z" stroke-dasharray="3 2"/><path d="m8 15 3-5 2 2 1.5-2L17 15Z"/>',
+  dismantle: '<path d="M5 19 15 9m-1-4 5 5-2 2-5-5Z"/><path d="m4 4 4 4M8 4 4 8"/>',
 };
 const ITEM_ICONS = {
   metal: '<path d="M3 15 8 9h13l-5 6Z"/><path d="M3 15v3h13l5-6V9M16 15v3"/>',
@@ -25,9 +26,13 @@ const ITEM_ICONS = {
   crop: '<path d="M7 11c0-4 3-7 6-7s5 3 5 6c0 5-3 10-7 10-3 0-4-3-4-9Z"/><path d="M11 9h.01M14 13h.01M10 15h.01"/>',
   meal: '<path d="M3 12h18a9 9 0 0 1-18 0Z"/><path d="M9 8c0-2 2-2 2-4m3 4c0-2 2-2 2-4"/>',
 };
-const TOOLS = { ...DEFS, mine: { name: 'Mining area', key: 'm', description: 'Choose a 7 × 7 patch for the rover to excavate. It unloads at the nearest hopper.' } };
+const TOOLS = {
+  ...DEFS,
+  mine: { name: 'Mining area', key: 'm', description: 'Choose a 7 × 7 patch for the rover to excavate. It unloads at the nearest hopper.' },
+  dismantle: { name: 'Dismantle', key: 'z', description: 'Click or drag over structures and blueprints to take them down. Materials are returned.' },
+};
 // Palette sections, in menu order.
-const GROUPS = [['Power & industry', ['solar', 'battery', 'lamp', 'hopper', 'conveyor', 'processor', 'storage', 'mine']], ['Rooms', ['habitat', 'greenhouse', 'airlock']], ['Fittings', ['growbed', 'galley', 'recycler']]];
+const GROUPS = [['Power & industry', ['solar', 'battery', 'lamp', 'hopper', 'conveyor', 'processor', 'storage']], ['Rooms', ['habitat', 'greenhouse', 'airlock']], ['Fittings', ['growbed', 'galley', 'recycler']], ['Tools', ['mine', 'dismantle']]];
 const svg = (paths, width = 1.5) => `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
 const number = (value) => Math.round(Number(value) || 0).toLocaleString();
 const costText = def => def.cost ? Object.entries(def.cost).map(([item, n]) => `${n} ${item}`).join(', ') : 'Free';
@@ -50,7 +55,7 @@ export function createUI(root, callbacks = {}) {
     <div class="construction">
       <div class="context-hint" hidden></div>
       <div id="build-menu" class="build-menu" aria-label="Construction" hidden>
-        ${GROUPS.map(([title, types]) => `<h3>${title}</h3>${types.map(type => { const def = TOOLS[type]; return `<button type="button" class="build-item" data-build="${type}" aria-pressed="false" title="${def.description} · ${costText(def)}">${svg(ICONS[type] || ICONS.habitat)}<span>${def.name}</span><kbd>${def.key.toUpperCase()}</kbd></button>`; }).join('')}`).join('')}
+        ${GROUPS.map(([title, types]) => `<h3>${title}</h3>${types.map(type => { const def = TOOLS[type]; return `<button type="button" class="build-item" data-build="${type}" aria-pressed="false" title="${def.description}${def.cost ? ` · ${costText(def)}` : ''}">${svg(ICONS[type] || ICONS.habitat)}<span>${def.name}</span><kbd>${def.key.toUpperCase()}</kbd></button>`; }).join('')}`).join('')}
       </div>
       <button type="button" class="build-toggle" data-action="build" aria-expanded="false" aria-controls="build-menu">${buildIcon}<span>Build</span></button>
       <div class="selection-tools" hidden>
@@ -103,7 +108,7 @@ export function createUI(root, callbacks = {}) {
         el.setAttribute('aria-label', `Slot ${slotKey(i)}: ${el.title}`);
       });
       tools.hidden = !selected; label.textContent = selected ? TOOLS[selected].name : '';
-      rotateButton.hidden = selected === 'mine' || !!TOOLS[selected]?.paint;
+      rotateButton.hidden = selected === 'mine' || selected === 'dismantle' || !!TOOLS[selected]?.paint;
       const invalid = selected && view.placementReason && !/^(Click|Drag)|release to place/.test(view.placementReason);
       reasonLabel.textContent = invalid ? view.placementReason : ''; reasonLabel.hidden = !invalid;
       const held = state.inventory[view.foodSlot ?? view.selectedSlot], edible = ITEM_INFO[held?.item]?.food && satiety < 100;

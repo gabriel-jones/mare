@@ -313,7 +313,7 @@ Implemented: the starting mining rover, designated mining areas, finite regolith
 - **Ports.** Machines exchange items only through designated ports, shown as ground arrows (cyan in, amber out) on previews and structures. The hopper outputs at its front-left; the processor takes regolith at its back-left and outputs at its front-left; the crate accepts from every side.
 - **Regolith processor.** 2 × 3 cells, 45 metal + 15 silicon. 4 regolith → 2 metal + 1 silicon + 1 oxygen every 6 s while powered (3 kW only while running). Holds 16 regolith in and 12 products out; alternates products on its output belt. Oxygen vents directly to a colony reserve shown in the HUD; pipes and tanks are later work.
 - **Storage crate.** 1 × 1, 10 metal, holds 80 items. Pressing E within about 3.5 m moves its metal and silicon into the player's inventory. Regolith in a crate stays there.
-- **Dismantling.** Delete/Backspace on a finished structure refunds its full cost plus any refined contents; carried regolith is spilled.
+- **Dismantling.** The Dismantle build tool (click or drag) or Delete/Backspace on a finished structure refunds its full cost plus any refined contents; carried regolith is spilled.
 
 The story beat of the Starship's damaged regolith processor (repaired after the crater mission) is deliberately deferred to Phase D. For now the processor is a normal buildable machine.
 

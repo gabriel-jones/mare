@@ -139,6 +139,12 @@ export function cancelBlueprint(state, id) {
   state.buildings.splice(index, 1);
   return { ok: true, reason: 'Blueprint cancelled; materials returned.' };
 }
+/** Why `id` cannot be cancelled or dismantled right now, or null when it can. */
+export function removalCheck(state, id) {
+  const b = state.buildings.find(b => b.id === id);
+  if (!b) return 'Nothing to dismantle here.';
+  return removalReason(state, b) ?? (inv.canFit(state.inventory, DEFS[b.type].cost) ? null : 'No room in your inventory for the materials.');
+}
 /** Dismantles a finished structure for a full refund. Carried goods inside are returned if they fit; regolith is spilled. */
 export function deconstruct(state, id) {
   const index = state.buildings.findIndex(b => b.id === id);
