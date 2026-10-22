@@ -1,0 +1,16 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Joined habitats and belt corners • art review</title><link rel="stylesheet" href="../game.css"><style>canvas{position:fixed;inset:0;width:100%;height:100%;outline:none}</style><script type="importmap">{"imports":{"three":"../../node_modules/three/build/three.module.js","three/addons/":"../../node_modules/three/examples/jsm/"}}</script></head><body><canvas id="game" tabindex="0"></canvas><script type="module">
+// Isolated, reproducible review of joined habitat rooms and curved belts. Never reads or writes colony saves.
+// ?inside=1 stands the astronaut in the room to show the whole-room roof cut-away; ?night=1 for lighting.
+import{createWorld}from'../world.js';import{createState,tick}from'../sim.js';import{ensureBuildingState}from'../production.js';
+const params=new URLSearchParams(location.search),state=createState();
+state.time=params.has('night')?150:25;state.player.facing=Math.PI;state.player.animation='idle';
+const layout=[['habitat',-6,1,0],['habitat',-4,1,0],['habitat',-6,3,0],['habitat',-2,1,1],['lamp',0,2,0],['solar',3,-1,0],['battery',6,-1,0],
+ ['conveyor',1,4,1],['conveyor',2,4,1],['conveyor',3,4,0],['conveyor',3,5,0],['conveyor',3,6,3],['conveyor',2,6,3]];
+state.buildings=layout.map(([type,x,z,rotation],i)=>ensureBuildingState({id:i+1,type,x,z,rotation,progress:1,built:true}));state.nextId=layout.length+1;
+state.buildings.filter(b=>b.type==='conveyor').forEach((b,i)=>b.items.push({type:'silicon',p:.8},{type:i%2?'metal':'regolith',p:.3}));
+Object.assign(state.player,params.has('inside')?{x:-7,z:3}:{x:-2,z:9});
+tick(state,0);state.power.stored=state.power.capacity;tick(state,0);
+// Asset paths are resolved against the game root by the document base.
+const base=document.createElement('base');base.href='../';document.head.append(base);
+const world=await createWorld(document.querySelector('canvas'),state);window.addEventListener('resize',world.resize);let last=performance.now();function frame(now){world.update(state,Math.min((now-last)/1000,.1));last=now;requestAnimationFrame(frame)}requestAnimationFrame(frame);
+</script></body></html>

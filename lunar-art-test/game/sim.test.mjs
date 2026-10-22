@@ -115,15 +115,20 @@ test('movement follows isometric screen axes and normalizes diagonal speed',()=>
   for(let i=0;i<4;i++)movePlayer(right,1,0,0.05,DEFS);
   assert.ok(Math.abs(right.player.speed-WALK_SPEED)<1e-10);
 });
-test('collision blocks solid structures and ship, but permits blueprints and habitats',()=>{
+test('collision blocks solid structures and ship, but permits blueprints and habitat airlocks',()=>{
   const s=createState();
   const id=complete(s,'solar',0,0);
   s.player={x:-1.4,z:0,y:0};
   movePlayer(s,1,1,0.05,DEFS);assert.equal(s.player.x,-1.4);
   s.buildings[0].built=false;
   movePlayer(s,1,1,0.05,DEFS);assert.ok(s.player.x>-1.4);
-  s.buildings[0].built=true;s.buildings[0].type='habitat';s.player.x=-1.4;
-  movePlayer(s,1,1,0.05,DEFS);assert.ok(s.player.x>-1.4);
+  // Habitat walls are solid; only the airlock on its front (+Z at rotation 0) lets the player in.
+  s.buildings[0].built=true;s.buildings[0].type='habitat';s.player={x:-1.4,z:1,y:0};
+  for(let i=0;i<10;i++)movePlayer(s,1,1,0.05,DEFS);assert.ok(s.player.x<-1.4+.1,'side wall blocks');
+  s.player={x:1,z:4,y:0,vx:0,vz:0};
+  for(let i=0;i<20;i++)movePlayer(s,1,-1,0.05,DEFS);assert.ok(s.player.z<2,'airlock admits the player');
+  s.player={x:-0.4,z:4,y:0,vx:0,vz:0};
+  for(let i=0;i<20;i++)movePlayer(s,1,-1,0.05,DEFS);assert.ok(s.player.z>3,'the wall beside the airlock blocks');
   s.buildings=[];s.player={x:-1.92,z:-10,y:0};
   movePlayer(s,1,1,0.05,DEFS);assert.equal(s.player.x,-1.92);assert.equal(s.player.vx,0);
   s.player={x:125,z:0,y:0};movePlayer(s,1,1,0.05,DEFS);assert.equal(s.player.x,125);

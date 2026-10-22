@@ -1,6 +1,7 @@
 import { caveWalkable } from './caves.js';
 import { terrainReason } from './terrain.js';
 import { CELL_SIZE, DEFS, ITEMS, dims, footprint } from './defs.js';
+import { airlockApron, computeLayout, habitatLayout, sealedRooms, wallBlocks } from './habitat.js';
 import { createRover, ensureBuildingState, productionDemand, stepProduction, MINING_RADIUS, REGOLITH_PER_CELL, ROVER, PROCESSOR_INPUT_CAP, PROCESSOR_OUTPUT_CAP, BELT_SPACING } from './production.js';
 export { CELL_SIZE, DEFS, footprint } from './defs.js';
 /** Pure, serializable simulation. Positions use 2m cells; building anchors are minimum cells. */
@@ -22,12 +23,42 @@ function geometryReason(state, type, x, z, rotation) {
   if (cells.some(c => occupied.has(`${c.x},${c.z}`))) return 'Another building or blueprint occupies this space.';
   return null;
 }
+/** Every room keeps at least one airlock opening onto clear ground. */
+function airlockReason(state, type, x, z, rotation) {
+  if (type === 'habitat') {
+    const after = [...state.buildings, { id: -1, type, x, z, rotation }];
+    return sealedRooms(after) > sealedRooms(state.buildings) ? 'The airlock (arrow) would be blocked. Rotate with R.' : null;
+  }
+  if (DEFS[type].walkable) return null;
+  const aprons = new Set(habitatLayout(state.buildings, { blueprints: true }).airlocks.filter(a => a.exterior).flatMap(a => airlockApron(a).map(c => `${c.x},${c.z}`)));
+  if (!footprint(type, x, z, rotation).some(c => aprons.has(`${c.x},${c.z}`))) return null;
+  const after = [...state.buildings, { id: -1, type, x, z, rotation }];
+  return sealedRooms(after) > sealedRooms(state.buildings) ? 'Keep the habitat airlock clear.' : null;
+}
+function removalReason(state, b) {
+  if (b.type !== 'habitat') return null;
+  return sealedRooms(state.buildings.filter(o => o !== b)) > sealedRooms(state.buildings) ? 'This module holds the only airlock for the rest of the room. Remove the others first.' : null;
+}
+/** Whether finishing `b` now would enclose the player inside its solid parts or walls. */
+export function playerObstructs(state, b) {
+  const p = state.player, radius = 0.32;
+  if (p.cave != null || b.built) return false;
+  if (b.type === 'habitat') {
+    const modules = [...state.buildings.filter(o => o.type === 'habitat' && o.built && o !== b), b];
+    return wallBlocks(computeLayout(modules), p.x, p.z, radius);
+  }
+  if (DEFS[b.type].walkable) return false;
+  const { w, d } = dims(b.type, b.rotation);
+  return p.x > b.x * CELL_SIZE - 1 - radius && p.x < (b.x + w - 1) * CELL_SIZE + 1 + radius && p.z > b.z * CELL_SIZE - 1 - radius && p.z < (b.z + d - 1) * CELL_SIZE + 1 + radius;
+}
 export function validatePlacement(state, type, x, z, rotation = 0) {
   if(state.player.cave!=null)return {ok:false,reason:'Construction is unavailable underground.'};
   const reason = geometryReason(state, type, x, z, rotation);
   if (reason) return { ok: false, reason };
   const groundReason = terrainReason(state.seed, footprint(type,x,z,rotation));
   if (groundReason) return { ok:false, reason:groundReason };
+  const lockReason = airlockReason(state, type, x, z, rotation);
+  if (lockReason) return { ok: false, reason: lockReason };
   for (const [item, amount] of Object.entries(DEFS[type].cost)) {
     if (!finite(state.inventory[item]) || state.inventory[item] < amount) return { ok: false, reason: `Not enough ${item}.` };
   }
@@ -53,12 +84,7 @@ export function construct(state, id, dt) {
   if (Math.hypot(state.player.x-cx,state.player.z-cz) > 5) return { ok: false, reason: 'Move within 5 metres to construct.' };
   // Match controller collision padding: completing a machine around the player
   // would otherwise leave them unable to take even the first step out.
-  if (!DEFS[b.type].walkable) {
-    const { w, d } = dims(b.type, b.rotation), radius = 0.32;
-    if (state.player.x > b.x * CELL_SIZE - 1 - radius && state.player.x < (b.x + w - 1) * CELL_SIZE + 1 + radius && state.player.z > b.z * CELL_SIZE - 1 - radius && state.player.z < (b.z + d - 1) * CELL_SIZE + 1 + radius) {
-      return { ok: false, reason: 'Step outside the footprint to construct this machine.' };
-    }
-  }
+  if (playerObstructs(state, b)) return { ok: false, reason: b.type === 'habitat' ? 'Step off the wall line to construct this habitat.' : 'Step outside the footprint to construct this machine.' };
   b.progress = Math.min(1, b.progress + dt / DEFS[b.type].buildTime);
   b.built = b.progress >= 1;
   ensureBuildingState(b);
@@ -69,6 +95,8 @@ export function cancelBlueprint(state, id) {
   if (index < 0) return { ok: false, reason: 'Blueprint no longer exists.' };
   const b = state.buildings[index];
   if (b.built) return { ok: false, reason: 'Completed buildings cannot be cancelled.' };
+  const blocked = removalReason(state, b);
+  if (blocked) return { ok: false, reason: blocked };
   for (const [item, amount] of Object.entries(DEFS[b.type].cost)) state.inventory[item] += amount;
   state.buildings.splice(index,1);
   return { ok: true, reason: 'Blueprint cancelled; materials returned.' };
@@ -79,6 +107,8 @@ export function deconstruct(state, id) {
   if (index < 0) return { ok: false, reason: 'Structure no longer exists.' };
   const b = state.buildings[index];
   if (!b.built) return cancelBlueprint(state, id);
+  const blocked = removalReason(state, b);
+  if (blocked) return { ok: false, reason: blocked };
   for (const [item, amount] of Object.entries(DEFS[b.type].cost)) state.inventory[item] += amount;
   for (const store of [b.inv, b.out]) for (const item of ['metal', 'silicon']) state.inventory[item] += Math.floor(store?.[item] ?? 0);
   for (const item of b.items ?? []) if (item.type !== 'regolith') state.inventory[item.type] += 1;
@@ -94,6 +124,14 @@ export function collectStorage(state, id) {
   state.inventory.metal += metal; state.inventory.silicon += silicon;
   b.inv.metal = 0; b.inv.silicon = 0;
   return { ok: true, reason: `Collected ${[metal && `${metal} metal`, silicon && `${silicon} silicon`].filter(Boolean).join(' and ')}.`, metal, silicon };
+}
+/** Turns an existing belt (blueprint or finished) to face `rotation`; items on it are kept. */
+export function rotateBelt(state, id, rotation) {
+  const b = state.buildings.find(b => b.id === id);
+  if (!b || b.type !== 'conveyor') return { ok: false, reason: 'Only belts can be redirected.' };
+  if (!validRotation(rotation)) return { ok: false, reason: 'Invalid direction.' };
+  b.rotation = rotation;
+  return { ok: true, reason: 'Belt redirected.' };
 }
 export function setMiningArea(state, x, z) {
   if (state.player.cave != null) return { ok: false, reason: 'Mining areas are set on the surface.' };

@@ -8,9 +8,11 @@ Phase B implemented: mining and production — the starting mining rover, design
 
 Acceptance: designate a mining area; the rover paths around structures, digs, depletes cells, returns to the nearest hopper, unloads and recharges; the hopper feeds a belt only from its output port; belts keep spacing, chain, queue when blocked and refuse belts pointing back; the processor accepts regolith only at its input port, stops without power and when its output is blocked; refined goods reach a crate and E collects them; saves round-trip mid-production and version 1 colonies migrate with a starter rover.
 
-Local play: http://127.0.0.1:8765/game/. Controls: WASD, Space, 1–9 select tools (9 is Mining area), R rotates in four directions, click places, drag lays a straight belt line, Escape dismisses selection, E held builds within 5m and pressed beside a crate collects; Delete or Backspace cancels a pointed blueprint or dismantles a pointed structure for a full refund. Scroll zooms. Autosave every 20s and on page exit. Time×12 accelerates power/daylight/production, not movement.
+Local play: http://127.0.0.1:8765/game/. Controls: WASD, Space, 1–9 select tools (9 is Mining area), R rotates in four directions, click places, drag lays a belt route that can turn corners (and redirects belts it crosses), Escape dismisses selection, E held builds within 5m and pressed beside a crate collects; Delete or Backspace cancels a pointed blueprint or dismantles a pointed structure for a full refund. Scroll zooms. Autosave every 20s and on page exit. Time×12 accelerates power/daylight/production, not movement.
 
-Verification: 39 automated simulation/controller/production/export checks pass. Browser-verified: rover mining and docking, mining-area overlay and excavation marks, belt item flow, processor refining and night power outage, crate collection, drag belt placement and construction, dismantle refund, port arrows on placement previews. No multiplayer or full colony-load benchmarks yet.
+Habitats join into seamless rooms with solid walls and airlocks.
+
+Verification: 47 automated simulation/controller/production/habitat/export checks pass. Browser-verified: rover mining and docking, mining-area overlay and excavation marks, belt item flow, processor refining and night power outage, crate collection, drag belt placement and construction, dismantle refund, port arrows on placement previews. No multiplayer or full colony-load benchmarks yet.
 
 Next: C richer rooms/food/life support; D crater mission and caves (including the damaged Starship processor story beat — Phase B's processor is buildable without it for now); E satellite launch/research; F co-op (command boundaries start in A, integration after B); G alien retaliation; H outposts/scale/Mars.
 

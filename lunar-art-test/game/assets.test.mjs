@@ -67,3 +67,13 @@ test('Blender plains kit exports clean, colored, budgeted rocks and a separable 
   if(name==='cave-mouth')assert.ok(d.nodes.some(n=>n.name==='ArchRoof'),'roof remains separable for cutaway');
  }
 });
+test('modular habitat kit exports every piece at the origin and the corner belt stays light',()=>{
+ const {json:d}=glb('habitat-kit'),names=d.nodes.map(n=>n.name.replace(/\.\d+$/,''));
+ for(const piece of ['Floor','Wall','Window','Airlock','AirlockDoor','Corner','Roof','RoofEdge','RoofCorner','RoofModule','Cabinet'])assert.ok(names.includes(piece),`${piece} piece`);
+ for(const n of d.nodes)assert.ok(!n.translation||n.translation.every(v=>Math.abs(v)<1e-6),`${n.name} is authored at the origin`);
+ let triangles=0;for(const mesh of d.meshes)for(const p of mesh.primitives)triangles+=d.accessors[p.indices].count/3;
+ assert.ok(triangles<=1200,`habitat kit: ${triangles} triangles`);
+ const corner=glb('conveyor-corner').json;let cornerTriangles=0;
+ for(const mesh of corner.meshes)for(const p of mesh.primitives)cornerTriangles+=corner.accessors[p.indices].count/3;
+ assert.ok(cornerTriangles<=500,`conveyor corner: ${cornerTriangles} triangles`);
+});

@@ -2,13 +2,15 @@ import { caveOrigin,caveToWorld } from './cave-space.js';
 import { createCaveView } from './cave-view.js';
 import { buildingStatus, robotStatus } from './building-status.js';
 import { DIRS, ports as machinePorts } from './defs.js';
-import { MINING_RADIUS } from './production.js';
+import { MINING_RADIUS, beltTurns } from './production.js';
 import { createProductionView } from './production-view.js';
+import { createHabitatView } from './habitat-view.js';
+import { airlockOf, habitatLayout } from './habitat.js';
 import { surfaceHeightAt as heightAt } from './terrain.js';
 import { createTerrainView } from './terrain-view.js';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { DEFS, footprint } from './sim.js';
+import { DEFS, footprint, playerObstructs } from './sim.js';
 import { createAstronaut } from './actor.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
@@ -21,7 +23,7 @@ export async function createWorld(canvas, initialState) {
   renderer.toneMapping=THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure=1.12;
   const loader=new GLTFLoader();
-  const assetNames=['starship','launchpad','solar','battery','hopper','habitat','lamp','conveyor','processor','storage','rover','rock-a','rock-b','rock-c','cave-mouth'];
+  const assetNames=['starship','launchpad','solar','battery','hopper','habitat-kit','lamp','conveyor','conveyor-corner','processor','storage','rover','rock-a','rock-b','rock-c','cave-mouth'];
   const loaded=await Promise.all(assetNames.map(name=>loader.loadAsync(`./assets/${name}.glb`).then(g=>[name,g.scene]).catch(e=>{console.error('Asset failed:',name,e);return [name,null];})));
   const models=new Map(loaded);
   const astronautGLTF=await loader.loadAsync('./assets/astronaut-v2.glb').catch(e=>{console.error('Animated astronaut failed',e);return null;});
@@ -42,6 +44,21 @@ export async function createWorld(canvas, initialState) {
   const fill=new THREE.HemisphereLight('#b3cbed','#272a3d',1.15);scene.add(fill);
   const terrainRoot=new THREE.Group();scene.add(terrainRoot);
   const productionView=createProductionView(scene,models);
+  const habitatView=createHabitatView(scene,models.get('habitat-kit'));
+  // A fixed set of lights follows the nearest lamps and habitats. Adding a light per structure
+  // would change the scene's light count and force every material to recompile its shader.
+  const lightPool=Array.from({length:6},()=>{const l=new THREE.PointLight('#ffc777',0,13,2);scene.add(l);return l;});
+  function updateLights(daylight){
+    const candidates=[];
+    if(state.power.powered!==false)for(const b of state.buildings){
+      if(!b.built||(b.type!=='lamp'&&b.type!=='habitat'))continue;
+      const c=footprint(b.type,b.x,b.z,b.rotation),x=c.reduce((s,q)=>s+q.x,0)/c.length*2,z=c.reduce((s,q)=>s+q.z,0)/c.length*2;
+      candidates.push(b.type==='lamp'?{x,y:heightAt(state.seed,x,z)+2.8,z,intensity:(1-daylight)*26,distance:13,color:0xffc777}:{x,y:heightAt(state.seed,x,z)+1.9,z,intensity:(1-daylight)*10,distance:7,color:0xffcf8c});
+    }
+    for(const c of candidates)c.d=Math.hypot(c.x-follow.x,c.z-follow.z);
+    candidates.sort((a,b)=>a.d-b.d);
+    lightPool.forEach((l,i)=>{const c=candidates[i];if(!c||c.intensity<=0){l.intensity=0;return;}l.position.set(c.x,c.y,c.z);l.intensity=c.intensity;l.distance=c.distance;l.color.setHex(c.color);});
+  }
   let caveView=null,activeCave=null,smoothedGround=null;
 
   const structures=new Map();
@@ -49,8 +66,10 @@ export async function createWorld(canvas, initialState) {
   const statusLabels=new Map(),statusPoint=new THREE.Vector3();
   const statusIcons={battery:'<rect x="3" y="5" width="16" height="14" rx="2"/><path d="M21 9v6M7 9v6m4-6v6m4-6v6"/>',power:'<path d="m14 2-9 12h7l-2 8 9-12h-7l2-8Z"/><path d="m3 3 18 18"/>',sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2"/>',build:'<path d="m14 3 7 7-4 3-3-3-9 11-3-3L13 8l-2-2 3-3Z"/>',ore:'<path d="m4 15 5-8 4 4 3-3 4 7Z"/><path d="M3 19h18"/>',box:'<path d="M4 8 12 4l8 4v8l-8 4-8-4Z"/><path d="m4 8 8 4 8-4M12 12v8"/>',gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2"/>',rover:'<rect x="4" y="8" width="13" height="6" rx="1"/><path d="M17 11h3l1 3"/><circle cx="7" cy="17" r="2"/><circle cx="15" cy="17" r="2"/>'};
   function updateStatuses(){
-    const entries=[];
-    for(const b of state.buildings){const object=structures.get(b.id);entries.push({key:String(b.id),status:object?buildingStatus(b,state):null,anchor:object?.root,height:object?.statusHeight,name:DEFS[b.type].name});}
+    const entries=[],rooms=habitatLayout(state.buildings);
+    // One label per joined habitat room, on its oldest module.
+    const roomLabel=b=>{const room=rooms.roomOf.get(`${b.x},${b.z}`);return !room||Math.min(...room.modules)===b.id;};
+    for(const b of state.buildings){const object=structures.get(b.id),show=b.type==='conveyor'?b.built:!(b.built&&b.type==='habitat')||roomLabel(b);entries.push({key:String(b.id),status:object&&show?buildingStatus(b,state):null,anchor:object?.root,height:object?.statusHeight,name:DEFS[b.type].name});}
     for(const r of state.robots??[]){const view=productionView.rovers.get(r.id);entries.push({key:`robot-${r.id}`,status:view?robotStatus(r,state):null,anchor:view?.root,height:1.9,name:'Mining rover'});}
     const live=new Set(entries.map(e=>e.key));
     for(const [id,label] of statusLabels)if(!live.has(id)){label.remove();statusLabels.delete(id);}
@@ -107,19 +126,18 @@ export async function createWorld(canvas, initialState) {
   const suitMaterials=[];actor?.root.traverse(o=>{if(o.isMesh)for(const m of (Array.isArray(o.material)?o.material:[o.material]))if(!suitMaterials.some(x=>x.material===m))suitMaterials.push({material:m,color:m.color.clone(),environment:m.envMapIntensity});});let suitUnderground=false;
   document.body.dataset.characterClips=actor?.clips.join(',')||'unavailable';
   const markerGeo=new THREE.RingGeometry(.58,.66,32);geometries.add(markerGeo);const marker=mesh(markerGeo,mat('#ffbf6c',{emissive:'#a66624',emissiveIntensity:.35}),player,0,.025,0);marker.rotation.x=-Math.PI/2;
-  function buildModel(type){
-    const template=models.get(type);
+  function buildModel(type,turn=0){
+    // Habitats are assembled per connected room by the habitat view; this is only a label anchor.
+    if(type==='habitat')return {root:new THREE.Group(),roof:null,emits:false,statusHeight:2.45};
+    const template=models.get(type==='conveyor'&&turn?'conveyor-corner':type);
     if(template){
-      const root=template.clone(true);let roof=null,light=null;
-      root.traverse(o=>{if(/^Roof/.test(o.name)&&!roof)roof=o;});
-      if(type==='lamp'||type==='habitat'){
-        light=new THREE.PointLight('#ffc777',0,type==='habitat'?7:13,2);light.position.set(0,type==='habitat'?1.9:2.2,0);root.add(light);
-      }
-      return {root,roof,light};
+      const root=template.clone(true);
+      if(type==='conveyor'&&turn<0)root.scale.x=-1;
+      return {root,roof:null,emits:type==='lamp'};
     }
     const root=new THREE.Group(),w=DEFS[type].w*2,d=DEFS[type].d*2;
     box(root,dark,0,.12,0,w-.12,.24,d-.12);
-    let roof=null,light=null;
+    let roof=null,emits=false;
     if(type==='solar'){
       for(const x of [-w*.28,w*.28])cylinder(root,steel,x,.8,0,.08,1.4);
       const panel=new THREE.Group();panel.position.y=1.4;panel.rotation.x=-.25;root.add(panel);
@@ -133,21 +151,14 @@ export async function createWorld(canvas, initialState) {
       box(root,steel,0,.85,0,w-.55,1.3,d-.5);box(root,dark,0,1.53,0,w-.72,.1,d-.7);
       for(const x of [-1,1])box(root,orange,x*(w*.5-.17),1.4,0,.16,.45,d-.25);
       box(root,dark,0,.48,d*.5-.04,.7,.55,.3);
-    } else if(type==='habitat'){
-      box(root,ivory,0,1.23,-d*.5+.15,w-.15,2.2,.22);
-      for(const x of [-1,1]){box(root,ivory,x*(w*.5-.15),1.23,0,.22,2.2,d-.15);box(root,glass,x*(w*.5-.01),1.4,0,.04,.8,Math.max(.5,d-1));}
-      const door=1.1;box(root,ivory,-(w+door)/4,1.23,d*.5-.15,(w-door)/2,2.2,.22);box(root,ivory,(w+door)/4,1.23,d*.5-.15,(w-door)/2,2.2,.22);box(root,orange,0,2.3,d*.5-.14,1.35,.18,.3);
-      roof=new THREE.Group();root.add(roof);box(roof,ivory,0,2.45,0,w+.05,.25,d+.05);box(roof,steel,0,2.62,0,w*.7,.12,d*.7);box(roof,orange,0,2.7,0,.22,.03,d*.7);
-      box(root,amber,0,2.2,0,.7,.06,.4);
-      light=new THREE.PointLight('#ffcf8c',0,7,2);light.position.set(0,1.9,0);root.add(light);
     } else if(type==='lamp'){
-      cylinder(root,steel,0,1.8,0,.09,3.4);box(root,dark,0,3.4,0,.65,.18,.65);box(root,amber,0,3.28,0,.5,.12,.5);
-      light=new THREE.PointLight('#ffc777',0,13,2);light.position.set(0,2.8,0);root.add(light);
+      cylinder(root,steel,0,1.8,0,.09,3.4);box(root,dark,0,3.4,0,.65,.18,.65);box(root,amber,0,3.28,0,.5,.12,.5);emits=true;
     } else if(type==='conveyor'){
       box(root,dark,0,.3,0,1.3,.1,1.98);for(const x of [-.72,.72])box(root,steel,x,.38,0,.14,.2,1.98);box(root,orange,0,.37,.3,.5,.02,.5);
     } else box(root,ivory,0,.75,0,w-.4,1.3,d-.4);
-    return {root,roof,light};
+    return {root,roof,emits};
   }
+  const blueprintColor=[new THREE.Color('#79d5ed'),new THREE.Color('#ff715d')],blueprintEmissive=[new THREE.Color('#2c8ca9'),new THREE.Color('#a3301f')];
   const ghost=new THREE.Group();scene.add(ghost);let ghostKey='';
   const ghostGood=new THREE.MeshBasicMaterial({color:'#8cddb9',transparent:true,opacity:.3,depthWrite:false}),ghostBad=new THREE.MeshBasicMaterial({color:'#ff715d',transparent:true,opacity:.35,depthWrite:false});materials.add(ghostGood);materials.add(ghostBad);
   // Flat ground arrows: belt travel, machine inputs (cyan, pointing in) and outputs (amber, pointing out).
@@ -158,6 +169,7 @@ export async function createWorld(canvas, initialState) {
   function groundArrow(parent,material,x,z,dir,scale=1,lift=.12){const o=new THREE.Mesh(arrowGeo,material);o.position.set(x,heightAt(state.seed,x,z)+lift,z);o.rotation.y=dir*Math.PI/2;o.scale.setScalar(scale);o.renderOrder=3;parent.add(o);return o;}
   function portArrows(parent,b,preview=false){
     const look=preview?previewArrows:arrows,scale=preview?1.3:.8,lift=preview?.3:.12;
+    if(preview&&DEFS[b.type].airlock){const a=airlockOf(b),[dx,dz]=DIRS[a.dir];groundArrow(parent,look.output,a.x+dx*1.1,a.z+dz*1.1,a.dir,scale,lift);}
     for(const p of machinePorts(b,'inputs'))if(b.type!=='storage')groundArrow(parent,look.input,(p.cell.x+p.neighbor.x),(p.cell.z+p.neighbor.z),(p.dir+2)%4,scale,lift);
     for(const p of machinePorts(b,'outputs'))groundArrow(parent,look.output,(p.cell.x+p.neighbor.x),(p.cell.z+p.neighbor.z),p.dir,scale,lift);
   }
@@ -204,7 +216,7 @@ export async function createWorld(canvas, initialState) {
     scene.background.setRGB(.025+daylight*.035,.038+daylight*.05,.065+daylight*.075);scene.fog.color.copy(scene.background);
     scene.fog.density=.0012;suitFill.distance=underground?6:8;headlamp.distance=underground?20:18;
     if(underground){suitFill.intensity=3;headlamp.intensity=145;}
-    const position=underground?caveToWorld(state.seed,state.player.cave,renderPose.x,renderPose.z):{x:renderPose.x,y:heightAt(state.seed,renderPose.x,renderPose.z),z:renderPose.z};
+    const position=underground?caveToWorld(state.seed,state.player.cave,renderPose.x,renderPose.z):{x:renderPose.x,y:habitatView.floorAt(state,renderPose.x,renderPose.z)??heightAt(state.seed,renderPose.x,renderPose.z),z:renderPose.z};
     if(smoothedGround==null||Math.abs(position.y-smoothedGround)>2)smoothedGround=position.y;
     else smoothedGround+=(position.y-smoothedGround)*(1-Math.exp(-Math.min(dt,.1)*24));
     player.position.set(position.x,smoothedGround+(renderPose.y||0),position.z);
@@ -213,27 +225,31 @@ export async function createWorld(canvas, initialState) {
     actor?.update(renderPose,dt);
     if(canvas.dataset.animation!==renderPose.animation)canvas.dataset.animation=renderPose.animation||'idle';
     const ids=new Set(state.buildings.map(b=>b.id));for(const [id,o] of structures)if(!ids.has(id)){scene.remove(o.root,o.ports);o.ownedMaterials?.forEach(m=>m.dispose());structures.delete(id);}
+    const turns=beltTurns(state),obstructs=b=>Math.hypot(b.x*2-state.player.x,b.z*2-state.player.z)<8&&playerObstructs(state,b);
+    habitatView.update(state,dt,{player:renderPose,powered:state.power.powered!==false,obstructs});
     for(const b of state.buildings){
-      let o=structures.get(b.id);
-      if(o&&(o.type!==b.type||o.rotation!==b.rotation)){scene.remove(o.root,o.ports);o.ownedMaterials.forEach(m=>m.dispose());structures.delete(b.id);o=null;}
-      if(!o){o=buildModel(b.type);o.type=b.type;o.rotation=b.rotation;o.ports=new THREE.Group();portArrows(o.ports,b);scene.add(o.ports);o.ownedMaterials=[];const clones=new Map();o.root.traverse(n=>{if(n.isMesh){n.castShadow=true;n.receiveShadow=true;const copy=m=>{if(!clones.has(m.uuid)){const c=m.clone();c.userData.baseEmission=c.emissiveIntensity;c.userData.baseColor=c.color.clone();c.userData.baseEmissive=c.emissive.clone();clones.set(m.uuid,c);o.ownedMaterials.push(c);}return clones.get(m.uuid);};n.material=Array.isArray(n.material)?n.material.map(copy):copy(n.material);}});o.statusHeight=new THREE.Box3().setFromObject(o.root).max.y;structures.set(b.id,o);scene.add(o.root);}
+      let o=structures.get(b.id);const turn=b.type==='conveyor'?turns.get(b.id)??0:0;
+      if(o&&(o.type!==b.type||o.rotation!==b.rotation||o.turn!==turn)){scene.remove(o.root,o.ports);o.ownedMaterials.forEach(m=>m.dispose());structures.delete(b.id);o=null;}
+      if(!o){o=buildModel(b.type,turn);o.type=b.type;o.rotation=b.rotation;o.turn=turn;o.ports=new THREE.Group();portArrows(o.ports,b);scene.add(o.ports);o.ownedMaterials=[];const clones=new Map();o.root.traverse(n=>{if(n.isMesh){n.castShadow=true;n.receiveShadow=true;const copy=m=>{if(!clones.has(m.uuid)){const c=m.clone();c.userData.baseEmission=c.emissiveIntensity;c.userData.baseColor=c.color.clone();c.userData.baseEmissive=c.emissive.clone();clones.set(m.uuid,c);o.ownedMaterials.push(c);}return clones.get(m.uuid);};n.material=Array.isArray(n.material)?n.material.map(copy):copy(n.material);}});o.statusHeight??=new THREE.Box3().setFromObject(o.root).max.y;structures.set(b.id,o);scene.add(o.root);}
       o.root.visible=true;
       const def=DEFS[b.type],w=b.rotation%2?def.d:def.w,d=b.rotation%2?def.w:def.d;
       const bx=(b.x+(w-1)/2)*2,bz=(b.z+(d-1)/2)*2;
       o.root.position.set(bx,heightAt(state.seed,bx,bz),bz);o.root.rotation.y=b.rotation*Math.PI/2;
-      if(o.built!==b.built){o.ownedMaterials.forEach(m=>{m.transparent=!b.built;m.opacity=b.built?1:.5;m.depthWrite=b.built;m.color.copy(b.built?m.userData.baseColor:new THREE.Color('#79d5ed'));m.emissive.copy(b.built?m.userData.baseEmissive:new THREE.Color('#2c8ca9'));m.emissiveIntensity=b.built?m.userData.baseEmission:.85;});o.root.traverse(n=>{if(n.isMesh)n.castShadow=b.built;});o.built=b.built;}
+      // Blueprints turn red while the player stands where the finished structure would trap them.
+      const blocked=!b.built&&b.type!=='habitat'&&obstructs(b);
+      if(o.built!==b.built||o.blocked!==blocked){o.ownedMaterials.forEach(m=>{m.transparent=!b.built;m.opacity=b.built?1:blocked?.6:.5;m.depthWrite=b.built;m.color.copy(b.built?m.userData.baseColor:blueprintColor[blocked?1:0]);m.emissive.copy(b.built?m.userData.baseEmissive:blueprintEmissive[blocked?1:0]);m.emissiveIntensity=b.built?m.userData.baseEmission:.85;});o.root.traverse(n=>{if(n.isMesh)n.castShadow=b.built;});o.built=b.built;o.blocked=blocked;}
       if(!b.built)o.root.scale.y=.35+.65*(b.progress||0);
       else o.root.scale.y=1;
-      if(o.roof)o.roof.visible=!(state.player.x>b.x*2-1&&state.player.x<(b.x+w)*2-1&&state.player.z>b.z*2-1&&state.player.z<(b.z+d)*2-1);
-      if(o.light){const powered=b.built&&state.power.powered!==false;o.light.intensity=powered?(1-daylight)*(b.type==='habitat'?10:26):0;o.ownedMaterials.forEach(m=>{m.emissiveIntensity=b.built?(m.userData.baseEmission||0)*(powered?1:0):.85;});}
+      if(o.emits){const powered=b.built&&state.power.powered!==false;o.ownedMaterials.forEach(m=>{m.emissiveIntensity=b.built?(m.userData.baseEmission||0)*(powered?1:0):.85;});}
     }
+    updateLights(daylight);
     productionView.update(state,dt,daylight);
     follow.set(player.position.x,player.position.y+1.05,player.position.z);
     const cameraDistance=4;camera.position.set(follow.x+26*cameraDistance,follow.y+34*cameraDistance,follow.z+26*cameraDistance);camera.lookAt(follow);camera.updateMatrixWorld();
     if(underground)caveView.update(state,dt);else updateStatuses();
     renderer.render(scene,camera);canvas.dataset.drawCalls=String(renderer.info.render.calls);canvas.dataset.triangles=String(renderer.info.render.triangles);
   }
-  function dispose(){disposed=true;caveView?.dispose();productionView.dispose();statusLayer.remove();terrainView.dispose();grid.geometry.dispose();grid.material.dispose();actor?.dispose();reflection.dispose();canvas.removeEventListener('wheel',zoom);for(const o of structures.values()){o.ownedMaterials?.forEach(m=>m.dispose());scene.remove(o.ports);}geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());renderer.dispose();}
+  function dispose(){disposed=true;caveView?.dispose();productionView.dispose();habitatView.dispose();statusLayer.remove();terrainView.dispose();grid.geometry.dispose();grid.material.dispose();actor?.dispose();reflection.dispose();canvas.removeEventListener('wheel',zoom);for(const o of structures.values()){o.ownedMaterials?.forEach(m=>m.dispose());scene.remove(o.ports);}geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());renderer.dispose();}
   resize();update(initialState,1);
   return {renderer,scene,camera,update,pick,setGhost,clearGhost,resize,dispose};
 }

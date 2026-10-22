@@ -1,1 +1,1 @@
-{"type":"module","scripts":{"test":"node --test sim.test.mjs production.test.mjs assets.test.mjs"}}
+{"type":"module","scripts":{"test":"node --test sim.test.mjs production.test.mjs habitat.test.mjs assets.test.mjs"}}

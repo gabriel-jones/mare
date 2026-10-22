@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createState, placeBlueprint, tick, serialize, deserialize, deconstruct, collectStorage, setMiningArea, validatePlacement, DEFS } from './sim.js';
+import { createState, placeBlueprint, tick, serialize, deserialize, deconstruct, collectStorage, setMiningArea, validatePlacement, rotateBelt, DEFS } from './sim.js';
 import { ports } from './defs.js';
-import { ensureBuildingState, miningCells, remainingRegolith, ROVER, RECIPE, REGOLITH_PER_CELL, BELT_SPACING } from './production.js';
+import { beltTurns, ensureBuildingState, miningCells, remainingRegolith, ROVER, RECIPE, REGOLITH_PER_CELL, BELT_SPACING } from './production.js';
 import { findPath } from './paths.js';
 
 function build(state, type, x, z, rotation = 0) {
@@ -165,4 +165,29 @@ test('dismantling refunds the structure and any refined contents', () => {
   assert.equal(s.inventory.metal, 90);
   assert.equal(deconstruct(s, crate.id).ok, true);
   assert.equal(s.inventory.metal, 107); assert.equal(s.buildings.length, 0);
+});
+
+test('belts fed from the side become corners; items enter them and continue', () => {
+  const s = createState(); s.inventory = { metal: 1000, silicon: 1000 };
+  const feeder = build(s, 'conveyor', 0, 2, 1), corner = build(s, 'conveyor', 1, 2, 0), out = build(s, 'conveyor', 1, 3, 0);
+  assert.equal(beltTurns(s).get(corner.id), -1, 'fed from its left');
+  assert.equal(beltTurns(s).get(out.id), 0);
+  feeder.items.push({ type: 'regolith', p: 0.9 });
+  run(s, 2);
+  assert.equal(out.items.length + corner.items.length, 1);
+  // A belt also feeding from behind keeps the corner straight.
+  build(s, 'conveyor', 1, 1, 0);
+  assert.equal(beltTurns(s).get(corner.id), 0);
+  // A hopper output feeding a belt sideways also bends it.
+  const h = createState(); h.inventory = { metal: 1000, silicon: 1000 };
+  build(h, 'hopper', 2, 2); const side = build(h, 'conveyor', 2, 4, 1);
+  assert.equal(beltTurns(h).get(side.id), 1);
+});
+
+test('redirecting a belt keeps its items', () => {
+  const s = createState(); s.inventory = { metal: 1000, silicon: 1000 };
+  const b = build(s, 'conveyor', 0, 2, 0); b.items.push({ type: 'metal', p: 0.4 });
+  assert.equal(rotateBelt(s, b.id, 1).ok, true);
+  assert.equal(b.rotation, 1); assert.equal(b.items.length, 1);
+  assert.equal(rotateBelt(s, b.id, 4).ok, false);
 });

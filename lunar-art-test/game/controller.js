@@ -1,8 +1,10 @@
 import {worldVectorToCave} from './cave-space.js';
 import { caveWalkable } from './caves.js';
 import { terrainBlocked } from './terrain.js';
+import { habitatLayout, wallBlocks } from './habitat.js';
 // Input-to-world movement is independent of rendering and networking.
 export const CELL_SIZE=2;
+export const PLAYER_RADIUS=.32;
 export const RUN_SPEED=6.5;
 export const WALK_SPEED=RUN_SPEED; // Compatibility for existing consumers; movement always runs.
 export function resetLocomotion(player){
@@ -30,9 +32,10 @@ export function movePlayer(state,dx,dz,dt,defs){
   if(terrainBlocked(state.seed,x,z,state.buildings,defs))return true;
   // Landing ship itself is solid; the rest of the pad is walkable.
   if(Math.hypot(x,z+10)<1.9)return true;
+  if(wallBlocks(habitatLayout(state.buildings),x,z,PLAYER_RADIUS))return true;
   for(const b of state.buildings){
    const d=defs[b.type];if(!b.built||!d||d.walkable)continue;
-   const w=b.rotation?d.d:d.w,h=b.rotation?d.w:d.d,r=.32;
+   const w=b.rotation%2?d.d:d.w,h=b.rotation%2?d.w:d.d,r=PLAYER_RADIUS;
    if(x>b.x*2-1-r&&x<(b.x+w-1)*2+1+r&&z>b.z*2-1-r&&z<(b.z+h-1)*2+1+r)return true;
   }return false;
  };
@@ -46,7 +49,7 @@ export function movePlayer(state,dx,dz,dt,defs){
   p.facing+=delta*(1-Math.exp(-step/0.065));
  }
 }
-export function buildingCenter(b,defs){const d=defs[b.type];return {x:(b.x+((b.rotation?d.d:d.w)-1)/2)*2,z:(b.z+((b.rotation?d.w:d.d)-1)/2)*2};}
+export function buildingCenter(b,defs){const d=defs[b.type];return {x:(b.x+((b.rotation%2?d.d:d.w)-1)/2)*2,z:(b.z+((b.rotation%2?d.w:d.d)-1)/2)*2};}
 export function nearestBlueprint(state,defs,range=5){
  let found=null,best=range;
  for(const b of state.buildings){if(b.built)continue;const c=buildingCenter(b,defs),dist=Math.hypot(c.x-state.player.x,c.z-state.player.z);if(dist<best){found=b;best=dist;}}

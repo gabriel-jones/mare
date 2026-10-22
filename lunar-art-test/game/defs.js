@@ -8,7 +8,7 @@ export const DEFS = Object.freeze({
   solar: { name: 'Solar array', w: 2, d: 2, cost: { metal: 18, silicon: 8 }, buildTime: 4, description: 'Generates up to 8 kW in sunlight.' },
   battery: { name: 'Battery bank', w: 1, d: 2, cost: { metal: 14, silicon: 5 }, buildTime: 3, description: 'Stores 180 kJ of surplus power for the lunar night.' },
   hopper: { name: 'Regolith hopper', w: 2, d: 2, cost: { metal: 20, silicon: 2 }, buildTime: 4, capacity: 120, outputs: [{ x: 0, z: 1, dir: 0 }], description: 'The mining rover unloads and recharges here. Feeds regolith onto a belt at its marked output.' },
-  habitat: { name: 'Habitat', w: 2, d: 2, cost: { metal: 32, silicon: 8 }, buildTime: 6, walkable: true, description: 'A four-square walkable shelter. Consumes 1 kW.' },
+  habitat: { name: 'Habitat', w: 2, d: 2, cost: { metal: 32, silicon: 8 }, buildTime: 6, walkable: true, enclosed: true, airlock: true, description: 'Modules placed side by side join into one room. Enter through the airlock on its arrow side. Consumes 1 kW.' },
   lamp: { name: 'Work light', w: 1, d: 1, cost: { metal: 4, silicon: 1 }, buildTime: 1.5, description: 'Lights the base at night. Consumes 0.2 kW.' },
   conveyor: { name: 'Conveyor belt', w: 1, d: 1, cost: { metal: 1 }, buildTime: 0.25, walkable: true, description: 'Carries items forward. Drag to lay a line.' },
   processor: { name: 'Regolith processor', w: 2, d: 3, cost: { metal: 45, silicon: 15 }, buildTime: 7, inputs: [{ x: 0, z: 0, dir: 2 }], outputs: [{ x: 0, z: 2, dir: 0 }], description: 'Refines regolith into metal and silicon, venting oxygen to colony reserves. Uses 3 kW while running.' },

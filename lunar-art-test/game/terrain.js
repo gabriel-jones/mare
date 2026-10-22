@@ -46,7 +46,7 @@ export function terrainReason(seed,cells){
  if(Math.max(...heights)-Math.min(...heights)>.38)return 'Ground is too uneven for this foundation.';return null;
 }
 export function terrainBlocked(seed,x,z,buildings=[],defs={}){
- if(buildings.some(b=>{const d=defs[b.type];if(!d)return false;return x>=b.x*2-2&&x<=(b.x+(b.rotation?d.d:d.w))*2&&z>=b.z*2-2&&z<=(b.z+(b.rotation?d.w:d.d))*2;}))return false;
+ if(buildings.some(b=>{const d=defs[b.type];if(!d)return false;return x>=b.x*2-2&&x<=(b.x+(b.rotation%2?d.d:d.w))*2&&z>=b.z*2-2&&z<=(b.z+(b.rotation%2?d.w:d.d))*2;}))return false;
  return slopeAt(seed,x,z)>.65||terrainData(seed).boulders.some(b=>Math.hypot(x-b.x,z-b.z)<b.radius+.3);
 }
 

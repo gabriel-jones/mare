@@ -34,6 +34,27 @@ export function productionDemand(state) {
   return kw;
 }
 
+/** Whether something at `from` delivers into the cell `to` travelling in direction `dir`. */
+function feedsInto(from, to, dir) {
+  if (from.type === 'conveyor') return from.rotation === dir;
+  return ports(from, 'outputs').some(p => p.dir === dir && p.neighbor.x === to.x && p.neighbor.z === to.z);
+}
+const turnCache = { sig: null, turns: new Map() };
+/** Belt shape by id: 0 straight, 1 fed from its right-hand side (+X at rotation 0), -1 from the left.
+ * A belt only curves when nothing feeds it from behind and exactly one side does. */
+export function beltTurns(state) {
+  const sig = state.buildings.map(b => `${b.id}:${b.type}:${b.x}:${b.z}:${b.rotation}`).join('|');
+  if (turnCache.sig === sig) return turnCache.turns;
+  const index = cellIndex(state), turns = new Map();
+  for (const b of state.buildings) {
+    if (b.type !== 'conveyor') continue;
+    const fed = side => { const dir = (b.rotation + side) % 4, [dx, dz] = DIRS[dir], n = index.get(key(b.x + dx, b.z + dz)); return !!n && n !== b && feedsInto(n, b, (dir + 2) % 4); };
+    const right = fed(1), left = fed(3);
+    turns.set(b.id, fed(2) || right === left ? 0 : right ? 1 : -1);
+  }
+  turnCache.sig = sig; turnCache.turns = turns;
+  return turns;
+}
 function cellIndex(state) {
   const map = new Map();
   for (const b of state.buildings) for (const c of footprint(b.type, b.x, b.z, b.rotation)) map.set(key(c.x, c.z), b);

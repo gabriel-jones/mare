@@ -1,5 +1,6 @@
 import { crossCavePortal } from './travel.js';
-import {DEFS,createState,validatePlacement,placeBlueprint,construct,tick,serialize,deserialize,cancelBlueprint,deconstruct,collectStorage,setMiningArea} from './sim.js';
+import {DEFS,createState,validatePlacement,placeBlueprint,construct,tick,serialize,deserialize,cancelBlueprint,deconstruct,collectStorage,setMiningArea,rotateBelt,playerObstructs} from './sim.js';
+import {DIRS} from './defs.js';
 import {movePlayer,nearestBlueprint,buildingCenter,resetLocomotion,interpolatePose,RUN_SPEED} from './controller.js';
 import {MINING_RADIUS} from './production.js';
 import {createWorld} from './world.js';
@@ -9,7 +10,7 @@ const KEY='lunar-frontier.phase-a.v1';
 const TOOLS=[...Object.keys(DEFS),'mine'];
 const canvas=document.querySelector('#game'),boot=document.querySelector('#boot');
 let state=createState(),selectedType=null,rotation=0,world,ui;
-let placementReason='',constructionReason='',hover=null,targetId=null,constructing=false,speed=1,saveStatus='Not saved',dragStart=null;
+let placementReason='',constructionReason='',hover=null,targetId=null,constructing=false,speed=1,saveStatus='Not saved',beltPath=null;
 let jumpVelocity=0,accumulator=0,last=performance.now(),uiClock=0,autoClock=0;
 const keys=new Set();
 resetLocomotion(state.player);
@@ -18,7 +19,7 @@ function resetPlayer(){resetLocomotion(state.player);previousPose={...state.play
 function notify(message){ui?.notify(message);}
 function save(){try{localStorage.setItem(KEY,serialize(state));saveStatus='Saved locally';notify('Colony saved on this browser.');}catch(e){saveStatus='Save unavailable';notify('Could not save: browser storage is unavailable.');}}
 function load(){try{const raw=localStorage.getItem(KEY);if(!raw){notify('No saved colony yet.');return;}state=deserialize(raw);resetPlayer();keys.clear();selectedType=null;world?.clearGhost();saveStatus='Loaded';notify('Saved colony restored.');}catch(e){notify('Save could not be loaded. Current colony is unchanged.');}}
-function select(type){selectedType=type;if(type!=='conveyor')rotation=0;placementReason='';dragStart=null;if(!type)world?.clearGhost();canvas.focus({preventScroll:true});if(type==='mine')notify('Click the ground to set where the rover digs.');}
+function select(type){selectedType=type;if(type!=='conveyor')rotation=0;placementReason='';beltPath=null;if(!type)world?.clearGhost();canvas.focus({preventScroll:true});if(type==='mine')notify('Click the ground to set where the rover digs.');}
 function cancel(){
  const b=state.buildings.find(b=>b.id===targetId);
  if(b){const r=b.built?deconstruct(state,b.id):cancelBlueprint(state,b.id);notify(r.reason);targetId=null;refreshGhost();}
@@ -41,14 +42,35 @@ function view(){
  const guidance=nearest?`${DEFS[nearest.type].name} blueprint: ${Math.ceil(Math.hypot(c.x-state.player.x,c.z-state.player.z))}m away. Walk within 5m, then hold E.`:null;
  return {selectedType,rotation,placementReason,constructionReason,nearbyBuilding:nearby(),nearbyStorage:nearbyStorage(),guidance,constructing,night:Math.sin(state.time/240*Math.PI*2+Math.PI/3)<=0,paused:false,saveStatus:saveStatus+(speed>1?' · Time ×12':''),timeScale:speed};
 }
-function point(event){hover=world?.pick(event.clientX,event.clientY);canvas.dataset.hoverCell=hover?`${hover.x},${hover.z}`:'';if(!hover){world?.clearGhost();return;}targetId=hover.buildingId??null;canvas.dataset.targetId=String(targetId??'');refreshGhost();}
-/** A straight belt run from the drag start, oriented along the drag. */
+function point(event){hover=world?.pick(event.clientX,event.clientY);canvas.dataset.hoverCell=hover?`${hover.x},${hover.z}`:'';if(!hover){world?.clearGhost();return;}if(beltPath)extendBeltPath(hover);targetId=hover.buildingId??null;canvas.dataset.targetId=String(targetId??'');refreshGhost();}
+const MAX_BELT_PATH=80;
+/** Grows the dragged belt route to `cell` one grid step at a time, continuing along the current
+ * heading before turning, so the route follows the pointer around corners. Backtracking trims it. */
+function extendBeltPath(cell){
+ const path=beltPath;let last=path[path.length-1];
+ if(last.x===cell.x&&last.z===cell.z)return;
+ const prev=path[path.length-2],alongXFirst=prev?prev.z===last.z:Math.abs(cell.x-last.x)>=Math.abs(cell.z-last.z);
+ let {x,z}=last;
+ while((x!==cell.x||z!==cell.z)&&path.length<MAX_BELT_PATH){
+  if(alongXFirst?x!==cell.x:z===cell.z)x+=Math.sign(cell.x-x);else z+=Math.sign(cell.z-z);
+  const seen=path.findIndex(c=>c.x===x&&c.z===z);
+  if(seen>=0)path.length=seen+1;else path.push({x,z});
+ }
+}
+/** The route as belt cells: each faces the next cell; the last keeps the final heading. Existing
+ * belts on the route are redirected rather than rebuilt; new ones are limited by available metal. */
 function beltLine(){
- if(!dragStart||!hover)return [{x:hover.x,z:hover.z,rotation}];
- const dx=hover.x-dragStart.x,dz=hover.z-dragStart.z;
- if(!dx&&!dz)return [{x:dragStart.x,z:dragStart.z,rotation}];
- const alongX=Math.abs(dx)>=Math.abs(dz),length=Math.min(40,Math.abs(alongX?dx:dz)),step=Math.sign(alongX?dx:dz),dir=alongX?(step>0?1:3):(step>0?0:2);
- return Array.from({length:length+1},(_,i)=>({x:dragStart.x+(alongX?i*step:0),z:dragStart.z+(alongX?0:i*step),rotation:dir}));
+ const path=beltPath??(hover?[{x:hover.x,z:hover.z}]:[]);
+ const dirTo=(a,b)=>DIRS.findIndex(([dx,dz])=>dx===b.x-a.x&&dz===b.z-a.z);
+ let metal=state.inventory.metal;
+ return path.map((c,i)=>{
+  const dir=path[i+1]?dirTo(c,path[i+1]):path[i-1]?dirTo(path[i-1],c):rotation;
+  const existing=state.buildings.find(b=>b.type==='conveyor'&&b.x===c.x&&b.z===c.z);
+  if(existing)return {x:c.x,z:c.z,rotation:dir,existing:existing.id,valid:true};
+  const check=validatePlacement(state,'conveyor',c.x,c.z,dir),valid=check.ok&&metal>=DEFS.conveyor.cost.metal;
+  if(valid)metal-=DEFS.conveyor.cost.metal;
+  return {x:c.x,z:c.z,rotation:dir,valid,reason:check.ok?'Not enough metal.':check.reason};
+ });
 }
 function refreshGhost(){
  if(state.player.cave!=null||!selectedType||!hover){world?.clearGhost();return;}
@@ -57,25 +79,29 @@ function refreshGhost(){
   placementReason=ok?'Click to set the mining area':'Outside the mining range.';world?.setGhost('mine',hover.x,hover.z,0,ok);return;
  }
  if(selectedType==='conveyor'){
-  const line=beltLine().map(c=>({...c,valid:validatePlacement(state,'conveyor',c.x,c.z,c.rotation).ok}));
-  placementReason=line.every(c=>c.valid)?'Drag to lay belts':line.some(c=>c.valid)?'Blocked cells are skipped':validatePlacement(state,'conveyor',line[0].x,line[0].z,line[0].rotation).reason;
+  const line=beltLine(),blocked=line.find(c=>!c.valid);
+  placementReason=!blocked?(beltPath?`${line.length} belt${line.length>1?'s':''} · release to place`:line[0]?.existing!=null?'Click to turn this belt, or drag a route':'Drag a route; it can turn corners'):line.some(c=>c.valid)?'Blocked cells are skipped':blocked.reason;
   world?.setGhost('conveyor',hover.x,hover.z,rotation,line.some(c=>c.valid),line);return;
  }
- const valid=validatePlacement(state,selectedType,hover.x,hover.z,rotation);placementReason=valid.ok?'Click to place blueprint':valid.reason;world?.setGhost(selectedType,hover.x,hover.z,rotation,valid.ok);
+ const valid=validatePlacement(state,selectedType,hover.x,hover.z,rotation),underfoot=valid.ok&&!DEFS[selectedType].walkable&&playerObstructs(state,{type:selectedType,x:hover.x,z:hover.z,rotation,built:false});
+ placementReason=underfoot?'Step out of the footprint before placing.':valid.ok?'Click to place blueprint':valid.reason;world?.setGhost(selectedType,hover.x,hover.z,rotation,valid.ok&&!underfoot);
 }
 function placeBelts(){
- const line=beltLine();let placed=0,reason='';
- for(const c of line){const r=placeBlueprint(state,'conveyor',c.x,c.z,c.rotation);if(r.ok){placed++;targetId=r.id;}else reason||=r.reason;}
- if(line.length>1)rotation=line[0].rotation;
- notify(placed?`${placed} belt blueprint${placed>1?'s':''}${placed<line.length?` · ${line.length-placed} blocked`:''}`:reason);
- dragStart=null;refreshGhost();
+ const line=beltLine();let placed=0,turned=0,reason='';
+ for(const c of line){
+  if(c.existing!=null){const b=state.buildings.find(b=>b.id===c.existing);if(b.rotation!==c.rotation){rotateBelt(state,b.id,c.rotation);turned++;}continue;}
+  const r=placeBlueprint(state,'conveyor',c.x,c.z,c.rotation);if(r.ok){placed++;targetId=r.id;}else reason||=r.reason;
+ }
+ if(line.length)rotation=line[line.length-1].rotation;
+ const skipped=line.length-placed-line.filter(c=>c.existing!=null).length;
+ notify(placed||turned?[placed&&`${placed} belt blueprint${placed>1?'s':''}`,turned&&`${turned} redirected`,skipped&&`${skipped} blocked`].filter(Boolean).join(' · '):reason||'Belts already face this way.');
+ beltPath=null;refreshGhost();
 }
 function commandPlace(){
  if(!selectedType||!hover)return;
  if(selectedType==='mine'){const r=setMiningArea(state,hover.x,hover.z);notify(r.reason);if(r.ok)select(null);return;}
- const d=DEFS[selectedType],w=rotation%2?d.d:d.w,h=rotation%2?d.w:d.d;
  // A solid foundation cannot be placed underneath the player.
- if(!d.walkable&&state.player.x>hover.x*2-1&&state.player.x<(hover.x+w-1)*2+1&&state.player.z>hover.z*2-1&&state.player.z<(hover.z+h-1)*2+1){notify('Step out of the footprint before placing.');return;}
+ if(!DEFS[selectedType].walkable&&playerObstructs(state,{type:selectedType,x:hover.x,z:hover.z,rotation,built:false})){notify('Step out of the footprint before placing.');return;}
  const r=placeBlueprint(state,selectedType,hover.x,hover.z,rotation);
  if(r.ok){targetId=r.id;notify(`${DEFS[selectedType].name} blueprint`);}else notify(r.reason);
  refreshGhost();
@@ -112,16 +138,16 @@ async function start(){
   ui=createUI(document.querySelector('#ui'),{onSelect:select,onRotate:()=>{rotation=(rotation+1)%4;refreshGhost();},onSave:save,onLoad:load,onReset:()=>{state=createState(Math.floor(Math.random()*999999));selectedType=null;resetPlayer();targetId=null;keys.clear();world?.clearGhost();save();notify('New lunar landing created.');},onCancel:()=>select(null),onTimeToggle:()=>{speed=speed===1?12:1;notify(speed===1?'Normal day/night speed.':'Day/night simulation ×12. Movement stays normal.');}});
   world=await createWorld(canvas,state);
   canvas.addEventListener('pointermove',point);
-  canvas.addEventListener('pointerleave',()=>{hover=null;dragStart=null;world.clearGhost();});
+  canvas.addEventListener('pointerleave',()=>{if(beltPath)return;hover=null;world.clearGhost();});
   canvas.addEventListener('pointerdown',e=>{
    canvas.focus({preventScroll:true});
    if(e.button===2){select(null);return;}
    if(e.button!==0)return;
    point(e);
-   if(selectedType==='conveyor'&&hover){dragStart={x:hover.x,z:hover.z};try{canvas.setPointerCapture(e.pointerId);}catch{}refreshGhost();}
+   if(selectedType==='conveyor'&&hover){beltPath=[{x:hover.x,z:hover.z}];try{canvas.setPointerCapture(e.pointerId);}catch{}refreshGhost();}
    else commandPlace();
   });
-  canvas.addEventListener('pointerup',e=>{if(e.button===0&&dragStart&&selectedType==='conveyor'){point(e);if(hover)placeBelts();else dragStart=null;}});
+  canvas.addEventListener('pointerup',e=>{if(e.button===0&&beltPath&&selectedType==='conveyor'){point(e);placeBelts();}});
   canvas.addEventListener('contextmenu',e=>e.preventDefault());
   window.addEventListener('keydown',e=>{
    if(/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)||e.ctrlKey||e.metaKey||e.altKey)return;

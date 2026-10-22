@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { DIRS } from './defs.js';
 import { surfaceHeightAt as heightAt } from './terrain.js';
-import { ROVER, MINING_RADIUS, REGOLITH_PER_CELL } from './production.js';
+import { ROVER, MINING_RADIUS, REGOLITH_PER_CELL, beltTurns } from './production.js';
 
 // Presentation for the Phase B logistics layer: rovers, belt items and the mining area.
 export function createProductionView(scene, models) {
@@ -20,15 +20,22 @@ export function createProductionView(scene, models) {
     const mesh = new THREE.InstancedMesh(geo, mat, 4096); mesh.castShadow = true; mesh.count = 0; mesh.frustumCulled = false; root.add(mesh); batches[type] = mesh;
   }
   function updateItems(state, time) {
-    const counts = { regolith: 0, metal: 0, silicon: 0 };
+    const counts = { regolith: 0, metal: 0, silicon: 0 }, turns = beltTurns(state);
     for (const b of state.buildings) {
       if (b.type !== 'conveyor' || !b.items?.length) continue;
-      const [dx, dz] = DIRS[b.rotation], cx = b.x * 2, cz = b.z * 2;
+      const [fx, fz] = DIRS[b.rotation], cx = b.x * 2, cz = b.z * 2, turn = turns.get(b.id) ?? 0;
+      const [sx, sz] = DIRS[(b.rotation + (turn > 0 ? 1 : 3)) % 4];
       for (const item of b.items) {
         const mesh = batches[item.type]; if (!mesh || counts[item.type] >= 4096) continue;
-        const offset = (item.p - .5) * 2, x = cx + dx * offset, z = cz + dz * offset;
+        let x, z, heading = b.rotation * Math.PI / 2;
+        if (turn) {
+          // Quarter arc about the corner shared by the feeding side and the front edge.
+          const a = item.p * Math.PI / 2, c = Math.cos(a), s = Math.sin(a);
+          x = cx + sx + fx - fx * c - sx * s; z = cz + sz + fz - fz * c - sz * s;
+          heading = Math.atan2(fx * s - sx * c, fz * s - sz * c);
+        } else { const offset = (item.p - .5) * 2; x = cx + fx * offset; z = cz + fz * offset; }
         dummy.position.set(x, heightAt(state.seed, cx, cz) + .5, z);
-        dummy.rotation.set(0, b.rotation * Math.PI / 2 + (item.type === 'regolith' ? item.p * 2 + time * .1 : 0), 0);
+        dummy.rotation.set(0, heading + (item.type === 'regolith' ? item.p * 2 + time * .1 : 0), 0);
         dummy.updateMatrix(); mesh.setMatrixAt(counts[item.type]++, dummy.matrix);
       }
     }

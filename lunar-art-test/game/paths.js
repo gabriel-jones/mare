@@ -10,11 +10,11 @@ function terrainCell(seed, x, z) {
   if (!cache.has(key)) cache.set(key, terrainBlocked(seed, x * 2, z * 2) || Math.hypot(x * 2, z * 2 + 10) < 3);
   return cache.get(key);
 }
-/** Robots drive over belts and blueprints; other finished structures are solid. */
+/** Robots drive over belts and blueprints; other finished structures, habitats included, are solid. */
 export function robotBlockedCells(state) {
   const blocked = new Set();
   for (const b of state.buildings) {
-    if (!b.built || DEFS[b.type].walkable) continue;
+    if (!b.built || (DEFS[b.type].walkable && !DEFS[b.type].enclosed)) continue;
     for (const c of footprint(b.type, b.x, b.z, b.rotation)) blocked.add(`${c.x},${c.z}`);
   }
   return blocked;
