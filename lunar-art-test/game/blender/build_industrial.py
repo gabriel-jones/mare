@@ -1,15 +1,23 @@
-"""Author the lunar industrial kit. Run inside Blender; preserves other scenes."""
+"""Author the lunar industrial kit. Run inside Blender. Builds in a temporary scene, writes only that
+scene to industrial-library.blend and removes it again so the open file is left untouched.
+Set ONLY = {'solar', ...} before running to export just those GLBs; the hopper here is superseded
+by build_production.py and is only exported when named."""
 import bpy, math, os
 from mathutils import Vector
 
 OUT = '/Users/gabe/Documents/Playground/lunar-art-test/game/assets'
 os.makedirs(OUT, exist_ok=True)
+EXPORT = globals().get('ONLY') or {'launchpad', 'starship', 'habitat', 'solar', 'battery'}
+previous_scene = bpy.context.window.scene
 scene = bpy.data.scenes.new('Lunar industrial asset library')
 bpy.context.window.scene = scene
 objects = []
+created = {'objects': [], 'meshes': [], 'materials': []}
 
 def material(name, color, metallic=0, roughness=.5, emission=0):
-    m = bpy.data.materials.new(name)
+    if name in bpy.data.materials:
+        return bpy.data.materials[name]
+    m = bpy.data.materials.new(name); created['materials'].append(m)
     m.diffuse_color = (*color, 1)
     m.use_nodes = True
     p = next(n for n in m.node_tree.nodes if n.type == 'BSDF_PRINCIPLED')
@@ -41,7 +49,7 @@ def finish(o, name, mat, bevel=0, smooth=False):
         bpy.ops.object.modifier_apply(modifier=mod.name)
     if smooth:
         for f in o.data.polygons: f.use_smooth=True
-    objects.append(o)
+    objects.append(o); created['objects'].append(o); created['meshes'].append(o.data)
     return o
 
 def box(name, loc, size, mat='ivory', bevel=.035, rot=None):
@@ -86,6 +94,8 @@ def polygon_prism(name, points, depth, mat='metal'):
     o=bpy.data.objects.new(name,me);scene.collection.objects.link(o)
     return finish(o,name,mat)
 
+exec(open(os.path.join(os.path.dirname(OUT), 'blender', 'status_parts.py')).read())
+
 def join_group(group,name):
     if not group:return None
     bpy.ops.object.select_all(action='DESELECT')
@@ -100,8 +110,10 @@ def export_asset(name, builder, location):
     global objects
     objects=[];builder()
     roof=[o for o in objects if o.name.startswith('Roof')]
-    regular=[o for o in objects if o not in roof]
-    result=[]
+    # Status parts stay separate, named nodes the runtime can recolour or scale.
+    status=[o for o in objects if o.name.split('.')[0] in ('Lamp','Level') or o.name.startswith('Cell')]
+    regular=[o for o in objects if o not in roof and o not in status]
+    result=[join_group([o],o.name.split('.')[0]) for o in status]
     groups={key:[o for o in regular if o.data.materials[0] == mat] for key,mat in M.items()}
     for key,g in groups.items():
         o=join_group(g,name+'_'+key)
@@ -110,7 +122,7 @@ def export_asset(name, builder, location):
     if o:result.append(o)
     bpy.ops.object.select_all(action='DESELECT')
     for o in result:o.select_set(True)
-    bpy.ops.export_scene.gltf(filepath=os.path.join(OUT,name+'.glb'),export_format='GLB',use_selection=True,use_active_scene=True,export_apply=True,export_yup=True,export_animations=False)
+    if name in EXPORT: bpy.ops.export_scene.gltf(filepath=os.path.join(OUT,name+'.glb'),export_format='GLB',use_selection=True,use_active_scene=True,export_apply=True,export_yup=True,export_animations=False)
     tris=sum(sum(len(p.vertices)-2 for p in o.data.polygons) for o in result)
     print('LUNAR_ASSET',name,'triangles',tris,'mesh_objects',len(result))
     for o in result:o.location+=Vector(location)
@@ -177,6 +189,7 @@ def solar():
             box('PV tile',(x,y*math.cos(angle)-.03,1.32+y*math.sin(angle)),(.55,.755,.025),'pv',0,(angle,0,0))
     box('Inverter',(0,.7,.38),(.8,.45,.55),'ivory',.04)
     box('Inverter indicator',(0,.455,.43),(.28,.02,.06),'light',.005)
+    status_lamp(-1.92,1.78,2.15,0)
 
 def battery():
     box('Skid',(0,0,.14),(1.8,3.6,.28),'dark',.06)
@@ -184,9 +197,11 @@ def battery():
         box('Battery cassette',(0,y,.89),(1.52,1.0,1.35),'ivory',.10)
         for x in [-.68,.68]:box('Protective rail',(x,y,.89),(.1,1.07,1.45),'metal',.025)
         box('Cassette face',(0,y-.515,.9),(1.16,.035,.84),'dark',.03)
-        box('Charge indicator',(0,y-.54,1.1),(.65,.02,.075),'light',.005)
+        if y>-1: box('Charge indicator',(0,y-.54,1.1),(.65,.02,.075),'light',.005)
         box('Cassette release',(0,y-.55,.65),(.32,.045,.08),'orange',.015)
+    status_cells(0,-1.665,1.1)
     beam('Power bus',(.6,-1.5,1.65),(.6,1.5,1.65),.12,'orange')
+    status_lamp(-.78,1.7,2.1,.28)
 
 def hopper():
     box('Base skid',(0,0,.16),(3.4,3.4,.3),'dark',.06)
@@ -229,28 +244,20 @@ def habitat():
     box('Interior cabinet screen',(-1.4,1.375,1.1),(.35,.02,.24),'glass',.01)
     beam('Interior service conduit',(-1.65,1.64,1.85),(1.65,1.64,1.85),.055,'orange')
 
-def lamp():
-    box('Anchored foot',(0,0,.1),(.8,.8,.2),'dark',.06)
-    cyl('Mast',(0,0,1.3),.075,2.4,'metal',12)
-    box('Luminaire housing',(0,0,2.48),(.7,.46,.19),'dark',.05)
-    box('Warm diffuse panel',(0,-.025,2.375),(.53,.32,.025),'light',.015)
-    box('Safety collar',(0,0,.47),(.2,.2,.21),'orange',.025)
-
 export_asset('launchpad',launchpad,(-11,0,0))
 export_asset('starship',starship,(-11,0,.09))
 export_asset('habitat',habitat,(3,0,0))
 export_asset('solar',solar,(8,0,0))
 export_asset('battery',battery,(3,-6,0))
 export_asset('hopper',hopper,(8,-6,0))
-export_asset('lamp',lamp,(.2,-3,0))
 
 scene.world=bpy.data.worlds.new('Industrial library environment')
 scene.world.use_nodes=True
 background=next(n for n in scene.world.node_tree.nodes if n.type=='BACKGROUND')
 background.inputs[0].default_value=(.16,.2,.27,1)
 background.inputs[1].default_value=.4
-bpy.ops.object.light_add(type='SUN',location=(0,0,20));bpy.context.object.rotation_euler=(.45,-.5,-.55);bpy.context.object.data.energy=3
-bpy.ops.object.light_add(type='AREA',location=(0,-10,15));bpy.context.object.data.energy=1800;bpy.context.object.data.shape='DISK';bpy.context.object.data.size=15
+bpy.ops.object.light_add(type='SUN',location=(0,0,20));sun=bpy.context.object;sun.rotation_euler=(.45,-.5,-.55);sun.data.energy=3
+bpy.ops.object.light_add(type='AREA',location=(0,-10,15));area=bpy.context.object;area.data.energy=1800;area.data.shape='DISK';area.data.size=15
 bpy.ops.object.camera_add(location=(29,-38,31));camera=bpy.context.object;camera.rotation_euler=(Vector((-3,0,4))-camera.location).to_track_quat('-Z','Y').to_euler();camera.data.type='ORTHO';camera.data.ortho_scale=39;scene.camera=camera
 engines={e.identifier for e in scene.render.bl_rna.properties['engine'].enum_items}
 for engine in ['BLENDER_EEVEE_NEXT','BLENDER_EEVEE','CYCLES']:
@@ -260,6 +267,23 @@ for engine in ['BLENDER_EEVEE_NEXT','BLENDER_EEVEE','CYCLES']:
 if scene.render.engine=='CYCLES': scene.cycles.samples=24
 scene.render.resolution_x=1600;scene.render.resolution_y=1100;scene.render.resolution_percentage=100
 scene.render.image_settings.file_format='PNG';scene.render.filepath=os.path.join(OUT,'asset-library.png')
-bpy.ops.wm.save_as_mainfile(filepath=os.path.join(OUT,'industrial-library.blend'))
-# A render is intentionally optional; invoke bpy.ops.render.render(write_still=True) to preview.
+if os.environ.get('LUNAR_RENDER_PREVIEW','1')=='1': bpy.ops.render.render(write_still=True)
+bpy.data.libraries.write(os.path.join(OUT,'industrial-library.blend'),{scene},fake_user=True)
+
+# Leave the user's open file as it was.
+bpy.context.window.scene=previous_scene
+lights=[o.data for o in (sun,area)];cam=camera.data;world=scene.world
+for o in list(scene.collection.objects):bpy.data.objects.remove(o,do_unlink=True)
+bpy.data.scenes.remove(scene)
+for me in created['meshes']:
+    try:
+        if me.users==0:bpy.data.meshes.remove(me)
+    except ReferenceError:
+        pass
+for d in lights:
+    if d.users==0:bpy.data.lights.remove(d)
+if cam.users==0:bpy.data.cameras.remove(cam)
+if world.users==0:bpy.data.worlds.remove(world)
+for m in created['materials']:
+    if m.users==0:bpy.data.materials.remove(m)
 print('LUNAR_INDUSTRIAL_LIBRARY_READY', OUT)

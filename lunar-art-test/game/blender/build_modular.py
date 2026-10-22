@@ -93,6 +93,8 @@ def sector(name, center, r0, r1, z0, z1, a0, a1, mat, steps=10):
     fs += [(0, 1, 2, 3), (steps*4+3, steps*4+2, steps*4+1, steps*4)]
     return mesh_object(name, vs, fs, mat)
 
+exec(open(os.path.join(os.path.dirname(OUT), 'blender', 'status_parts.py')).read())
+
 def join(group, name):
     bpy.ops.object.select_all(action='DESELECT')
     for o in group: o.select_set(True)
@@ -243,10 +245,13 @@ def recycler():
         cyl('Tank sight band', (x, .42, .72), .328, .55, 'water', 16)
         cyl('Tank cap', (x, .42, 1.55), .22, .08, 'dark', 12)
     box('Filter stack', (0, .02, .6), (.46, .34, .96), 'ivory', .02)
-    box('Filter status', (0, -.155, .9), (.2, .01, .05), 'light')
     cyl('Manifold', (0, .42, 1.42), .05, 1.0, 'orange', 8, (0, math.pi / 2, 0))
 
-INTERIOR = {'growbed': [('GrowBed', grow_bed), ('Plants', plants)], 'galley': [('Galley', galley), ('MealTray', meal_tray)], 'recycler': [('Recycler', recycler)]}
+INTERIOR = {
+    'growbed': [('GrowBed', grow_bed), ('Plants', plants), ('Lamp', lambda: status_lamp(-.78, .58, 1.85))],
+    'galley': [('Galley', galley), ('MealTray', meal_tray), ('Lamp', lambda: status_lamp(.75, .86, 1.65))],
+    'recycler': [('Recycler', recycler), ('Lamp', lambda: status_lamp(0, .02, 1.08))],
+}
 
 # --- Conveyor corner: enters from +X, turns 90 degrees and leaves toward -Y (game +Z). ---
 def conveyor_corner():

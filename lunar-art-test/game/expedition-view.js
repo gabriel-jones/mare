@@ -17,7 +17,7 @@ export function createExpeditionView(scene, models) {
   const template = models.get('lander');
   if (template) {
     lander = template.clone(true);
-    lander.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } if (o.name.replace(/\.\d+$/, '') === 'Core') core = o; });
+    lander.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } if (o.name.replace(/\.?\d{3}$/, '') === 'Core') core = o; });
     lander.rotation.y = site.lander.angle; root.add(lander);
   }
   const coreLight = new THREE.PointLight('#7fdcff', 0, 6, 2); root.add(coreLight);

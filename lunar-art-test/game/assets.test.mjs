@@ -36,13 +36,15 @@ test('astronaut has a 15-bone skin and five distinct Blender clips with animated
  assert.ok(d.nodes.some(n=>n.name.startsWith('ConstructionTool')));
 });
 test('industrial exports contain only intended assets, retain a hideable roof, and fit draw budgets',()=>{
- const budgets={starship:3500,launchpad:1500,solar:1500,battery:1500,hopper:1200,habitat:2500,lamp:600,processor:2600,conveyor:450,storage:800};
+ const budgets={starship:3500,launchpad:1500,solar:1500,battery:1500,hopper:1200,habitat:2500,processor:2600,conveyor:450,storage:800};
  for(const [name,budget] of Object.entries(budgets)){
   const {json:d}=glb(name);let triangles=0,parts=0;
   assert.equal((d.animations??[]).length,0);
   assert.ok(d.buffers.every(b=>!b.uri),'self-contained GLB');
   for(const n of d.nodes)assert.ok(!/^(Plane|Camera|Light|Astronaut)/.test(n.name??''),'no unrelated scene objects');
-  for(const mesh of d.meshes)for(const p of mesh.primitives){triangles+=d.accessors[p.indices].count/3;parts++;}
+  // Status parts (Lamp, Cell1..5, Level) are separate on purpose so each can be lit or scaled.
+  const status=new Set(d.nodes.filter(n=>/^(Lamp|Cell\d|Level)$/.test(n.name)).map(n=>n.mesh));
+  d.meshes.forEach((mesh,i)=>{for(const p of mesh.primitives){triangles+=d.accessors[p.indices].count/3;if(!status.has(i))parts++;}});
   assert.ok(triangles<=budget,`${name}: ${triangles} triangles exceeds ${budget}`);
   assert.ok(parts<=10,`${name} has too many material parts`);
   if(name==='habitat')assert.ok(d.nodes.some(n=>n.name.startsWith('Roof')),'roof must remain independently hideable');
@@ -83,6 +85,16 @@ test('expedition assets keep the salvageable core and the melter heater as separ
   assert.ok(!d.nodes.some(n=>/Camera|Light|Plane/.test(n.name||'')),'no preview objects');
   const triangles=d.meshes.reduce((sum,mesh)=>sum+mesh.primitives.reduce((s,p)=>s+d.accessors[p.indices].count/3,0),0);
   assert.ok(triangles<=budget,`${name}: ${triangles} triangles`);
+ }
+});
+test('every machine carries a status lamp, and the battery, melter and hopper carry their gauges',()=>{
+ const machines={solar:[],battery:['Cell1','Cell2','Cell3','Cell4','Cell5'],hopper:['Level'],processor:[],storage:[],rover:[],melter:['Level'],growbed:[],galley:[],recycler:[]};
+ for(const [name,gauges] of Object.entries(machines)){
+  const {json:d}=glb(name),names=d.nodes.map(n=>n.name.replace(/\.\d+$/,''));
+  for(const part of ['Lamp',...gauges])assert.ok(names.includes(part),`${name}: ${part} node`);
+  const lamp=d.nodes.find(n=>n.name.replace(/\.\d+$/,'')==='Lamp');
+  const meshes=[lamp,...(lamp.children??[]).map(i=>d.nodes[i])].filter(n=>n.mesh!=null).map(n=>d.meshes[n.mesh]);
+  assert.ok(meshes.some(m=>m.primitives.some(p=>/status lamp/.test(d.materials[p.material].name))),`${name}: Lamp uses the status lamp material`);
  }
 });
 test('interior fittings stay light and keep their animated parts separable',()=>{

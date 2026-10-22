@@ -134,7 +134,7 @@ test('an unreachable mining cell is skipped instead of stalling the rover', () =
   const s = createState(); s.inventory = createInventory({ metal: 500, silicon: 500 });
   build(s, 'hopper', 2, 2);
   // Wall off the area corner nearest the rover; diagonal moves cannot squeeze past blocked corners.
-  for (const [x, z] of [[-1, 2], [-3, 2], [-2, 1], [-2, 3]]) build(s, 'lamp', x, z);
+  for (const [x, z] of [[-1, 2], [-3, 2], [-2, 1], [-2, 3]]) build(s, 'storage', x, z);
   setMiningArea(s, -5, 5);
   run(s, 30);
   assert.equal(s.mined['-2,2'], undefined, 'enclosed cell is never mined');

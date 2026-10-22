@@ -91,7 +91,7 @@ test('ice sits in the shadowed middle of the crater and the lander blocks walkin
   assert.equal(iceAt(Math.round(site.x / 2), Math.round(site.z / 2)), true);
   assert.equal(iceAt(0, 0), false);
   assert.equal(terrainBlocked(createState().seed, site.lander.x, site.lander.z), true);
-  assert.match(validatePlacement(createState(), 'lamp', Math.round(site.lander.x / 2), Math.round(site.lander.z / 2)).reason, /lander|steep|uneven/);
+  assert.match(validatePlacement(createState(), 'storage', Math.round(site.lander.x / 2), Math.round(site.lander.z / 2)).reason, /lander|steep|uneven/);
 });
 
 test('the watcher only shows on the rim once the crater mission starts, and slips away when approached', () => {

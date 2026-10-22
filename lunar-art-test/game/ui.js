@@ -13,7 +13,6 @@ const ICONS = {
   growbed: '<path d="M3 15h18l-2 6H5ZM12 15V8m0 3c-3 0-4-2-4-4 3 0 4 2 4 4Zm0-2c0-3 2-4 4-4 0 3-2 4-4 4Z"/>',
   galley: '<path d="M3 11h18v10H3ZM3 15h18M8 7c0-2 2-2 2-4m4 4c0-2 2-2 2-4"/>',
   recycler: '<path d="M12 3s5 6 5 9.5a5 5 0 0 1-10 0C7 9 12 3 12 3Z"/><path d="m9 13 2 2 4-4"/>',
-  lamp: '<path d="M12 10v12M6 22h12M8 10h8l-1-5H9l-1 5ZM12 1v1M3 6l2 1m14 0 2-1M5 13l2-2m10 0 2 2"/>',
   conveyor: '<path d="M3 15h18M3 19h18M7 15v4m5-4v4m5-4v4"/><path d="m9 6 3 3-3 3m4-6 3 3-3 3"/>',
   processor: '<path d="M3 21V11h6l3-3h4v13Zm13-13V3h4v18M7 15h2m2 0h2"/><circle cx="18" cy="13" r="1"/>',
   storage: '<path d="M4 8 12 4l8 4v8l-8 4-8-4Z"/><path d="m4 8 8 4 8-4M12 12v8"/>',
@@ -35,7 +34,7 @@ const TOOLS = {
   dismantle: { name: 'Dismantle', key: 'z', description: 'Click or drag over structures and blueprints to take them down. Materials are returned.' },
 };
 // Palette sections, in menu order.
-const GROUPS = [['Power & industry', ['solar', 'battery', 'lamp', 'hopper', 'conveyor', 'processor', 'melter', 'storage']], ['Rooms', ['habitat', 'greenhouse', 'airlock']], ['Fittings', ['growbed', 'galley', 'recycler']], ['Tools', ['mine', 'dismantle']]];
+const GROUPS = [['Power & industry', ['solar', 'battery', 'hopper', 'conveyor', 'processor', 'melter', 'storage']], ['Rooms', ['habitat', 'greenhouse', 'airlock']], ['Fittings', ['growbed', 'galley', 'recycler']], ['Tools', ['mine', 'dismantle']]];
 const svg = (paths, width = 1.5) => `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
 const number = (value) => Math.round(Number(value) || 0).toLocaleString();
 const costText = def => def.cost ? Object.entries(def.cost).map(([item, n]) => `${n} ${item}`).join(', ') : 'Free';
@@ -63,9 +62,9 @@ export function createUI(root, callbacks = {}) {
     <div class="construction">
       <div class="context-hint" hidden></div>
       <div id="build-menu" class="build-menu" aria-label="Construction" hidden>
-        ${GROUPS.map(([title, types]) => `<h3>${title}</h3>${types.map(type => { const def = TOOLS[type]; return `<button type="button" class="build-item" data-build="${type}" aria-pressed="false" title="${def.description}${def.cost ? ` · ${costText(def)}` : ''}">${svg(ICONS[type] || ICONS.habitat)}<span>${def.name}</span><kbd>${def.key.toUpperCase()}</kbd></button>`; }).join('')}`).join('')}
+        ${GROUPS.map(([title, types]) => `<h3>${title}</h3>${types.map(type => { const def = TOOLS[type]; return `<button type="button" class="build-item" data-build="${type}" aria-pressed="false" title="${def.description}${def.cost ? ` · ${costText(def)}` : ''}">${svg(ICONS[type] || ICONS.habitat)}<span>${def.name}</span><kbd>${def.key?.toUpperCase() ?? ''}</kbd></button>`; }).join('')}`).join('')}
       </div>
-      <button type="button" class="build-toggle" data-action="build" aria-expanded="false" aria-controls="build-menu">${buildIcon}<span>Build</span></button>
+      <button type="button" class="build-toggle" data-action="build" aria-expanded="false" aria-controls="build-menu">${buildIcon}<span>Build</span><kbd>B</kbd></button>
       <div class="selection-tools" hidden>
         <span class="selected-name"></span>
         <small class="selected-reason"></small>
@@ -93,6 +92,7 @@ export function createUI(root, callbacks = {}) {
   const onKey = event => { if (event.key === 'Escape') setOpen(false); };
   root.addEventListener('click', onClick); window.addEventListener('keydown', onKey);
   return {
+    toggleMenu() { setOpen(menu.hidden); },
     update(state, view = {}) {
       const selected = view.selectedType || null;
       root.querySelector('.construction').hidden = state.player.cave != null;
@@ -133,7 +133,7 @@ export function createUI(root, callbacks = {}) {
         const locked = view.locked?.[item.dataset.build];
         if (item.classList.contains('locked') !== !!locked) {
           item.classList.toggle('locked', !!locked);
-          item.querySelector('kbd').innerHTML = locked ? svg(LOCK, 1.8) : def.key.toUpperCase();
+          item.querySelector('kbd').innerHTML = locked ? svg(LOCK, 1.8) : def.key?.toUpperCase() ?? '';
           item.title = locked ?? `${def.description}${def.cost ? ` · ${costText(def)}` : ''}`;
         }
       }

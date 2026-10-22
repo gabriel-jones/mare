@@ -32,8 +32,8 @@ export function createHabitatView(scene, kit) {
         parts.push({ geometry, material: shared(o.material) });
         owned.geometries.push(geometry);
       });
-      // Blender suffixes names that collide with objects in the open file (Roof.002).
-      pieces.set(node.name.replace(/\.\d+$/, ''), parts);
+      // Blender suffixes names that collide with objects in the open file (Roof.002), and three.js drops the dot (Roof002).
+      pieces.set(node.name.replace(/\.?\d{3}$/, ''), parts);
     }
   }
   if (!pieces.size) {

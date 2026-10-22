@@ -95,12 +95,14 @@ export function validatePlacement(state, type, x, z, rotation = 0) {
   for (const [item, amount] of Object.entries(DEFS[type].cost)) if (inv.count(state.inventory, item) < amount) return { ok: false, reason: `Not enough ${item}.` };
   return { ok: true, reason: 'Click to place blueprint.' };
 }
+/** Machines are numbered per type in build order; a number is only reused after the newest of its type is removed. */
+const nextSerial = (buildings, type) => 1 + Math.max(0, ...buildings.filter(b => b.type === type).map(b => b.serial ?? 0));
 export function placeBlueprint(state, type, x, z, rotation = 0) {
   const result = validatePlacement(state, type, x, z, rotation);
   if (!result.ok) return result;
   for (const [item, amount] of Object.entries(DEFS[type].cost)) inv.remove(state.inventory, item, amount);
   const id = state.nextId++;
-  state.buildings.push({ id, type, x, z, rotation, progress: 0, built: false });
+  state.buildings.push({ id, type, x, z, rotation, progress: 0, built: false, serial: nextSerial(state.buildings, type) });
   return { ok: true, reason: 'Blueprint placed. Approach and hold E to construct.', id };
 }
 export function construct(state, id, dt) {
@@ -207,13 +209,12 @@ export function tick(state, dt) {
   const powered = state.power.powered !== false;
   if (dt > 0) { stepProduction(state, dt, powered); stepLife(state, dt, powered); }
   stepMission(state);
-  const daylight = daylightAt(state.time), night = daylight <= 0.05;
+  const daylight = daylightAt(state.time);
   let generation = 0, demand = productionDemand(state) + lifeDemand(state, roomStatus(state)), capacity = 0;
   for (const b of state.buildings) {
     if (!b.built) continue;
     if (b.type === 'solar') generation += 8 * daylight;
     if (b.type === 'battery') capacity += 180;
-    if (b.type === 'lamp' && night) demand += 0.2;
   }
   const previous = Math.min(capacity, Math.max(0, state.power.stored));
   const net = generation - demand;
@@ -227,6 +228,10 @@ const count = (n, max) => finite(n) && n >= 0 && n <= max;
 const wholeCount = (n, max) => Number.isInteger(n) && n >= 0 && n <= max;
 function restoreBuilding(raw) {
   const b = { id: raw.id, type: raw.type, x: raw.x, z: raw.z, rotation: raw.rotation, progress: raw.progress, built: raw.built };
+  if (raw.serial != null) {
+    if (!Number.isSafeInteger(raw.serial) || raw.serial < 1) throw new Error('Invalid building number.');
+    b.serial = raw.serial;
+  }
   if (!b.built) return b;
   if (b.type === 'conveyor' && raw.items != null) {
     if (!Array.isArray(raw.items) || raw.items.length > Math.ceil(1 / BELT_SPACING) + 1) throw new Error('Invalid belt contents.');
@@ -306,6 +311,8 @@ export function deserialize(text) {
   if (raw.player.cave != null) { if (!Number.isInteger(raw.player.cave) || raw.player.cave < 0 || raw.player.cave > 2 || !caveWalkable(raw.seed, raw.player.cave, state.player.x, state.player.z)) throw new Error('Invalid cave position.'); state.player.cave = raw.player.cave; }
   if (raw.exploredCaves) state.exploredCaves = {};
   if (raw.exploredCaves && typeof raw.exploredCaves === 'object') for (const [id, cells] of Object.entries(raw.exploredCaves)) { if (/^[0-2]$/.test(id) && Array.isArray(cells)) state.exploredCaves[id] = cells.filter(k => typeof k === 'string' && /^-?\d{1,2},-?\d{1,2}$/.test(k)).slice(0, 6000); }
+  // Work lights were retired once every machine carried its own lamp; old saves just lose them.
+  raw.buildings = raw.buildings.filter(b => b?.type !== 'lamp');
   const ids = new Set();
   for (const b of raw.buildings) {
     if (!b || !Number.isSafeInteger(b.id) || b.id < 1 || ids.has(b.id) || !DEFS[b.type] || !finite(b.progress) || b.progress < 0 || b.progress > 1 || typeof b.built !== 'boolean' || b.built !== (b.progress === 1) || !validRotation(b.rotation)) throw new Error('Invalid building.');
@@ -322,6 +329,7 @@ export function deserialize(text) {
     if (reason) throw new Error(`Invalid building: ${reason}`);
     state.buildings.push(restoreBuilding(b));
   }
+  for (const b of [...state.buildings].sort((a, c) => a.id - c.id)) if (b.serial == null) b.serial = nextSerial(state.buildings, b.type);
   if (!finite(raw.power?.stored) || raw.power.stored < 0) throw new Error('Invalid battery charge.');
   state.power.stored = raw.power.stored;
   // Version 1 colonies predate mining: they keep the starting rover and reserves.

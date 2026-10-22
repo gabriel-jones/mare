@@ -13,7 +13,7 @@ import {createWatcher,stepWatcher} from './watcher.js';
 // ?sandbox=1 plays a throwaway colony that never touches the real save.
 const KEY=new URLSearchParams(location.search).has('sandbox')?'lunar-frontier.sandbox':'lunar-frontier.phase-a.v1';
 // Build shortcuts are letters; number keys 1-9 and 0 pick inventory slots.
-const SHORTCUTS={...Object.fromEntries(Object.entries(DEFS).map(([type,def])=>[def.key,type])),m:'mine',z:'dismantle'};
+const SHORTCUTS={...Object.fromEntries(Object.entries(DEFS).filter(([,def])=>def.key).map(([type,def])=>[def.key,type])),m:'mine',z:'dismantle'};
 const canvas=document.querySelector('#game'),boot=document.querySelector('#boot');
 let state=createState(),selectedType=null,rotation=0,world,ui,selectedSlot=0;
 let placementReason='',constructionReason='',hover=null,targetId=null,constructing=false,speed=1,saveStatus='Not saved',beltPath=null,paintPath=null,erasing=null;
@@ -251,10 +251,11 @@ async function start(){
   canvas.addEventListener('contextmenu',e=>e.preventDefault());
   window.addEventListener('keydown',e=>{
    if(/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)||e.ctrlKey||e.metaKey||e.altKey)return;
-   const k=e.key.toLowerCase();if(['w','a','s','d','e','f',' ','r','escape'].includes(k)||SHORTCUTS[k]||/^[0-9]$/.test(k))e.preventDefault();
+   const k=e.key.toLowerCase();if(['w','a','s','d','e','f',' ','r','b','escape'].includes(k)||SHORTCUTS[k]||/^[0-9]$/.test(k))e.preventDefault();
    keys.add(k);if(e.repeat)return;
    if(k===' '&&!(state.player.y>0)){jumpVelocity=1.8;}
    if(k==='escape')select(null);
+   if(k==='b')ui.toggleMenu();
    if(k==='r'){rotation=(rotation+1)%4;refreshGhost();}
    const mission=k==='e'?missionAction(state):null;
    if(mission&&!mission.hold)notify(installCore(state).reason);

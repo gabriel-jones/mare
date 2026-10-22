@@ -49,11 +49,11 @@ test('airlocks attach to a room, open onto clear ground, and keep their entrance
   const s = colony();
   assert.match(validatePlacement(s, 'airlock', 0, 2, 0).reason, /against/);
   build(s, 'habitat', 0, 0); build(s, 'habitat', 0, 1);
-  build(s, 'lamp', 2, 0);
+  build(s, 'storage', 2, 0);
   assert.match(validatePlacement(s, 'airlock', 1, 0, 1).reason, /way out/, 'door opening onto a lamp');
   assert.match(validatePlacement(s, 'airlock', 1, 1, 3).reason, /against/, 'arrow pointing back into the room');
   build(s, 'airlock', 0, 2, 0);
-  assert.match(validatePlacement(s, 'lamp', 0, 3).reason, /airlock/);
+  assert.match(validatePlacement(s, 'storage', 0, 3).reason, /airlock/);
   assert.match(validatePlacement(s, 'habitat', 0, 3).reason, /airlock/);
   assert.equal(validatePlacement(s, 'conveyor', 0, 3).ok, true, 'belts are walkable and may pass the door');
 });

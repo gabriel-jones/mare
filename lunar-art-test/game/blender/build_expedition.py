@@ -84,6 +84,8 @@ def strut(name, a, b, radius, mat='metal'):
     o = bpy.context.object; o.rotation_euler = d.to_track_quat('Z', 'Y').to_euler()
     return finish(o, name, mat)
 
+exec(open(os.path.join(os.path.dirname(OUT), 'blender', 'status_parts.py')).read())
+
 def join(group, name):
     bpy.ops.object.select_all(action='DESELECT')
     for o in group: o.select_set(True)
@@ -114,7 +116,7 @@ def melter():
     cyl('Water riser', (-.55, -1.55, .7), .07, 1.1, 'metal', 8)
     cyl('Water line', (-.55, -1.82, .2), .07, .6, 'water', 8, (math.pi / 2, 0, 0))
     box('Control box', (.62, -1.62, .65), (.42, .34, .7), 'dark', .02)
-    box('Status light', (.62, -1.8, .82), (.2, .02, .06), 'water')
+    box('Gauge window', (.62, -1.798, .66), (.17, .02, .59), 'dark', 0)
     box('Vent stack', (-.3, .1, 1.82), (.16, .16, .5), 'metal')
     box('Vent cap', (-.3, .1, 2.1), (.28, .28, .05), 'dark')
 
@@ -167,7 +169,7 @@ def export(name, groups):
     tris = sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for o in groups)
     print('LUNAR_ASSET', name, 'triangles', tris, 'nodes', len(groups))
 
-ASSETS = {'melter': [('Melter', melter), ('Heater', heater)], 'lander': [('Lander', lander), ('Core', core)]}
+ASSETS = {'melter': [('Melter', melter), ('Heater', heater), ('Lamp', lambda: status_lamp(-.8, 1.8, 1.95, .2)), ('Level', lambda: status_level(.62, -1.81, .4, .52, window=False))], 'lander': [('Lander', lander), ('Core', core)]}
 library = {}
 for asset, parts in ASSETS.items():
     nodes = []

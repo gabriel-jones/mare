@@ -18,14 +18,14 @@ test('rotated footprints, boundaries and reserved pad validate every occupied ce
   assert.equal(validatePlacement(s,'solar',58,0).ok,false);
   assert.equal(validatePlacement(s,'solar',-5,-3).ok,false);
   assert.equal(validatePlacement(s,'battery',58,58,1).ok,false);
-  assert.equal(validatePlacement(s,'lamp',0,0).ok,true);
+  assert.equal(validatePlacement(s,'storage',0,0).ok,true);
   assert.equal(validatePlacement(s,'solar',0.5,0).ok,false);
 });
 test('placement spends once, reserves space, and partial cancellation refunds exactly once',()=>{
   const s=createState(), original=structuredClone(s.inventory);
   const p=placeBlueprint(s,'solar',0,0);
   assert.equal(count(s.inventory,'metal'),count(original,'metal')-DEFS.solar.cost.metal);
-  assert.equal(placeBlueprint(s,'lamp',1,1).ok,false);
+  assert.equal(placeBlueprint(s,'storage',1,1).ok,false);
   s.player.x=-1.5;s.player.z=1;
   construct(s,p.id,1);
   assert.equal(cancelBlueprint(s,p.id).ok,true);
@@ -70,12 +70,6 @@ test('only finished solar charges batteries; night drains storage then reports o
   assert.equal(s.power.stored,0);
   assert.equal(s.power.powered,false);
 });
-test('lamps consume only at night, blueprints consume nothing',()=>{
-  const s=createState();complete(s,'lamp',0,0);
-  tick(s,0);assert.equal(s.power.demand,0);
-  s.time=150;tick(s,0);assert.equal(s.power.demand,0.2);
-  assert.equal(s.power.powered,false);
-});
 test('save restores exact simulation and rejects corrupt/overlapping states',()=>{
   const s=createState(42);complete(s,'solar',0,0);complete(s,'battery',3,0);tick(s,2);
   assert.deepEqual(deserialize(serialize(s)),s);
@@ -88,13 +82,13 @@ test('save restores exact simulation and rejects corrupt/overlapping states',()=
   assert.throws(()=>tick(s,NaN));
 });
 
-test('a full battery powers a habitat and light through the complete prototype night',()=>{
+test('a full battery powers a habitat through the complete prototype night',()=>{
   // Four habitat squares at 0.25 kW each.
-  const s=createState();complete(s,'battery',0,0);complete(s,'lamp',8,0);
+  const s=createState();complete(s,'battery',0,0);
   for(const [x,z] of [[3,0],[4,0],[3,1],[4,1]]){const id=placeBlueprint(s,'habitat',x,z).id;s.player={...s.player,x:7,z:4.5};assert.equal(construct(s,id,9).ok,true);}
   s.time=80;tick(s,0);s.power.stored=180;
   for(let i=0;i<1200;i++) { tick(s,0.1);assert.equal(s.power.powered,true); }
-  assert.ok(s.power.stored>35 && s.power.stored<37);
+  assert.ok(s.power.stored>59 && s.power.stored<61, String(s.power.stored));
 });
 test('saves reject unreachable player coordinates and invalid jump heights',()=>{
   for(const player of [{x:126,z:0,y:0},{x:0,z:-126,y:0},{x:0,z:0,y:-1},{x:0,z:0,y:11}]) {
@@ -140,7 +134,7 @@ test('collision blocks solid structures and ship, but permits blueprints and hab
 });
 test('blueprint targeting uses rotated footprint centers and skips completed structures',()=>{
   const s=createState();const first=placeBlueprint(s,'battery',0,0,1).id;
-  const second=placeBlueprint(s,'lamp',4,0).id;
+  const second=placeBlueprint(s,'storage',4,0).id;
   assert.deepEqual(buildingCenter(s.buildings[0],DEFS),{x:1,z:0});
   s.player={x:2,z:0,y:0};assert.equal(nearestBlueprint(s,DEFS).id,first);
   s.buildings[0].built=true;assert.equal(nearestBlueprint(s,DEFS),null);
@@ -202,23 +196,42 @@ test('terrain is deterministic, level near landing, and rejects cliffs and large
  assert.equal(terrainBlocked(s.seed,rock.x,rock.z),true);
  let steep=null;
  for(let x=-18;x<=18&&!steep;x++)for(let z=-18;z<=18;z++){const reason=terrainReason(s.seed,[{x,z}]);if(reason?.includes('steep')){steep={x,z};break;}}
- assert.ok(steep);assert.equal(validatePlacement(s,'lamp',steep.x,steep.z).ok,false);
+ assert.ok(steep);assert.equal(validatePlacement(s,'storage',steep.x,steep.z).ok,false);
  // Legacy buildings remain valid even where revised terrain disallows new construction.
- s.buildings=[{id:1,type:'lamp',...steep,rotation:0,progress:1,built:true}];s.nextId=2;
+ s.buildings=[{id:1,type:'storage',...steep,rotation:0,progress:1,built:true}];s.nextId=2;
  assert.equal(deserialize(serialize(s)).buildings.length,1);
 });
 
 test('building indicators distinguish pooled battery charge, inactive lights and actual outages',async()=>{
- const {buildingStatus}=await import('./building-status.js');
+ const {buildingStatus,lampLevel}=await import('./building-status.js');
  const s=createState();s.power={...s.power,capacity:360,stored:90,powered:false};
  const building=type=>({type,built:true,progress:1});
- assert.deepEqual(buildingStatus(building('battery'),s),{icon:'battery',text:'25%',tone:'charge',fill:.25});
- s.power.stored=0;assert.equal(buildingStatus(building('battery'),s).tone,'low');
- assert.equal(buildingStatus(building('lamp'),s),null,'daytime lights do not demand energy');
- s.time=150;assert.equal(buildingStatus(building('lamp'),s).text,'No power');
- assert.equal(buildingStatus(building('solar'),s).text,'No sunlight');
+ assert.deepEqual(buildingStatus(building('battery'),s),{text:'Charge 25%',read:'90 / 360 KJ',tone:'charge',fill:.25});
+ assert.equal(lampLevel(buildingStatus(building('battery'),s)),'ok');
+ s.power.stored=0;assert.equal(buildingStatus(building('battery'),s).tone,'low');assert.equal(lampLevel(buildingStatus(building('battery'),s)),'low');
+ s.power.generation=8;s.power.demand=2;assert.equal(buildingStatus(building('battery'),s).glyph,'charging','batteries show a charging glyph while there is surplus');
+ s.power.stored=s.power.capacity;assert.equal(buildingStatus(building('battery'),s).glyph,undefined,'full batteries are not charging');
+ assert.equal(lampLevel(null),'ok','machines with nothing to report show a steady lamp');
+ s.time=150;
+ assert.equal(buildingStatus(building('solar'),s).text,'No sunlight');assert.equal(lampLevel(buildingStatus(building('solar'),s)),'idle');
  assert.equal(buildingStatus(building('hopper'),s),null,'passive structures do not show false power warnings');
- assert.equal(buildingStatus({type:'battery',built:false,progress:.4},s).text,'40%');
+ const blueprint=buildingStatus({type:'battery',built:false,progress:.4},s);
+ assert.equal(blueprint.read,'40% BUILT · HOLD E');assert.equal(lampLevel(blueprint),'off');
+});
+
+test('machines are numbered per type in build order, keep their numbers through saves, and old saves get numbered',async()=>{
+ const {tagOf}=await import('./defs.js');
+ const s=createState();s.inventory=createInventory({metal:600,silicon:300});
+ const place=type=>{for(let x=-12;x<=12;x+=2)for(let z=-2;z<=10;z+=2)if(validatePlacement(s,type,x,z).ok)return placeBlueprint(s,type,x,z);};
+ for(let i=0;i<3;i++)assert.ok(place('battery'));
+ const crate=place('storage');
+ assert.deepEqual(s.buildings.filter(b=>b.type==='battery').map(tagOf),['BAT-01','BAT-02','BAT-03']);
+ assert.equal(tagOf(s.buildings.find(b=>b.id===crate.id)),'CRT-01');
+ const restored=deserialize(serialize(s));
+ assert.deepEqual(restored.buildings.map(tagOf),s.buildings.map(tagOf));
+ const legacy=JSON.parse(serialize(s));legacy.buildings.forEach(b=>delete b.serial);
+ assert.deepEqual(deserialize(JSON.stringify(legacy)).buildings.map(tagOf),s.buildings.map(tagOf),'unnumbered saves are numbered by build order');
+ const bad=JSON.parse(serialize(s));bad.buildings[0].serial=-1;assert.throws(()=>deserialize(JSON.stringify(bad)),/building number/);
 });
 
 
@@ -243,7 +256,7 @@ test('cave visibility is blocked by rock and restricted to the headlamp directio
 test('cave movement collides with walls and prevents surface construction',()=>{
  const s=createState();s.player={x:0,z:4,y:0,cave:0};
  for(let i=0;i<30;i++)movePlayer(s,1,1,.05,DEFS);
- assert.ok(s.player.x<2.8);assert.equal(validatePlacement(s,'lamp',0,0).ok,false);
+ assert.ok(s.player.x<2.8);assert.equal(validatePlacement(s,'storage',0,0).ok,false);
 });
 
 test('portal thresholds preserve world position and facing without a camera jump',async()=>{
@@ -309,4 +322,10 @@ test('voxel surface has stable broad shelves and preserves a level starting clea
   assert.equal(surfaceHeightAt(1847,x-.5,z-.5),surfaceHeightAt(1847,x+.5,z+.5));
   assert.ok(Number.isFinite(surfaceHeightAt(1847,x,z)));
  }
+});
+
+test('retired work lights vanish from old saves instead of breaking them',()=>{
+ const s=createState();complete(s,'battery',0,0);
+ const raw=JSON.parse(serialize(s));raw.buildings.push({...raw.buildings[0],id:99,type:'lamp',x:4,z:4,serial:1});
+ assert.deepEqual(deserialize(JSON.stringify(raw)).buildings.map(b=>b.type),['battery']);
 });

@@ -35,7 +35,7 @@ test('rooms fill from oxygen reserves and pressurise only with power and a clear
   // Without power the room loses pressure; a lamp blocking the only exit does the same.
   s.power.stored = 0; s.time = 150; tick(s, 0.1); tick(s, 0.1);
   assert.equal(roomStatus(s).at(0, 0).reason, 'No power');
-  const sealed = base(); sealed.buildings.push({ id: 99, type: 'lamp', x: 0, z: 2, rotation: 0, progress: 1, built: true }); tick(sealed, 0.1);
+  const sealed = base(); sealed.buildings.push({ id: 99, type: 'storage', x: 0, z: 2, rotation: 0, progress: 1, built: true }); tick(sealed, 0.1);
   assert.equal(roomStatus(sealed).at(2, 0).reason, 'No airlock');
   const starved = base(); starved.reserves.oxygen = 2; tick(starved, 0.1);
   assert.equal(roomStatus(starved).at(0, 0).reason, 'Needs oxygen');

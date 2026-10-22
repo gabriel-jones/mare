@@ -96,6 +96,8 @@ def arrow(name, loc, length, width, z, mat='orange'):
     vs = [(x-width/2,y+length/2,z),(x,y+length/2-width*.45,z),(x+width/2,y+length/2,z),(x,y-length/2,z)]
     return mesh_object(name, vs, [(0,3,1),(1,3,2)], mat)
 
+exec(open(os.path.join(os.path.dirname(OUT), 'blender', 'status_parts.py')).read())
+
 def join(group, name, origin=(0,0,0)):
     if not group: return None
     bpy.ops.object.select_all(action='DESELECT')
@@ -153,7 +155,7 @@ def rover():
     box('Cab stripe', (0, -.995, .8), (.86, .03, .06), 'orange', .01)
     beam('Sensor mast', (.36, -.45, 1.25), (.36, -.45, 1.75), .05, 'metal')
     box('Sensor head', (.36, -.45, 1.8), (.22, .16, .1), 'dark', .02)
-    box('Beacon', (.36, -.45, 1.88), (.09, .09, .06), 'light', .01)
+    status_lamp(.36, -.45, 1.85)
     box('Roof solar skin', (0, -.6, 1.27), (.86, .58, .03), 'pv', .005)
     # Open rear cargo bin; the separate Cargo mound scales with load.
     box('Bin floor', (0, .5, .76), (.98, 1.0, .06), 'dark', .01)
@@ -203,6 +205,7 @@ def processor():
     # Heat-rejection radiator fins.
     for y in [.0, .55, 1.1, 1.65]: box('Radiator fin', (1.85, y, 1.6), (.06, .42, 2.2), 'dark', .01)
     beam('Radiator manifold', (1.8, -.25, 2.75), (1.8, 1.9, 2.75), .1, 'metal')
+    status_lamp(.95, .9, 3.7)
 
 # --- Conveyor segment: 2 x 2 m. Items travel toward -Y. Kept very light; colonies need many. ---
 def conveyor():
@@ -226,6 +229,7 @@ def storage():
         a = rot * math.pi / 2; dx, dy = math.sin(a), -math.cos(a)
         box('Inlet slot', (dx * .81, dy * .81, .52), (.7 if dy else .04, .04 if dy else .7, .32), 'dark', .01)
     box('Fill indicator', (0, -.815, 1.15), (.5, .02, .07), 'light', .005)
+    status_lamp(-.62, .62, 1.67)
 
 # --- Hopper revision: discharge collar moved over the left cell to meet the belt grid. ---
 def hopper():
@@ -241,13 +245,18 @@ def hopper():
     for x in [-.4, 0, .4]: beam('Top safety grate', (x, -1.3, 2.19), (x, 1.3, 2.19), .025, 'metal')
     box('Dock charge pad', (1.62, .4, .2), (.14, .9, .3), 'orange', .02)
     box('Dock charge light', (1.70, .4, .3), (.02, .5, .06), 'light', .005)
+    # Fill gauge on the front-right leg, and a beacon on a mast at the back corner.
+    box('Gauge backplate', (1.2, -1.3, 1.08), (.3, .04, 1.0), 'dark', .01)
+    status_level(1.2, -1.335, .66, .84)
+    status_lamp(-1.62, 1.62, 2.5, .3)
 
+STATUS = [('Lamp', (0, 0, 0))]
 layout = []
-layout += export_asset('rover', rover, (-9, 0, 0), parts=[('Wheel_*', None), ('Drill', (0, -1.05, .7)), ('Cargo', (0, .5, .79))])
-layout += export_asset('processor', processor, (-3, 0, 0))
+layout += export_asset('rover', rover, (-9, 0, 0), parts=[('Wheel_*', None), ('Drill', (0, -1.05, .7)), ('Cargo', (0, .5, .79))] + STATUS)
+layout += export_asset('processor', processor, (-3, 0, 0), parts=STATUS)
 layout += export_asset('conveyor', conveyor, (3, -2, 0))
-layout += export_asset('storage', storage, (3, 2, 0))
-layout += export_asset('hopper', hopper, (7.5, 0, 0))
+layout += export_asset('storage', storage, (3, 2, 0), parts=STATUS)
+layout += export_asset('hopper', hopper, (7.5, 0, 0), parts=STATUS + [('Level', (1.2, -1.335, .66))])
 
 scene.world = bpy.data.worlds.new('Production library environment')
 scene.world.use_nodes = True

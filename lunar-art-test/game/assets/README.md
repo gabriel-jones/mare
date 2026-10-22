@@ -13,7 +13,6 @@ Art direction: graphic lunar industrialism. Strong functional silhouettes, selec
 | Solar array | 684 | 5 |
 | Battery | 880 | 5 |
 | Hopper (revised for Phase B output collar) | 756 | 4 |
-| Work light | 220 | 4 |
 | Mining rover | 1,638 | 15 |
 | Regolith processor | 2,396 | 5 |
 | Conveyor belt | 378 | 4 |
@@ -47,3 +46,5 @@ Modular habitat kit (`habitat-kit.glb`): Floor, Wall, Window, Airlock, AirlockDo
 Expedition kit (Phase D): `lander.glb` (748 triangles), the tilted derelict robotic lander with gold foil, gouged and pried-open panels and a broken dish, whose `Core` node the runtime hides once salvaged; and `melter.glb` (1,000 triangles), the 1×2 ice melter facing game +Z, whose `Heater` node glows while melting. Source: `expedition-library.blend` (preview `expedition-library.png`); script: `../blender/build_expedition.py`, which builds in a temporary scene and removes it.
 
 Room fittings (`growbed.glb`, `galley.glb`, `recycler.glb`) fill one grid square, stand on the floor deck at the origin and face game +Z. The grow bed's `Plants` node scales with growth; the galley's `MealTray` node shows when a meal is ready. Built by the same `../blender/build_modular.py`.
+
+Status parts: `blender/status_parts.py` (exec'd by each build script) adds the `Lamp` bulb, battery `Cell1`–`Cell5` and `Level` gauges as separate nodes so the game can drive them. `build_industrial.py` builds in a temporary scene and leaves the open Blender file alone; set `ONLY` to export a subset.
