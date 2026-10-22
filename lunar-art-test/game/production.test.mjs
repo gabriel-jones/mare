@@ -4,6 +4,7 @@ import { createState, placeBlueprint, tick, serialize, deserialize, deconstruct,
 import { ports } from './defs.js';
 import { beltTurns, ensureBuildingState, miningCells, remainingRegolith, ROVER, RECIPE, REGOLITH_PER_CELL, BELT_SPACING } from './production.js';
 import { findPath } from './paths.js';
+import { count, createInventory } from './inventory.js';
 
 function build(state, type, x, z, rotation = 0) {
   const r = placeBlueprint(state, type, x, z, rotation);
@@ -16,7 +17,7 @@ function run(state, seconds, step = 1 / 30) { for (let t = 0; t < seconds; t += 
 /** Hopper -> belt -> processor -> belt -> crate, plus daytime power. */
 function factory(seed = 1847) {
   const s = createState(seed);
-  s.inventory = { metal: 1000, silicon: 1000 };
+  s.inventory = createInventory({ metal: 1000, silicon: 1000 });
   const hopper = build(s, 'hopper', 2, 2);
   build(s, 'conveyor', 2, 4); build(s, 'conveyor', 2, 5);
   const processor = build(s, 'processor', 2, 6);
@@ -41,7 +42,7 @@ test('machine ports rotate with their footprint and point outward', () => {
 });
 
 test('belts keep item spacing, chain forward and refuse a belt pointing back', () => {
-  const s = createState(); s.inventory.metal = 100;
+  const s = createState(); s.inventory = createInventory({ metal: 100 });
   const a = build(s, 'conveyor', 0, 2, 1), b = build(s, 'conveyor', 1, 2, 1), back = build(s, 'conveyor', 2, 2, 3);
   a.items.push({ type: 'metal', p: 0 }, { type: 'silicon', p: 0 });
   assert.equal(validatePlacement(s, 'conveyor', 0, 2, 0).ok, false);
@@ -59,7 +60,7 @@ test('belts keep item spacing, chain forward and refuse a belt pointing back', (
 });
 
 test('a belt feeds a machine only through a designated input port', () => {
-  const s = createState(); s.inventory = { metal: 500, silicon: 500 };
+  const s = createState(); s.inventory = createInventory({ metal: 500, silicon: 500 });
   const processor = build(s, 'processor', 2, 6);
   const side = build(s, 'conveyor', 4, 6, 3); side.items.push({ type: 'regolith', p: 0.9 });
   const port = build(s, 'conveyor', 2, 5, 0); port.items.push({ type: 'regolith', p: 0.9 });
@@ -71,7 +72,7 @@ test('a belt feeds a machine only through a designated input port', () => {
 });
 
 test('rover routes around solid machines rather than through them', () => {
-  const s = createState(); s.inventory = { metal: 999, silicon: 999 };
+  const s = createState(); s.inventory = createInventory({ metal: 999, silicon: 999 });
   for (let z = 0; z <= 6; z += 2) build(s, 'battery', 0, z);
   const path = findPath(s, { x: -2, z: 3 }, { x: 2, z: 3 });
   assert.ok(path && path.length > 5);
@@ -91,16 +92,16 @@ test('mined regolith flows from the rover through the processor into a crate', (
   assert.ok(crate.inv.silicon >= 5, `crate silicon ${crate.inv.silicon}`);
   assert.ok(Math.abs(crate.inv.metal - 2 * crate.inv.silicon) <= 4, 'products keep the recipe ratio');
   assert.ok(s.reserves.oxygen >= 5);
-  const inventory = { ...s.inventory }, result = collectStorage(s, crate.id);
+  const metal = count(s.inventory, 'metal'), result = collectStorage(s, crate.id);
   assert.equal(result.ok, true);
-  assert.equal(s.inventory.metal, inventory.metal + result.metal);
+  assert.equal(count(s.inventory, 'metal'), metal + result.metal);
   assert.equal(crate.inv.metal + crate.inv.silicon, 0);
   assert.equal(collectStorage(s, crate.id).ok, false);
   assert.ok(hopper.inv.regolith <= DEFS.hopper.capacity && processor.inv.regolith <= 16);
 });
 
 test('processors stop without power and report demand only while ready', () => {
-  const s = createState(); s.inventory = { metal: 500, silicon: 500 };
+  const s = createState(); s.inventory = createInventory({ metal: 500, silicon: 500 });
   const p = build(s, 'processor', 2, 6);
   tick(s, 0); assert.equal(s.power.demand, 0);
   p.inv.regolith = 8; tick(s, 0);
@@ -111,7 +112,7 @@ test('processors stop without power and report demand only while ready', () => {
 });
 
 test('rover waits at a full hopper without losing cargo, and parks when the area is exhausted', () => {
-  const s = createState(); s.inventory = { metal: 500, silicon: 500 };
+  const s = createState(); s.inventory = createInventory({ metal: 500, silicon: 500 });
   const hopper = build(s, 'hopper', 2, 2); hopper.inv.regolith = DEFS.hopper.capacity;
   build(s, 'solar', 6, 2); s.time = 210;
   setMiningArea(s, -5, 5);
@@ -128,7 +129,7 @@ test('rover waits at a full hopper without losing cargo, and parks when the area
 });
 
 test('an unreachable mining cell is skipped instead of stalling the rover', () => {
-  const s = createState(); s.inventory = { metal: 500, silicon: 500 };
+  const s = createState(); s.inventory = createInventory({ metal: 500, silicon: 500 });
   build(s, 'hopper', 2, 2);
   // Wall off the area corner nearest the rover; diagonal moves cannot squeeze past blocked corners.
   for (const [x, z] of [[-1, 2], [-3, 2], [-2, 1], [-2, 3]]) build(s, 'lamp', x, z);
@@ -147,10 +148,10 @@ test('production saves round-trip exactly and version 1 colonies gain the starte
   run(restored, 5); run(s, 5);
   assert.deepEqual(restored.robots[0].x, s.robots[0].x, 'restored rover replans to the same route');
   const legacy = JSON.parse(serialize(createState(7)));
-  legacy.version = 1; delete legacy.robots; delete legacy.reserves; delete legacy.miningArea; delete legacy.mined;
+  legacy.version = 1; legacy.inventory = { metal: 240, silicon: 100 }; delete legacy.robots; delete legacy.reserves; delete legacy.miningArea; delete legacy.mined;
   legacy.buildings = [{ id: 1, type: 'hopper', x: 2, z: 2, rotation: 1, progress: 1, built: true }]; legacy.nextId = 2;
   const migrated = deserialize(JSON.stringify(legacy));
-  assert.equal(migrated.version, 2); assert.equal(migrated.robots.length, 1);
+  assert.equal(migrated.version, 3); assert.equal(migrated.robots.length, 1);
   assert.deepEqual(migrated.buildings[0].inv, { regolith: 0 });
   const corrupt = JSON.parse(serialize(s));
   corrupt.buildings.find(b => b.type === 'conveyor').items = [{ type: 'gold', p: 0.2 }];
@@ -160,15 +161,15 @@ test('production saves round-trip exactly and version 1 colonies gain the starte
 });
 
 test('dismantling refunds the structure and any refined contents', () => {
-  const s = createState(); s.inventory = { metal: 100, silicon: 100 };
+  const s = createState(); s.inventory = createInventory({ metal: 100, silicon: 100 });
   const crate = build(s, 'storage', 0, 2); crate.inv.metal = 7; crate.inv.regolith = 5;
-  assert.equal(s.inventory.metal, 90);
+  assert.equal(count(s.inventory, 'metal'), 90);
   assert.equal(deconstruct(s, crate.id).ok, true);
-  assert.equal(s.inventory.metal, 107); assert.equal(s.buildings.length, 0);
+  assert.equal(count(s.inventory, 'metal'), 107); assert.equal(s.buildings.length, 0);
 });
 
 test('belts fed from the side become corners; items enter them and continue', () => {
-  const s = createState(); s.inventory = { metal: 1000, silicon: 1000 };
+  const s = createState(); s.inventory = createInventory({ metal: 1000, silicon: 1000 });
   const feeder = build(s, 'conveyor', 0, 2, 1), corner = build(s, 'conveyor', 1, 2, 0), out = build(s, 'conveyor', 1, 3, 0);
   assert.equal(beltTurns(s).get(corner.id), -1, 'fed from its left');
   assert.equal(beltTurns(s).get(out.id), 0);
@@ -179,13 +180,13 @@ test('belts fed from the side become corners; items enter them and continue', ()
   build(s, 'conveyor', 1, 1, 0);
   assert.equal(beltTurns(s).get(corner.id), 0);
   // A hopper output feeding a belt sideways also bends it.
-  const h = createState(); h.inventory = { metal: 1000, silicon: 1000 };
+  const h = createState(); h.inventory = createInventory({ metal: 1000, silicon: 1000 });
   build(h, 'hopper', 2, 2); const side = build(h, 'conveyor', 2, 4, 1);
   assert.equal(beltTurns(h).get(side.id), 1);
 });
 
 test('redirecting a belt keeps its items', () => {
-  const s = createState(); s.inventory = { metal: 1000, silicon: 1000 };
+  const s = createState(); s.inventory = createInventory({ metal: 1000, silicon: 1000 });
   const b = build(s, 'conveyor', 0, 2, 0); b.items.push({ type: 'metal', p: 0.4 });
   assert.equal(rotateBelt(s, b.id, 1).ok, true);
   assert.equal(b.rotation, 1); assert.equal(b.items.length, 1);

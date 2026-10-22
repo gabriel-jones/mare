@@ -1,94 +1,132 @@
 import { caveWalkable } from './caves.js';
-import { terrainReason } from './terrain.js';
-import { CELL_SIZE, DEFS, ITEMS, dims, footprint } from './defs.js';
-import { airlockApron, computeLayout, habitatLayout, sealedRooms, wallBlocks } from './habitat.js';
+import { surfaceHeightAt, terrainReason } from './terrain.js';
+import { CELL_SIZE, DEFS, DIRS, ITEMS, dims, footprint } from './defs.js';
+import { airlockApron, habitatLayout, isRoom, trapsPlayer } from './habitat.js';
+import * as inv from './inventory.js';
+import { LIFE, STARTING, ensureLifeState, hunger, lifeDemand, roomStatus, stepLife, useLife } from './life.js';
 import { createRover, ensureBuildingState, productionDemand, stepProduction, MINING_RADIUS, REGOLITH_PER_CELL, ROVER, PROCESSOR_INPUT_CAP, PROCESSOR_OUTPUT_CAP, BELT_SPACING } from './production.js';
 export { CELL_SIZE, DEFS, footprint } from './defs.js';
 /** Pure, serializable simulation. Positions use 2m cells; building anchors are minimum cells. */
 export const DAY_DURATION = 240;
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
+const PLAYER_RADIUS = 0.32;
+const key = (x, z) => `${x},${z}`;
 
 export function createState(seed = 1847) {
   if (!Number.isSafeInteger(seed)) throw new Error('Seed must be an integer.');
-  return { version: SAVE_VERSION, seed, time: 0, inventory: { metal: 240, silicon: 100 }, reserves: { oxygen: 0 }, player: { x: 0, z: 8, y: 0 }, buildings: [], nextId: 1, robots: [createRover()], miningArea: null, mined: {}, power: { generation: 0, demand: 0, stored: 0, capacity: 0, supplied: 0, powered: true } };
+  return { version: SAVE_VERSION, seed, time: 0, inventory: inv.createInventory({ metal: 240, silicon: 100, meal: STARTING.meals }), reserves: { oxygen: STARTING.oxygen, water: STARTING.water }, player: { x: 0, z: 8, y: 0, satiety: 100 }, buildings: [], nextId: 1, robots: [createRover()], miningArea: null, mined: {}, power: { generation: 0, demand: 0, stored: 0, capacity: 0, supplied: 0, powered: true } };
 }
 const validRotation = r => Number.isInteger(r) && r >= 0 && r <= 3;
 const finite = n => typeof n === 'number' && Number.isFinite(n);
-function geometryReason(state, type, x, z, rotation) {
-  const cells = footprint(type, x, z, rotation);
+const ensureState = b => ensureLifeState(ensureBuildingState(b));
+/** Floor squares and everything standing on or beside them, by cell. */
+function occupancy(buildings) {
+  const floor = new Map(), top = new Map();
+  for (const b of buildings) for (const c of footprint(b.type, b.x, b.z, b.rotation)) (isRoom(b) ? floor : top).set(key(c.x, c.z), b);
+  return { floor, top };
+}
+function geometryReason(state, type, x, z, rotation, occupied = occupancy(state.buildings)) {
+  const cells = footprint(type, x, z, rotation), def = DEFS[type];
   if (!cells.length) return 'Invalid building or grid position.';
   if (cells.some(c => c.x < -58 || c.x > 58 || c.z < -58 || c.z > 58)) return 'Outside the construction area.';
   if (cells.some(c => c.x >= -4 && c.x <= 4 && c.z >= -8 && c.z <= -2)) return 'Keep the Starship landing pad clear.';
-  const occupied = new Set(state.buildings.flatMap(b => footprint(b.type, b.x, b.z, b.rotation).map(c => `${c.x},${c.z}`)));
-  if (cells.some(c => occupied.has(`${c.x},${c.z}`))) return 'Another building or blueprint occupies this space.';
+  if (def.layer === 'interior') {
+    if (cells.some(c => occupied.floor.get(key(c.x, c.z))?.type !== def.needs)) return `Place inside a ${DEFS[def.needs].name.toLowerCase()}.`;
+    if (cells.some(c => occupied.top.has(key(c.x, c.z)))) return 'Something already stands here.';
+    return null;
+  }
+  if (cells.some(c => occupied.floor.has(key(c.x, c.z)) || occupied.top.has(key(c.x, c.z)))) return 'Another building or blueprint occupies this space.';
   return null;
 }
-/** Every room keeps at least one airlock opening onto clear ground. */
-function airlockReason(state, type, x, z, rotation) {
-  if (type === 'habitat') {
-    const after = [...state.buildings, { id: -1, type, x, z, rotation }];
-    return sealedRooms(after) > sealedRooms(state.buildings) ? 'The airlock (arrow) would be blocked. Rotate with R.' : null;
+/** Airlocks attach to a room and open onto clear ground; nothing solid or roofed may cover an airlock's entrance. */
+function roomReason(state, type, x, z, rotation) {
+  const def = DEFS[type], { floor, top } = occupancy(state.buildings);
+  if (def.airlock) {
+    const [dx, dz] = DIRS[rotation], back = floor.get(key(x - dx, z - dz)), front = key(x + dx, z + dz);
+    if (!back || back.type === 'airlock') return 'Place against a habitat or greenhouse, arrow facing out.';
+    if (floor.has(front) || (top.has(front) && !DEFS[top.get(front).type].walkable)) return 'The way out is blocked. Rotate with R.';
   }
-  if (DEFS[type].walkable) return null;
-  const aprons = new Set(habitatLayout(state.buildings, { blueprints: true }).airlocks.filter(a => a.exterior).flatMap(a => airlockApron(a).map(c => `${c.x},${c.z}`)));
-  if (!footprint(type, x, z, rotation).some(c => aprons.has(`${c.x},${c.z}`))) return null;
-  const after = [...state.buildings, { id: -1, type, x, z, rotation }];
-  return sealedRooms(after) > sealedRooms(state.buildings) ? 'Keep the habitat airlock clear.' : null;
+  if (def.layer !== 'interior' && (def.layer === 'floor' || !def.walkable)) {
+    const aprons = new Set(state.buildings.filter(b => DEFS[b.type].airlock).map(b => { const a = airlockApron(b); return key(a.x, a.z); }));
+    if (footprint(type, x, z, rotation).some(c => aprons.has(key(c.x, c.z)))) return 'Keep the airlock entrance clear.';
+  }
+  if (def.layer === 'floor') {
+    // A room has one floor level, so the ground under all of its squares must be close to level.
+    const layout = habitatLayout(state.buildings, { blueprints: true }), ground = (cx, cz) => surfaceHeightAt(state.seed, cx * CELL_SIZE, cz * CELL_SIZE);
+    const joined = new Set(DIRS.map(([dx, dz]) => layout.roomOf.get(key(x + dx, z + dz))).filter(Boolean));
+    const heights = [ground(x, z), ...[...joined].flatMap(room => room.cells.map(c => ground(c.x, c.z)))];
+    if (Math.max(...heights) - Math.min(...heights) > 0.5) return 'Ground steps too much from the rest of this room.';
+  }
+  return null;
 }
+const trapped = (buildings, p) => p.cave == null && trapsPlayer(buildings, p.x, p.z, PLAYER_RADIUS);
 function removalReason(state, b) {
-  if (b.type !== 'habitat') return null;
-  return sealedRooms(state.buildings.filter(o => o !== b)) > sealedRooms(state.buildings) ? 'This module holds the only airlock for the rest of the room. Remove the others first.' : null;
+  if (!isRoom(b)) return null;
+  const others = state.buildings.filter(o => o !== b);
+  const onTop = others.find(o => DEFS[o.type].layer === 'interior' && o.x === b.x && o.z === b.z);
+  if (onTop) return `Remove the ${DEFS[onTop.type].name.toLowerCase()} on this square first.`;
+  if (b.type !== 'airlock' && others.some(o => o.type === 'airlock' && o.x - DIRS[o.rotation][0] === b.x && o.z - DIRS[o.rotation][1] === b.z)) return 'Remove the airlock attached here first.';
+  if (b.built && trapped(others, state.player) && !trapped(state.buildings, state.player)) return "You'd be shut inside. Leave through another airlock first.";
+  return null;
 }
-/** Whether finishing `b` now would enclose the player inside its solid parts or walls. */
+/** Whether finishing `b` now would shut the player inside walls or a solid footprint. */
 export function playerObstructs(state, b) {
-  const p = state.player, radius = 0.32;
+  const p = state.player;
   if (p.cave != null || b.built) return false;
-  if (b.type === 'habitat') {
-    const modules = [...state.buildings.filter(o => o.type === 'habitat' && o.built && o !== b), b];
-    return wallBlocks(computeLayout(modules), p.x, p.z, radius);
-  }
+  if (isRoom(b)) return trapped([...state.buildings.filter(o => o !== b), { ...b, id: b.id ?? -1, built: true }], p) && !trapped(state.buildings, p);
   if (DEFS[b.type].walkable) return false;
-  const { w, d } = dims(b.type, b.rotation);
+  const { w, d } = dims(b.type, b.rotation), radius = PLAYER_RADIUS;
   return p.x > b.x * CELL_SIZE - 1 - radius && p.x < (b.x + w - 1) * CELL_SIZE + 1 + radius && p.z > b.z * CELL_SIZE - 1 - radius && p.z < (b.z + d - 1) * CELL_SIZE + 1 + radius;
 }
 export function validatePlacement(state, type, x, z, rotation = 0) {
-  if(state.player.cave!=null)return {ok:false,reason:'Construction is unavailable underground.'};
+  if (state.player.cave != null) return { ok: false, reason: 'Construction is unavailable underground.' };
+  if (!DEFS[type]) return { ok: false, reason: 'Invalid building or grid position.' };
   const reason = geometryReason(state, type, x, z, rotation);
   if (reason) return { ok: false, reason };
-  const groundReason = terrainReason(state.seed, footprint(type,x,z,rotation));
-  if (groundReason) return { ok:false, reason:groundReason };
-  const lockReason = airlockReason(state, type, x, z, rotation);
-  if (lockReason) return { ok: false, reason: lockReason };
-  for (const [item, amount] of Object.entries(DEFS[type].cost)) {
-    if (!finite(state.inventory[item]) || state.inventory[item] < amount) return { ok: false, reason: `Not enough ${item}.` };
+  if (DEFS[type].layer !== 'interior') {
+    const groundReason = terrainReason(state.seed, footprint(type, x, z, rotation));
+    if (groundReason) return { ok: false, reason: groundReason };
   }
+  const placeReason = roomReason(state, type, x, z, rotation);
+  if (placeReason) return { ok: false, reason: placeReason };
+  for (const [item, amount] of Object.entries(DEFS[type].cost)) if (inv.count(state.inventory, item) < amount) return { ok: false, reason: `Not enough ${item}.` };
   return { ok: true, reason: 'Click to place blueprint.' };
 }
 export function placeBlueprint(state, type, x, z, rotation = 0) {
   const result = validatePlacement(state, type, x, z, rotation);
   if (!result.ok) return result;
-  for (const [item, amount] of Object.entries(DEFS[type].cost)) state.inventory[item] -= amount;
+  for (const [item, amount] of Object.entries(DEFS[type].cost)) inv.remove(state.inventory, item, amount);
   const id = state.nextId++;
   state.buildings.push({ id, type, x, z, rotation, progress: 0, built: false });
   return { ok: true, reason: 'Blueprint placed. Approach and hold E to construct.', id };
 }
 export function construct(state, id, dt) {
-  if(state.player.cave!=null)return {ok:false,reason:'Construction is unavailable underground.'};
+  if (state.player.cave != null) return { ok: false, reason: 'Construction is unavailable underground.' };
   const b = state.buildings.find(b => b.id === id);
   if (!b) return { ok: false, reason: 'Blueprint no longer exists.' };
   if (b.built) return { ok: false, reason: 'Already constructed.' };
   if (!finite(dt) || dt <= 0) return { ok: false, reason: 'Construction time must be positive.' };
   const cells = footprint(b.type, b.x, b.z, b.rotation);
-  const cx = cells.reduce((sum,c) => sum+c.x*CELL_SIZE,0)/cells.length;
-  const cz = cells.reduce((sum,c) => sum+c.z*CELL_SIZE,0)/cells.length;
-  if (Math.hypot(state.player.x-cx,state.player.z-cz) > 5) return { ok: false, reason: 'Move within 5 metres to construct.' };
-  // Match controller collision padding: completing a machine around the player
+  const cx = cells.reduce((sum, c) => sum + c.x * CELL_SIZE, 0) / cells.length;
+  const cz = cells.reduce((sum, c) => sum + c.z * CELL_SIZE, 0) / cells.length;
+  if (Math.hypot(state.player.x - cx, state.player.z - cz) > 5) return { ok: false, reason: 'Move within 5 metres to construct.' };
+  if (DEFS[b.type].layer === 'interior') {
+    const { floor } = occupancy(state.buildings);
+    if (cells.some(c => !floor.get(key(c.x, c.z))?.built)) return { ok: false, reason: 'Finish the floor here first.' };
+  }
+  // Match controller collision padding: completing a structure around the player
   // would otherwise leave them unable to take even the first step out.
-  if (playerObstructs(state, b)) return { ok: false, reason: b.type === 'habitat' ? 'Step off the wall line to construct this habitat.' : 'Step outside the footprint to construct this machine.' };
-  b.progress = Math.min(1, b.progress + dt / DEFS[b.type].buildTime);
+  if (playerObstructs(state, b)) return { ok: false, reason: isRoom(b) ? 'This would shut you in. Step out, or build an airlock first.' : 'Step outside the footprint to construct this machine.' };
+  b.progress = Math.min(1, b.progress + dt * hunger(state.player.satiety).build / DEFS[b.type].buildTime);
   b.built = b.progress >= 1;
-  ensureBuildingState(b);
+  ensureState(b);
   return { ok: true, reason: b.built ? 'Construction complete.' : 'Constructing…' };
+}
+/** Returns the cost of `b`; refused when the refund will not fit in the player's slots. */
+function refund(state, b) {
+  if (!inv.canFit(state.inventory, DEFS[b.type].cost)) return false;
+  for (const [item, amount] of Object.entries(DEFS[b.type].cost)) inv.add(state.inventory, item, amount);
+  return true;
 }
 export function cancelBlueprint(state, id) {
   const index = state.buildings.findIndex(b => b.id === id);
@@ -97,11 +135,11 @@ export function cancelBlueprint(state, id) {
   if (b.built) return { ok: false, reason: 'Completed buildings cannot be cancelled.' };
   const blocked = removalReason(state, b);
   if (blocked) return { ok: false, reason: blocked };
-  for (const [item, amount] of Object.entries(DEFS[b.type].cost)) state.inventory[item] += amount;
-  state.buildings.splice(index,1);
+  if (!refund(state, b)) return { ok: false, reason: 'No room in your inventory for the materials.' };
+  state.buildings.splice(index, 1);
   return { ok: true, reason: 'Blueprint cancelled; materials returned.' };
 }
-/** Dismantles a finished structure for a full refund. Carried metal and silicon are returned; regolith is spilled. */
+/** Dismantles a finished structure for a full refund. Carried goods inside are returned if they fit; regolith is spilled. */
 export function deconstruct(state, id) {
   const index = state.buildings.findIndex(b => b.id === id);
   if (index < 0) return { ok: false, reason: 'Structure no longer exists.' };
@@ -109,21 +147,34 @@ export function deconstruct(state, id) {
   if (!b.built) return cancelBlueprint(state, id);
   const blocked = removalReason(state, b);
   if (blocked) return { ok: false, reason: blocked };
-  for (const [item, amount] of Object.entries(DEFS[b.type].cost)) state.inventory[item] += amount;
-  for (const store of [b.inv, b.out]) for (const item of ['metal', 'silicon']) state.inventory[item] += Math.floor(store?.[item] ?? 0);
-  for (const item of b.items ?? []) if (item.type !== 'regolith') state.inventory[item.type] += 1;
+  if (!refund(state, b)) return { ok: false, reason: 'No room in your inventory for the materials.' };
+  const contents = { metal: 0, silicon: 0, crop: 0, meal: 0 };
+  for (const store of [b.inv, b.out]) for (const item of ['metal', 'silicon']) contents[item] += Math.floor(store?.[item] ?? 0);
+  for (const item of b.items ?? []) if (item.type !== 'regolith') contents[item.type] += 1;
+  if (b.type === 'galley') { contents.crop += b.crops; contents.meal += b.meals; }
+  if (b.type === 'growbed' && b.grow >= 1) contents.crop += LIFE.harvest;
+  let lost = 0;
+  for (const [item, n] of Object.entries(contents)) if (n) lost += inv.add(state.inventory, item, n);
   state.buildings.splice(index, 1);
-  return { ok: true, reason: `${DEFS[b.type].name} dismantled; materials returned.` };
+  return { ok: true, reason: `${DEFS[b.type].name} dismantled; materials returned${lost ? `, but ${lost} item${lost > 1 ? 's' : ''} didn't fit and were lost` : ''}.` };
 }
-/** Transfers usable materials from a storage crate into the player's inventory. */
+/** Transfers usable materials from a storage crate into the player's inventory, as far as they fit. */
 export function collectStorage(state, id) {
   const b = state.buildings.find(b => b.id === id);
   if (!b || b.type !== 'storage' || !b.built) return { ok: false, reason: 'No storage crate here.' };
-  const metal = b.inv.metal, silicon = b.inv.silicon;
-  if (!metal && !silicon) return { ok: false, reason: b.inv.regolith ? 'This crate only holds raw regolith.' : 'Storage crate is empty.' };
-  state.inventory.metal += metal; state.inventory.silicon += silicon;
-  b.inv.metal = 0; b.inv.silicon = 0;
-  return { ok: true, reason: `Collected ${[metal && `${metal} metal`, silicon && `${silicon} silicon`].filter(Boolean).join(' and ')}.`, metal, silicon };
+  if (!b.inv.metal && !b.inv.silicon) return { ok: false, reason: b.inv.regolith ? 'This crate only holds raw regolith.' : 'Storage crate is empty.' };
+  const taken = {};
+  for (const item of ['metal', 'silicon']) { const n = Math.min(b.inv[item], inv.room(state.inventory, item)); inv.add(state.inventory, item, n); b.inv[item] -= n; taken[item] = n; }
+  const { metal, silicon } = taken;
+  if (!metal && !silicon) return { ok: false, reason: 'No room in your inventory.' };
+  return { ok: true, reason: `Collected ${[metal && `${metal} metal`, silicon && `${silicon} silicon`].filter(Boolean).join(' and ')}${b.inv.metal || b.inv.silicon ? '; your inventory is full' : ''}.`, metal, silicon };
+}
+/** E on a grow bed or galley. */
+export function interact(state, id) {
+  const b = state.buildings.find(b => b.id === id);
+  if (!b) return { ok: false, reason: 'Nothing here.' };
+  if (b.type === 'storage') return collectStorage(state, id);
+  return useLife(state, b);
 }
 /** Turns an existing belt (blueprint or finished) to face `rotation`; items on it are kept. */
 export function rotateBelt(state, id, rotation) {
@@ -139,30 +190,31 @@ export function setMiningArea(state, x, z) {
   state.miningArea = { x, z };
   return { ok: true, reason: 'Mining area set. The rover will dig here and unload at the nearest hopper.' };
 }
-export function daylightAt(time) { return Math.max(0,Math.sin(time / DAY_DURATION * Math.PI * 2 + Math.PI / 3)); }
+export function daylightAt(time) { return Math.max(0, Math.sin(time / DAY_DURATION * Math.PI * 2 + Math.PI / 3)); }
 export function tick(state, dt) {
   if (!finite(dt) || dt < 0) throw new Error('Simulation time must be nonnegative and finite.');
   state.time += dt;
-  // Production runs on the previous tick's supply state, so derived power always matches the saved state.
-  if (dt > 0) stepProduction(state, dt, state.power.powered !== false);
+  // Machines run on the previous tick's supply state, so derived power always matches the saved state.
+  const powered = state.power.powered !== false;
+  if (dt > 0) { stepProduction(state, dt, powered); stepLife(state, dt, powered); }
   const daylight = daylightAt(state.time), night = daylight <= 0.05;
-  let generation = 0, demand = productionDemand(state), capacity = 0;
+  let generation = 0, demand = productionDemand(state) + lifeDemand(state, roomStatus(state)), capacity = 0;
   for (const b of state.buildings) {
     if (!b.built) continue;
     if (b.type === 'solar') generation += 8 * daylight;
     if (b.type === 'battery') capacity += 180;
-    if (b.type === 'habitat') demand += 1;
     if (b.type === 'lamp' && night) demand += 0.2;
   }
-  const previous = Math.min(capacity, Math.max(0,state.power.stored));
+  const previous = Math.min(capacity, Math.max(0, state.power.stored));
   const net = generation - demand;
-  const stored = Math.min(capacity,Math.max(0,previous+net*dt));
-  const supplied = generation >= demand ? demand : Math.min(demand,generation + (dt > 0 ? previous/dt : (previous > 0 ? demand : 0)));
+  const stored = Math.min(capacity, Math.max(0, previous + net * dt));
+  const supplied = generation >= demand ? demand : Math.min(demand, generation + (dt > 0 ? previous / dt : (previous > 0 ? demand : 0)));
   state.power = { generation, demand, stored, capacity, supplied, powered: supplied + 1e-8 >= demand };
 }
 export function serialize(state) { return JSON.stringify(state); }
 
 const count = (n, max) => finite(n) && n >= 0 && n <= max;
+const wholeCount = (n, max) => Number.isInteger(n) && n >= 0 && n <= max;
 function restoreBuilding(raw) {
   const b = { id: raw.id, type: raw.type, x: raw.x, z: raw.z, rotation: raw.rotation, progress: raw.progress, built: raw.built };
   if (!b.built) return b;
@@ -184,7 +236,12 @@ function restoreBuilding(raw) {
     if (raw.out != null) { b.out = {}; for (const item of ['metal', 'silicon']) { if (!count(raw.out?.[item], PROCESSOR_OUTPUT_CAP)) throw new Error('Invalid processor output.'); b.out[item] = raw.out[item]; } }
     if (raw.work != null) { if (!count(raw.work, 1)) throw new Error('Invalid processor progress.'); b.work = raw.work; }
   }
-  return ensureBuildingState(b);
+  const check = (field, valid) => { if (raw[field] == null) return; if (!valid(raw[field])) throw new Error(`Invalid ${DEFS[b.type].name.toLowerCase()} state.`); b[field] = raw[field]; };
+  if (isRoom(b)) check('air', v => typeof v === 'boolean');
+  if (b.type === 'growbed') { check('grow', v => count(v, 1)); check('watered', v => typeof v === 'boolean'); }
+  if (b.type === 'galley') { check('crops', v => wholeCount(v, LIFE.cookInput * 2)); check('work', v => count(v, 1)); check('meals', v => wholeCount(v, LIFE.galleyMeals)); }
+  if (b.type === 'recycler') check('work', v => count(v, 1));
+  return ensureState(b);
 }
 function restoreRobot(raw, index) {
   const tasks = ['idle', 'toMine', 'mining', 'toHopper', 'docked', 'blocked'];
@@ -197,39 +254,67 @@ function restoreRobot(raw, index) {
   if (raw.wait != null) { if (!count(raw.wait, 10)) throw new Error('Invalid robot.'); r.wait = raw.wait; }
   return r;
 }
+/** Before version 3 a habitat was a 2x2 module with its airlock on the `rotation` side. It becomes four
+ * painted squares; the front-left square becomes an airlock unless the module faced another module. */
+function migrateModules(buildings, nextId) {
+  const offsets = [[0, 0], [1, 0], [0, 1], [1, 1]], cells = new Set();
+  for (const b of buildings) if (b.type === 'habitat') for (const [ox, oz] of offsets) cells.add(key(b.x + ox, b.z + oz));
+  const result = [];
+  for (const b of buildings) {
+    if (b.type !== 'habitat') { result.push(b); continue; }
+    const [dx, dz] = DIRS[b.rotation], squares = offsets.map(([ox, oz]) => ({ x: b.x + ox, z: b.z + oz }));
+    const front = squares.filter(c => !squares.some(o => o.x === c.x + dx && o.z === c.z + dz)).sort((a, c) => a.x - c.x || a.z - c.z)[0];
+    const lock = !cells.has(key(front.x + dx, front.z + dz)) && front;
+    squares.forEach((c, i) => result.push({ id: i ? nextId++ : b.id, type: c === lock ? 'airlock' : 'habitat', x: c.x, z: c.z, rotation: c === lock ? b.rotation : 0, progress: b.progress, built: b.built }));
+  }
+  return { buildings: result, nextId };
+}
 export function deserialize(text) {
   const raw = JSON.parse(text);
-  if (!raw || (raw.version !== 1 && raw.version !== SAVE_VERSION) || !Number.isSafeInteger(raw.seed) || !finite(raw.time) || raw.time < 0 || !Array.isArray(raw.buildings) || raw.buildings.length > 13689) throw new Error('Invalid or unsupported save.');
+  if (!raw || ![1, 2, SAVE_VERSION].includes(raw.version) || !Number.isSafeInteger(raw.seed) || !finite(raw.time) || raw.time < 0 || !Array.isArray(raw.buildings) || raw.buildings.length > 13689) throw new Error('Invalid or unsupported save.');
   const state = createState(raw.seed);
   state.time = raw.time;
-  for (const item of ['metal','silicon']) {
-    if (!finite(raw.inventory?.[item]) || raw.inventory[item] < 0) throw new Error('Invalid inventory.');
-    state.inventory[item] = raw.inventory[item];
+  if (raw.version === SAVE_VERSION) state.inventory = inv.restore(raw.inventory);
+  else {
+    // Older saves carried unlimited metal and silicon counters; whatever exceeds ten slots is lost.
+    state.inventory = inv.createInventory();
+    for (const item of ['metal', 'silicon']) {
+      if (!finite(raw.inventory?.[item]) || raw.inventory[item] < 0) throw new Error('Invalid inventory.');
+      inv.add(state.inventory, item, Math.floor(raw.inventory[item]));
+    }
+    inv.add(state.inventory, 'meal', STARTING.meals);
   }
-  for (const axis of ['x','y','z']) {
+  for (const axis of ['x', 'y', 'z']) {
     const coordinate = raw.player?.[axis];
     if (!finite(coordinate) || (axis === 'y' ? coordinate < 0 || coordinate > 10 : Math.abs(coordinate) > 125)) throw new Error('Invalid player position.');
     state.player[axis] = raw.player[axis];
   }
-  if(raw.player.cave!=null){if(!Number.isInteger(raw.player.cave)||raw.player.cave<0||raw.player.cave>2||!caveWalkable(raw.seed,raw.player.cave,state.player.x,state.player.z))throw new Error('Invalid cave position.');state.player.cave=raw.player.cave;}
-  if(raw.exploredCaves)state.exploredCaves={};
-  if(raw.exploredCaves&&typeof raw.exploredCaves==='object')for(const [id,cells] of Object.entries(raw.exploredCaves)){if(/^[0-2]$/.test(id)&&Array.isArray(cells))state.exploredCaves[id]=cells.filter(k=>typeof k==='string'&&/^-?\d{1,2},-?\d{1,2}$/.test(k)).slice(0,6000);}
+  if (raw.player.satiety != null) { if (!count(raw.player.satiety, 100)) throw new Error('Invalid player.'); state.player.satiety = raw.player.satiety; }
+  if (raw.player.cave != null) { if (!Number.isInteger(raw.player.cave) || raw.player.cave < 0 || raw.player.cave > 2 || !caveWalkable(raw.seed, raw.player.cave, state.player.x, state.player.z)) throw new Error('Invalid cave position.'); state.player.cave = raw.player.cave; }
+  if (raw.exploredCaves) state.exploredCaves = {};
+  if (raw.exploredCaves && typeof raw.exploredCaves === 'object') for (const [id, cells] of Object.entries(raw.exploredCaves)) { if (/^[0-2]$/.test(id) && Array.isArray(cells)) state.exploredCaves[id] = cells.filter(k => typeof k === 'string' && /^-?\d{1,2},-?\d{1,2}$/.test(k)).slice(0, 6000); }
   const ids = new Set();
   for (const b of raw.buildings) {
-    if (!b || !Number.isSafeInteger(b.id) || b.id < 1 || ids.has(b.id) || !finite(b.progress) || b.progress < 0 || b.progress > 1 || typeof b.built !== 'boolean' || b.built !== (b.progress === 1) || !validRotation(b.rotation)) throw new Error('Invalid building.');
-    const reason = geometryReason(state,b.type,b.x,b.z,b.rotation);
-    if (reason) throw new Error(`Invalid building: ${reason}`);
-    state.buildings.push(restoreBuilding(b));
+    if (!b || !Number.isSafeInteger(b.id) || b.id < 1 || ids.has(b.id) || !DEFS[b.type] || !finite(b.progress) || b.progress < 0 || b.progress > 1 || typeof b.built !== 'boolean' || b.built !== (b.progress === 1) || !validRotation(b.rotation)) throw new Error('Invalid building.');
+    if (raw.version < SAVE_VERSION && DEFS[b.type].layer && b.type !== 'habitat') throw new Error('Invalid building.');
     ids.add(b.id);
   }
-  if (!Number.isSafeInteger(raw.nextId) || raw.nextId <= Math.max(0,...ids)) throw new Error('Invalid entity sequence.');
+  if (!Number.isSafeInteger(raw.nextId) || raw.nextId <= Math.max(0, ...ids)) throw new Error('Invalid entity sequence.');
+  let buildings = raw.buildings;
   state.nextId = raw.nextId;
+  if (raw.version < SAVE_VERSION) ({ buildings, nextId: state.nextId } = migrateModules(raw.buildings, raw.nextId));
+  for (const b of buildings) {
+    const reason = geometryReason(state, b.type, b.x, b.z, b.rotation);
+    if (reason) throw new Error(`Invalid building: ${reason}`);
+    state.buildings.push(restoreBuilding(b));
+  }
   if (!finite(raw.power?.stored) || raw.power.stored < 0) throw new Error('Invalid battery charge.');
   state.power.stored = raw.power.stored;
-  // Version 1 colonies predate mining: they receive the starting rover and empty reserves.
-  if (raw.version === SAVE_VERSION) {
+  // Version 1 colonies predate mining: they keep the starting rover and reserves.
+  if (raw.version >= 2) {
     if (!count(raw.reserves?.oxygen, 1e9)) throw new Error('Invalid reserves.');
-    state.reserves.oxygen = raw.reserves.oxygen;
+    state.reserves.oxygen = raw.reserves.oxygen + (raw.version < SAVE_VERSION ? STARTING.oxygen : 0);
+    if (raw.version === SAVE_VERSION) { if (!count(raw.reserves.water, 1e9)) throw new Error('Invalid reserves.'); state.reserves.water = raw.reserves.water; }
     if (!Array.isArray(raw.robots) || raw.robots.length > 64) throw new Error('Invalid robots.');
     state.robots = raw.robots.map(restoreRobot);
     if (raw.miningArea != null) {
@@ -244,6 +329,6 @@ export function deserialize(text) {
       state.mined[cell] = amount;
     }
   }
-  tick(state,0);
+  tick(state, 0);
   return state;
 }

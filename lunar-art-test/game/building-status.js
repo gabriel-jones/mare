@@ -1,6 +1,13 @@
 import { daylightAt } from './sim.js';
 import { DEFS } from './defs.js';
 import { processorReady, remainingRegolith, roverHasWork, ROVER, RECIPE } from './production.js';
+import { LIFE, roomStatus } from './life.js';
+
+const roomCache={state:null,time:-1,result:null};
+function roomsOf(state){
+ if(roomCache.state!==state||roomCache.time!==state.time){roomCache.state=state;roomCache.time=state.time;roomCache.result=roomStatus(state);}
+ return roomCache.result;
+}
 
 // The prototype has one shared power network. Every battery displays its share
 // of the pooled charge; independent battery storage can replace this later.
@@ -26,7 +33,24 @@ export function buildingStatus(building,state){
   if(building.inv.regolith<RECIPE.input)return {icon:'ore',text:'Needs regolith',tone:'inactive'};
   return {icon:'box',text:'Output blocked',tone:'low'};
  }
- const consuming=building.type==='habitat'||(building.type==='lamp'&&night);
+ const room=DEFS[building.type].layer?roomsOf(state).at(building.x,building.z):null;
+ if(DEFS[building.type].layer==='floor')return room?.pressurised?{icon:'air',text:'Pressurised',tone:'charge'}:{icon:room?.reason==='No power'?'power':'air',text:room?.reason??'No airlock',tone:'warning'};
+ if(DEFS[building.type].layer==='interior'&&!room?.pressurised)return {icon:'air',text:'No air',tone:'inactive'};
+ if(building.type==='growbed'){
+  if(building.grow>=1)return {icon:'leaf',text:'Ripe',tone:'low'};
+  if(!building.watered&&state.reserves.water<LIFE.growWater)return {icon:'water',text:'Needs water',tone:'warning'};
+  return state.power.powered===false?{icon:'power',text:'No power',tone:'warning'}:{icon:'leaf',text:`Growing ${Math.floor(building.grow*100)}%`,tone:'charge',fill:building.grow};
+ }
+ if(building.type==='galley'){
+  if(building.meals)return {icon:'meal',text:building.meals>1?`${building.meals} meals`:'Meal ready',tone:'low'};
+  if(building.crops>=LIFE.cookInput)return state.power.powered===false?{icon:'power',text:'No power',tone:'warning'}:{icon:'meal',text:'Cooking',tone:'charge',fill:building.work};
+  return {icon:'leaf',text:'Needs potatoes',tone:'inactive'};
+ }
+ if(building.type==='recycler'){
+  if(state.reserves.water>=LIFE.waterCap)return {icon:'water',text:'Tanks full',tone:'inactive'};
+  return state.power.powered===false?{icon:'power',text:'No power',tone:'warning'}:{icon:'water',text:'Recycling',tone:'charge',fill:building.work};
+ }
+ const consuming=building.type==='lamp'&&night;
  if(consuming&&state.power.powered===false)return {icon:'power',text:'No power',tone:'warning'};
  if(building.type==='solar'&&daylight===0)return {icon:'sun',text:'No sunlight',tone:'inactive'};
  return null;

@@ -260,6 +260,6 @@ export function stepProduction(state, dt, powered) {
   const index = cellIndex(state);
   stepBelts(state, index, dt);
   stepMachines(state, index, dt, powered);
-  const topology = state.buildings.filter(b => b.built && !DEFS[b.type].walkable).map(b => b.id).join(',');
+  const topology = state.buildings.filter(b => b.built && (!DEFS[b.type].walkable || DEFS[b.type].enclosed)).map(b => b.id).join(',');
   for (const r of state.robots) stepRover(state, r, dt, powered, topology);
 }

@@ -2,11 +2,12 @@ import test from 'node:test';
 import {movePlayer,buildingCenter,nearestBlueprint,resetLocomotion,interpolatePose,WALK_SPEED,RUN_SPEED} from './controller.js';
 import assert from 'node:assert/strict';
 import {createState,DEFS,footprint,validatePlacement,placeBlueprint,construct,cancelBlueprint,tick,serialize,deserialize} from './sim.js';
+import {count,createInventory} from './inventory.js';
 function complete(state,type,x,z,rotation=0) {
   const result=placeBlueprint(state,type,x,z,rotation);
   assert.equal(result.ok,true,result.reason);
   const cells=footprint(type,x,z,rotation);
-  state.player.x=type === 'habitat' ? cells.reduce((s,c)=>s+c.x*2,0)/cells.length : x*2-1.5;
+  state.player.x=x*2-1.5;
   state.player.z=cells.reduce((s,c)=>s+c.z*2,0)/cells.length;
   assert.equal(construct(state,result.id,DEFS[type].buildTime).ok,true);
   return result.id;
@@ -21,9 +22,9 @@ test('rotated footprints, boundaries and reserved pad validate every occupied ce
   assert.equal(validatePlacement(s,'solar',0.5,0).ok,false);
 });
 test('placement spends once, reserves space, and partial cancellation refunds exactly once',()=>{
-  const s=createState(), original={...s.inventory};
+  const s=createState(), original=structuredClone(s.inventory);
   const p=placeBlueprint(s,'solar',0,0);
-  assert.equal(s.inventory.metal,original.metal-DEFS.solar.cost.metal);
+  assert.equal(count(s.inventory,'metal'),count(original,'metal')-DEFS.solar.cost.metal);
   assert.equal(placeBlueprint(s,'lamp',1,1).ok,false);
   s.player.x=-1.5;s.player.z=1;
   construct(s,p.id,1);
@@ -31,7 +32,7 @@ test('placement spends once, reserves space, and partial cancellation refunds ex
   assert.deepEqual(s.inventory,original);
   assert.equal(cancelBlueprint(s,p.id).ok,false);
   assert.deepEqual(s.inventory,original);
-  s.inventory.metal=0;
+  s.inventory=createInventory({silicon:100});
   assert.equal(placeBlueprint(s,'solar',0,0).ok,false);
   assert.equal(s.buildings.length,0);
 });
@@ -39,7 +40,7 @@ test('construction requires proximity and finished structures cannot refund',()=
   const s=createState(),p=placeBlueprint(s,'habitat',5,5);
   assert.equal(construct(s,p.id,20).ok,false);
   assert.equal(s.buildings[0].progress,0);
-  s.player.x=11;s.player.z=11;
+  s.player.x=12.5;s.player.z=10;
   assert.equal(construct(s,p.id,-1).ok,false);
   construct(s,p.id,100);
   assert.equal(s.buildings[0].progress,1);
@@ -59,12 +60,13 @@ test('only finished solar charges batteries; night drains storage then reports o
   tick(s,10);
   assert.ok(s.power.stored>0);
   assert.ok(s.power.stored<=180);
+  // One habitat square draws 0.25 kW.
   s.time=150; s.power.stored=10;
-  tick(s,5);
+  tick(s,8);
   assert.equal(s.power.generation,0);
-  assert.equal(s.power.stored,5);
+  assert.equal(s.power.stored,8);
   assert.equal(s.power.powered,true);
-  tick(s,6);
+  tick(s,33);
   assert.equal(s.power.stored,0);
   assert.equal(s.power.powered,false);
 });
@@ -80,14 +82,16 @@ test('save restores exact simulation and rejects corrupt/overlapping states',()=
   assert.throws(()=>deserialize('{broken'));
   const bad=JSON.parse(serialize(s));bad.buildings[1].x=0;
   assert.throws(()=>deserialize(JSON.stringify(bad)),/Invalid building/);
-  bad.buildings=[];bad.inventory.metal=-1;
+  bad.buildings=[];bad.inventory[0].count=-1;
   assert.throws(()=>deserialize(JSON.stringify(bad)),/inventory/);
   assert.throws(()=>deserialize(JSON.stringify({...s,version:99})));
   assert.throws(()=>tick(s,NaN));
 });
 
 test('a full battery powers a habitat and light through the complete prototype night',()=>{
-  const s=createState();complete(s,'battery',0,0);complete(s,'habitat',3,0);complete(s,'lamp',6,0);
+  // Four habitat squares at 0.25 kW each.
+  const s=createState();complete(s,'battery',0,0);complete(s,'lamp',8,0);
+  for(const [x,z] of [[3,0],[4,0],[3,1],[4,1]]){const id=placeBlueprint(s,'habitat',x,z).id;s.player={...s.player,x:7,z:4.5};assert.equal(construct(s,id,9).ok,true);}
   s.time=80;tick(s,0);s.power.stored=180;
   for(let i=0;i<1200;i++) { tick(s,0.1);assert.equal(s.power.powered,true); }
   assert.ok(s.power.stored>35 && s.power.stored<37);
@@ -97,7 +101,7 @@ test('saves reject unreachable player coordinates and invalid jump heights',()=>
     const s=createState();s.player=player;
     assert.throws(()=>deserialize(serialize(s)),/player position/);
   }
-  const s=createState();s.player={x:35,z:-35,y:10};
+  const s=createState();s.player={x:35,z:-35,y:10,satiety:100};
   assert.deepEqual(deserialize(serialize(s)).player,s.player);
 });
 test('movement follows isometric screen axes and normalizes diagonal speed',()=>{
@@ -122,13 +126,14 @@ test('collision blocks solid structures and ship, but permits blueprints and hab
   movePlayer(s,1,1,0.05,DEFS);assert.equal(s.player.x,-1.4);
   s.buildings[0].built=false;
   movePlayer(s,1,1,0.05,DEFS);assert.ok(s.player.x>-1.4);
-  // Habitat walls are solid; only the airlock on its front (+Z at rotation 0) lets the player in.
-  s.buildings[0].built=true;s.buildings[0].type='habitat';s.player={x:-1.4,z:1,y:0};
+  // Room walls are solid; only the airlock square's outward door (+Z at rotation 0) lets the player in.
+  const square=(id,type,x,z,rotation=0)=>({id,type,x,z,rotation,progress:1,built:true});
+  s.buildings=[square(1,'habitat',0,0),square(2,'habitat',1,0),square(3,'airlock',0,1)];s.player={x:-1.4,z:0,y:0};
   for(let i=0;i<10;i++)movePlayer(s,1,1,0.05,DEFS);assert.ok(s.player.x<-1.4+.1,'side wall blocks');
-  s.player={x:1,z:4,y:0,vx:0,vz:0};
+  s.player={x:0,z:4.5,y:0,vx:0,vz:0};
   for(let i=0;i<20;i++)movePlayer(s,1,-1,0.05,DEFS);assert.ok(s.player.z<2,'airlock admits the player');
-  s.player={x:-0.4,z:4,y:0,vx:0,vz:0};
-  for(let i=0;i<20;i++)movePlayer(s,1,-1,0.05,DEFS);assert.ok(s.player.z>3,'the wall beside the airlock blocks');
+  s.player={x:2,z:4.5,y:0,vx:0,vz:0};
+  for(let i=0;i<20;i++)movePlayer(s,1,-1,0.05,DEFS);assert.ok(s.player.z>1,'the wall beside the airlock blocks');
   s.buildings=[];s.player={x:-1.92,z:-10,y:0};
   movePlayer(s,1,1,0.05,DEFS);assert.equal(s.player.x,-1.92);assert.equal(s.player.vx,0);
   s.player={x:125,z:0,y:0};movePlayer(s,1,1,0.05,DEFS);assert.equal(s.player.x,125);
@@ -156,8 +161,8 @@ test('construction cannot complete around a player inside future machine collisi
   const before=s.player.x;
   movePlayer(s,-1,-1,0.05,DEFS);
   assert.ok(s.player.x<before,'the finished machine leaves a safe path away');
-  // Habitats remain intentionally walkable during and after construction.
-  const h=placeBlueprint(s,'habitat',4,0);s.player={x:9,z:1,y:0};
+  // A room square can be finished from outside its walls.
+  const h=placeBlueprint(s,'habitat',4,0);s.player={x:10.5,z:0,y:0};
   assert.equal(construct(s,h.id,100).ok,true);
 });
 
@@ -209,12 +214,10 @@ test('building indicators distinguish pooled battery charge, inactive lights and
  const building=type=>({type,built:true,progress:1});
  assert.deepEqual(buildingStatus(building('battery'),s),{icon:'battery',text:'25%',tone:'charge',fill:.25});
  s.power.stored=0;assert.equal(buildingStatus(building('battery'),s).tone,'low');
- assert.equal(buildingStatus(building('habitat'),s).text,'No power');
  assert.equal(buildingStatus(building('lamp'),s),null,'daytime lights do not demand energy');
  s.time=150;assert.equal(buildingStatus(building('lamp'),s).text,'No power');
  assert.equal(buildingStatus(building('solar'),s).text,'No sunlight');
  assert.equal(buildingStatus(building('hopper'),s),null,'passive structures do not show false power warnings');
- s.power.powered=true;assert.equal(buildingStatus(building('habitat'),s),null);
  assert.equal(buildingStatus({type:'battery',built:false,progress:.4},s).text,'40%');
 });
 
@@ -227,7 +230,7 @@ test('seeded cave networks are connected, varied, and safe to save underground',
   assert.equal(visited.size,cave.cells.size);assert.ok(cave.rooms.length>=10);assert.ok(caveWalkable(seed,id,0,3.2));
  }
  assert.notDeepEqual([...caveLayout(42,0).cells],[...caveLayout(43,0).cells]);
- const s=createState();s.player={x:0,z:4,y:0,cave:1};s.exploredCaves={1:['0,0','0,1']};
+ const s=createState();s.player={x:0,z:4,y:0,satiety:100,cave:1};s.exploredCaves={1:['0,0','0,1']};
  assert.deepEqual(deserialize(serialize(s)),s);
  s.player.x=110;assert.throws(()=>deserialize(serialize(s)),/cave position/);
 });

@@ -19,7 +19,10 @@ Art direction: graphic lunar industrialism. Strong functional silhouettes, selec
 | Conveyor belt | 378 | 4 |
 | Storage crate | 572 | 5 |
 | Conveyor corner | 418 | 4 |
-| Modular habitat kit (11 pieces) | 952 | — |
+| Modular habitat kit (15 pieces) | 1,108 | — |
+| Grow bed (with Plants node) | 304 | 6 |
+| Galley (with MealTray node) | 308 | 8 |
+| Water recycler | 424 | 6 |
 
 The astronaut has one skin,15 bones, and five animation clips: Idle, Walk, Run, Jump, Build. Blender may append a numeric suffix to action names when preserving earlier scenes; runtime resolves the base clip name. Static geometry merges by material; habitat Roof remains independently hideable. The construction tool is hidden outside the Build state.
 
@@ -39,4 +42,6 @@ Lunar plains kit: `rock-a.glb` (398 triangles), `rock-b.glb` (408), `rock-c.glb`
 
 Production kit (Phase B): `rover.glb`, `processor.glb`, `conveyor.glb`, `storage.glb` and the revised `hopper.glb`. The rover keeps separate named nodes (`Wheel_LF/RF/LB/RB`, `Drill`, `Cargo`) that the runtime spins, digs and fills; everything else merges by material. Source: `production-library.blend` (preview `production-library.png`); script: `../blender/build_production.py`, which builds in a temporary scene and removes it so an open Blender file is left untouched.
 
-Modular habitat kit (`habitat-kit.glb`): Floor, Wall, Window, Airlock, AirlockDoor, Corner, Roof, RoofEdge, RoofCorner, RoofModule and Cabinet, each a named node authored at the origin on the two-metre grid. Walls are one-metre segments centred on grid lines with the exterior facing game +Z; floor, roof and roof-edge tiles have no side bevels so neighbouring modules meet without seams. The runtime places pieces per joined room and merges them by material; the two airlock door leaves stay separate and slide open as the player approaches. `conveyor-corner.glb` is the quarter-turn belt (enters from +X, leaves toward +Z; mirrored at runtime for left turns). Source: `modular-library.blend` (preview `modular-library.png`); script `../blender/build_modular.py`, which builds in a temporary scene and leaves the open file untouched. Blender may suffix a piece name that collides with an object in the open file (`Roof.002`); the runtime matches base names. The single-module `habitat.glb` remains for the art lab.
+Modular habitat kit (`habitat-kit.glb`): Floor, Wall, Window, Airlock, AirlockDoor, Corner, Roof, RoofEdge, RoofCorner, RoofModule, Cabinet, and for Phase C GlassWall, GlassRoof, GlassRoofEdge (greenhouse) and AirlockFloor, each a named node authored at the origin on the two-metre grid. Walls are one-metre segments centred on grid lines with the exterior facing game +Z; floor, roof and roof-edge tiles have no side bevels so neighbouring modules meet without seams. The runtime places pieces per joined room and merges them by material; the two airlock door leaves stay separate and slide open as the player approaches. `conveyor-corner.glb` is the quarter-turn belt (enters from +X, leaves toward +Z; mirrored at runtime for left turns). Source: `modular-library.blend` (preview `modular-library.png`); script `../blender/build_modular.py`, which builds in a temporary scene and leaves the open file untouched. Blender may suffix a piece name that collides with an object in the open file (`Roof.002`); the runtime matches base names. The single-module `habitat.glb` remains for the art lab. Greenhouse glass uses the material "Lunar • greenhouse glazing", which the runtime renders translucent by name.
+
+Room fittings (`growbed.glb`, `galley.glb`, `recycler.glb`) fill one grid square, stand on the floor deck at the origin and face game +Z. The grow bed's `Plants` node scales with growth; the galley's `MealTray` node shows when a meal is ready. Built by the same `../blender/build_modular.py`.

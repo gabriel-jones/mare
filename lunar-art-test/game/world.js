@@ -5,7 +5,7 @@ import { DIRS, ports as machinePorts } from './defs.js';
 import { MINING_RADIUS, beltTurns } from './production.js';
 import { createProductionView } from './production-view.js';
 import { createHabitatView } from './habitat-view.js';
-import { airlockOf, habitatLayout } from './habitat.js';
+import { airlockOf, habitatLayout, isRoom } from './habitat.js';
 import { surfaceHeightAt as heightAt } from './terrain.js';
 import { createTerrainView } from './terrain-view.js';
 import * as THREE from 'three';
@@ -23,7 +23,7 @@ export async function createWorld(canvas, initialState) {
   renderer.toneMapping=THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure=1.12;
   const loader=new GLTFLoader();
-  const assetNames=['starship','launchpad','solar','battery','hopper','habitat-kit','lamp','conveyor','conveyor-corner','processor','storage','rover','rock-a','rock-b','rock-c','cave-mouth'];
+  const assetNames=['starship','launchpad','solar','battery','hopper','habitat-kit','lamp','conveyor','conveyor-corner','processor','storage','growbed','galley','recycler','rover','rock-a','rock-b','rock-c','cave-mouth'];
   const loaded=await Promise.all(assetNames.map(name=>loader.loadAsync(`./assets/${name}.glb`).then(g=>[name,g.scene]).catch(e=>{console.error('Asset failed:',name,e);return [name,null];})));
   const models=new Map(loaded);
   const astronautGLTF=await loader.loadAsync('./assets/astronaut-v2.glb').catch(e=>{console.error('Animated astronaut failed',e);return null;});
@@ -50,10 +50,9 @@ export async function createWorld(canvas, initialState) {
   const lightPool=Array.from({length:6},()=>{const l=new THREE.PointLight('#ffc777',0,13,2);scene.add(l);return l;});
   function updateLights(daylight){
     const candidates=[];
-    if(state.power.powered!==false)for(const b of state.buildings){
-      if(!b.built||(b.type!=='lamp'&&b.type!=='habitat'))continue;
-      const c=footprint(b.type,b.x,b.z,b.rotation),x=c.reduce((s,q)=>s+q.x,0)/c.length*2,z=c.reduce((s,q)=>s+q.z,0)/c.length*2;
-      candidates.push(b.type==='lamp'?{x,y:heightAt(state.seed,x,z)+2.8,z,intensity:(1-daylight)*26,distance:13,color:0xffc777}:{x,y:heightAt(state.seed,x,z)+1.9,z,intensity:(1-daylight)*10,distance:7,color:0xffcf8c});
+    if(state.power.powered!==false){
+      for(const b of state.buildings)if(b.built&&b.type==='lamp'){const x=b.x*2,z=b.z*2;candidates.push({x,y:heightAt(state.seed,x,z)+2.8,z,intensity:(1-daylight)*26,distance:13,color:0xffc777});}
+      for(const l of habitatView.lights())candidates.push({...l,intensity:(1-daylight)*(l.greenhouse?7:10),distance:7,color:l.greenhouse?0xffb0dc:0xffcf8c});
     }
     for(const c of candidates)c.d=Math.hypot(c.x-follow.x,c.z-follow.z);
     candidates.sort((a,b)=>a.d-b.d);
@@ -64,12 +63,12 @@ export async function createWorld(canvas, initialState) {
   const structures=new Map();
   const statusLayer=document.createElement('div');statusLayer.className='building-status-layer';statusLayer.setAttribute('aria-label','Building status');document.body.append(statusLayer);
   const statusLabels=new Map(),statusPoint=new THREE.Vector3();
-  const statusIcons={battery:'<rect x="3" y="5" width="16" height="14" rx="2"/><path d="M21 9v6M7 9v6m4-6v6m4-6v6"/>',power:'<path d="m14 2-9 12h7l-2 8 9-12h-7l2-8Z"/><path d="m3 3 18 18"/>',sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2"/>',build:'<path d="m14 3 7 7-4 3-3-3-9 11-3-3L13 8l-2-2 3-3Z"/>',ore:'<path d="m4 15 5-8 4 4 3-3 4 7Z"/><path d="M3 19h18"/>',box:'<path d="M4 8 12 4l8 4v8l-8 4-8-4Z"/><path d="m4 8 8 4 8-4M12 12v8"/>',gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2"/>',rover:'<rect x="4" y="8" width="13" height="6" rx="1"/><path d="M17 11h3l1 3"/><circle cx="7" cy="17" r="2"/><circle cx="15" cy="17" r="2"/>'};
+  const statusIcons={battery:'<rect x="3" y="5" width="16" height="14" rx="2"/><path d="M21 9v6M7 9v6m4-6v6m4-6v6"/>',power:'<path d="m14 2-9 12h7l-2 8 9-12h-7l2-8Z"/><path d="m3 3 18 18"/>',sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2"/>',build:'<path d="m14 3 7 7-4 3-3-3-9 11-3-3L13 8l-2-2 3-3Z"/>',ore:'<path d="m4 15 5-8 4 4 3-3 4 7Z"/><path d="M3 19h18"/>',box:'<path d="M4 8 12 4l8 4v8l-8 4-8-4Z"/><path d="m4 8 8 4 8-4M12 12v8"/>',gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2"/>',rover:'<rect x="4" y="8" width="13" height="6" rx="1"/><path d="M17 11h3l1 3"/><circle cx="7" cy="17" r="2"/><circle cx="15" cy="17" r="2"/>',air:'<circle cx="9" cy="13" r="5"/><circle cx="17" cy="7" r="3"/><circle cx="18" cy="17" r="2"/>',leaf:'<path d="M5 19C5 10 11 5 20 4c0 9-5 15-14 15Z"/><path d="M5 19 13 11"/>',water:'<path d="M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11Z"/>',meal:'<path d="M3 12h18a9 9 0 0 1-18 0Z"/><path d="M9 8c0-2 2-2 2-4m3 4c0-2 2-2 2-4"/>'};
   function updateStatuses(){
     const entries=[],rooms=habitatLayout(state.buildings);
-    // One label per joined habitat room, on its oldest module.
-    const roomLabel=b=>{const room=rooms.roomOf.get(`${b.x},${b.z}`);return !room||Math.min(...room.modules)===b.id;};
-    for(const b of state.buildings){const object=structures.get(b.id),show=b.type==='conveyor'?b.built:!(b.built&&b.type==='habitat')||roomLabel(b);entries.push({key:String(b.id),status:object&&show?buildingStatus(b,state):null,anchor:object?.root,height:object?.statusHeight,name:DEFS[b.type].name});}
+    // One label per finished room, on its oldest square; unfinished squares and belts stay quiet.
+    const roomLabel=b=>{const room=rooms.roomOf.get(`${b.x},${b.z}`);return !!room&&Math.min(...room.modules)===b.id;};
+    for(const b of state.buildings){const object=structures.get(b.id),show=b.type==='conveyor'||isRoom(b)?b.built&&(b.type==='conveyor'||roomLabel(b)):true;entries.push({key:String(b.id),status:object&&show?buildingStatus(b,state):null,anchor:object?.root,height:object?.statusHeight,name:DEFS[b.type].name});}
     for(const r of state.robots??[]){const view=productionView.rovers.get(r.id);entries.push({key:`robot-${r.id}`,status:view?robotStatus(r,state):null,anchor:view?.root,height:1.9,name:'Mining rover'});}
     const live=new Set(entries.map(e=>e.key));
     for(const [id,label] of statusLabels)if(!live.has(id)){label.remove();statusLabels.delete(id);}
@@ -127,13 +126,13 @@ export async function createWorld(canvas, initialState) {
   document.body.dataset.characterClips=actor?.clips.join(',')||'unavailable';
   const markerGeo=new THREE.RingGeometry(.58,.66,32);geometries.add(markerGeo);const marker=mesh(markerGeo,mat('#ffbf6c',{emissive:'#a66624',emissiveIntensity:.35}),player,0,.025,0);marker.rotation.x=-Math.PI/2;
   function buildModel(type,turn=0){
-    // Habitats are assembled per connected room by the habitat view; this is only a label anchor.
-    if(type==='habitat')return {root:new THREE.Group(),roof:null,emits:false,statusHeight:2.45};
+    // Room squares are assembled per connected room by the habitat view; this is only a label anchor.
+    if(DEFS[type].layer==='floor')return {root:new THREE.Group(),roof:null,emits:false,statusHeight:2.45};
     const template=models.get(type==='conveyor'&&turn?'conveyor-corner':type);
     if(template){
-      const root=template.clone(true);
+      const root=template.clone(true),part=name=>{let found=null;root.traverse(n=>{if(!found&&n.name.replace(/\.\d+$/,'')===name)found=n;});return found;};
       if(type==='conveyor'&&turn<0)root.scale.x=-1;
-      return {root,roof:null,emits:type==='lamp'};
+      return {root,roof:null,emits:type==='lamp'||DEFS[type].layer==='interior',plants:part('Plants'),tray:part('MealTray')};
     }
     const root=new THREE.Group(),w=DEFS[type].w*2,d=DEFS[type].d*2;
     box(root,dark,0,.12,0,w-.12,.24,d-.12);
@@ -178,7 +177,7 @@ export async function createWorld(canvas, initialState) {
     const items=line??[{x,z,rotation,valid}],key=type+JSON.stringify(items);if(key===ghostKey)return;ghostKey=key;ghost.clear();
     for(const item of items){
       const cells=type==='mine'?Array.from({length:(MINING_RADIUS*2+1)**2},(_,i)=>({x:item.x-MINING_RADIUS+i%(MINING_RADIUS*2+1),z:item.z-MINING_RADIUS+Math.floor(i/(MINING_RADIUS*2+1))})):footprint(type,item.x,item.z,item.rotation);
-      for(const c of cells)box(ghost,item.valid?ghostGood:ghostBad,c.x*2,heightAt(state.seed,c.x*2,c.z*2)+.08,c.z*2,type==='mine'?1.7:1.94,.13,type==='mine'?1.7:1.94);
+      for(const c of cells)box(ghost,item.valid?ghostGood:ghostBad,c.x*2,(habitatView.floorAt(state,c.x*2,c.z*2)??heightAt(state.seed,c.x*2,c.z*2))+.08,c.z*2,type==='mine'?1.7:1.94,.13,type==='mine'?1.7:1.94);
       if(type==='conveyor')groundArrow(ghost,beltArrow,item.x*2,item.z*2,item.rotation,1.1,.3);
       else if(type!=='mine')portArrows(ghost,{type,x:item.x,z:item.z,rotation:item.rotation},true);
     }
@@ -234,9 +233,11 @@ export async function createWorld(canvas, initialState) {
       o.root.visible=true;
       const def=DEFS[b.type],w=b.rotation%2?def.d:def.w,d=b.rotation%2?def.w:def.d;
       const bx=(b.x+(w-1)/2)*2,bz=(b.z+(d-1)/2)*2;
-      o.root.position.set(bx,heightAt(state.seed,bx,bz),bz);o.root.rotation.y=b.rotation*Math.PI/2;
+      o.root.position.set(bx,(def.layer==='interior'&&habitatView.floorAt(state,bx,bz))||heightAt(state.seed,bx,bz),bz);o.root.rotation.y=b.rotation*Math.PI/2;
+      if(o.plants){o.plants.visible=b.built&&(b.grow>0||b.watered);o.plants.scale.setScalar(.2+.8*(b.grow??0));}
+      if(o.tray)o.tray.visible=b.built&&b.meals>0;
       // Blueprints turn red while the player stands where the finished structure would trap them.
-      const blocked=!b.built&&b.type!=='habitat'&&obstructs(b);
+      const blocked=!b.built&&!isRoom(b)&&obstructs(b);
       if(o.built!==b.built||o.blocked!==blocked){o.ownedMaterials.forEach(m=>{m.transparent=!b.built;m.opacity=b.built?1:blocked?.6:.5;m.depthWrite=b.built;m.color.copy(b.built?m.userData.baseColor:blueprintColor[blocked?1:0]);m.emissive.copy(b.built?m.userData.baseEmissive:blueprintEmissive[blocked?1:0]);m.emissiveIntensity=b.built?m.userData.baseEmission:.85;});o.root.traverse(n=>{if(n.isMesh)n.castShadow=b.built;});o.built=b.built;o.blocked=blocked;}
       if(!b.built)o.root.scale.y=.35+.65*(b.progress||0);
       else o.root.scale.y=1;

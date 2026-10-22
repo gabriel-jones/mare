@@ -2,6 +2,7 @@ import {worldVectorToCave} from './cave-space.js';
 import { caveWalkable } from './caves.js';
 import { terrainBlocked } from './terrain.js';
 import { habitatLayout, wallBlocks } from './habitat.js';
+import { hunger } from './life.js';
 // Input-to-world movement is independent of rendering and networking.
 export const CELL_SIZE=2;
 export const PLAYER_RADIUS=.32;
@@ -18,7 +19,7 @@ export function interpolatePose(previous,current,alpha){
 }
 export function movePlayer(state,dx,dz,dt,defs){
  const p=state.player,step=Math.max(0,Math.min(dt,.05));
- const len=Math.hypot(dx,dz),speed=RUN_SPEED;
+ const len=Math.hypot(dx,dz),speed=RUN_SPEED*hunger(p.satiety??100).speed;
  // Screen-space up = -X,-Z. Screen-space right = +X,-Z.
  let targetX=len?(dx+dz)*Math.SQRT1_2*speed/Math.max(1,len):0;
  let targetZ=len?(-dx+dz)*Math.SQRT1_2*speed/Math.max(1,len):0;
@@ -35,7 +36,7 @@ export function movePlayer(state,dx,dz,dt,defs){
   if(wallBlocks(habitatLayout(state.buildings),x,z,PLAYER_RADIUS))return true;
   for(const b of state.buildings){
    const d=defs[b.type];if(!b.built||!d||d.walkable)continue;
-   const w=b.rotation%2?d.d:d.w,h=b.rotation%2?d.w:d.d,r=PLAYER_RADIUS;
+   const w=b.rotation%2?d.d:d.w,h=b.rotation%2?d.w:d.d,r=PLAYER_RADIUS-(d.inset??0);
    if(x>b.x*2-1-r&&x<(b.x+w-1)*2+1+r&&z>b.z*2-1-r&&z<(b.z+h-1)*2+1+r)return true;
   }return false;
  };

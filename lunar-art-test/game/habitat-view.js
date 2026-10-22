@@ -1,18 +1,26 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { CELL_SIZE, DIRS, footprint } from './defs.js';
-import { habitatLayout, roomAt } from './habitat.js';
+import { CELL_SIZE, DIRS } from './defs.js';
+import { habitatLayout, isRoom, roomAt } from './habitat.js';
 import { surfaceHeightAt } from './terrain.js';
 
 const DOOR_TRAVEL = .62, DOOR_REACH = 2.4, FLOOR_TOP = .13;
+const key = (x, z) => `${x},${z}`;
 
-/** Assembles connected habitat rooms from the Blender kit. Rebuilds only when habitats change. */
+/** Assembles connected rooms from the Blender kit, one painted square at a time. Rebuilds only when rooms change. */
 export function createHabitatView(scene, kit) {
   const root = new THREE.Group(); scene.add(root);
   const owned = { geometries: [], materials: [] };
   const pieces = new Map();
   const materialClones = new Map();
-  const shared = m => { if (!materialClones.has(m)) { const c = m.clone(); owned.materials.push(c); materialClones.set(m, c); } return materialClones.get(m); };
+  const shared = m => {
+    if (!materialClones.has(m)) {
+      const c = m.clone();
+      if (/greenhouse glazing/i.test(c.name)) Object.assign(c, { transparent: true, opacity: .3, depthWrite: false });
+      owned.materials.push(c); materialClones.set(m, c);
+    }
+    return materialClones.get(m);
+  };
   if (kit) {
     kit.updateMatrixWorld(true);
     for (const node of kit.children) {
@@ -36,6 +44,7 @@ export function createHabitatView(scene, kit) {
     pieces.set('Floor', [block(2, .2, 2, .03, 0, dark)]); pieces.set('Wall', [block(1, 2, .23, 1.12)]); pieces.set('Window', [block(1, 2, .23, 1.12)]);
     pieces.set('Airlock', [block(.35, 2, .23, 1.12, 0), block(1.3, .28, .23, 1.98)]); pieces.set('Roof', [block(2, .2, 2, 2.22)]);
   }
+  for (const [missing, fallback] of [['GlassWall', 'Window'], ['GlassRoof', 'Roof'], ['GlassRoofEdge', 'RoofEdge']]) if (!pieces.has(missing) && pieces.has(fallback)) pieces.set(missing, pieces.get(fallback));
   const lightMaterials = [...materialClones.values()].filter(m => m.emissiveIntensity > 0 && m.emissive?.getHex());
   lightMaterials.forEach(m => { m.userData.base = m.emissiveIntensity; });
 
@@ -72,32 +81,38 @@ export function createHabitatView(scene, kit) {
       for (const e of [-.5, .5]) {
         const x = s.x + px * e, z = s.z + pz * e;
         if (Math.abs(x % 2) !== 1 || Math.abs(z % 2) !== 1) continue;
-        const k = `${x},${z}`; if (!axes.has(k)) axes.set(k, { x, z, axes: new Set() });
+        const k = key(x, z); if (!axes.has(k)) axes.set(k, { x, z, axes: new Set() });
         axes.get(k).axes.add(s.dir % 2);
       }
     }
     return [...axes.values()].filter(v => v.axes.size > 1);
   }
+  const wallPiece = { wall: 'Wall', window: 'Window', glass: 'GlassWall' };
 
-  /** Places walls, windows, airlocks, floors and roof for one set of cells and segments. */
-  function layoutPieces(a, layout, cells, segments, modules, y) {
-    for (const c of cells) { a.add('Floor', c.x * CELL_SIZE, y, c.z * CELL_SIZE); a.add('Roof', c.x * CELL_SIZE, y, c.z * CELL_SIZE, 0, false, 'roof'); }
-    for (const s of segments) if (s.kind !== 'door') a.add(s.kind === 'window' ? 'Window' : 'Wall', s.x, y, s.z, s.dir);
-    const edges = new Set();
+  /** Floors, walls, roof and airlock frames for a set of squares. Returns the exterior airlocks for door leaves. */
+  function layoutPieces(a, squares, segments, y, { roofs = true } = {}) {
+    for (const b of squares) {
+      const x = b.x * CELL_SIZE, z = b.z * CELL_SIZE, glass = b.type === 'greenhouse';
+      a.add('Floor', x, y, z);
+      if (b.type === 'airlock') a.add('AirlockFloor', x, y, z, b.rotation);
+      if (roofs) a.add(glass ? 'GlassRoof' : 'Roof', x, y, z, 0, false, 'roof');
+    }
+    for (const s of segments) if (wallPiece[s.kind]) a.add(wallPiece[s.kind], s.x, y, s.z, s.dir);
+    const edges = new Set(), doors = [];
     for (const s of segments) {
       const k = `${s.cell.x},${s.cell.z},${s.dir}`; if (edges.has(k)) continue; edges.add(k);
-      a.add('RoofEdge', s.cell.x * CELL_SIZE + DIRS[s.dir][0], y, s.cell.z * CELL_SIZE + DIRS[s.dir][1], s.dir, false, 'roof');
+      const ex = s.cell.x * CELL_SIZE + DIRS[s.dir][0], ez = s.cell.z * CELL_SIZE + DIRS[s.dir][1];
+      if (s.kind === 'door') { a.add('Airlock', ex, y, ez, s.dir); doors.push({ x: ex, z: ez, dir: s.dir }); }
+      if (roofs) a.add(s.room === 'greenhouse' ? 'GlassRoofEdge' : 'RoofEdge', ex, y, ez, s.dir, false, 'roof');
     }
-    for (const v of cornerPoints(segments)) { a.add('Corner', v.x, y, v.z); a.add('RoofCorner', v.x, y, v.z, 0, false, 'roof'); }
-    const doors = [];
-    for (const m of modules) {
-      const cells = footprint(m.type, m.x, m.z, m.rotation), cx = cells.reduce((s, c) => s + c.x, 0) / cells.length * CELL_SIZE, cz = cells.reduce((s, c) => s + c.z, 0) / cells.length * CELL_SIZE;
-      a.add('RoofModule', cx, y, cz, m.rotation, false, 'roof');
-      const back = (m.rotation + 2) % 4, bx = cx + DIRS[back][0] * 2, bz = cz + DIRS[back][1] * 2, [px, pz] = DIRS[(back + 1) % 4];
-      const wallAt = e => segments.some(s => s.kind === 'wall' && s.dir === back && Math.abs(s.x - (bx + px * e)) < .01 && Math.abs(s.z - (bz + pz * e)) < .01);
-      if (wallAt(-.5) && wallAt(.5)) a.add('Cabinet', bx, y, bz, back);
-      const lock = layout.airlocks.find(l => l.id === m.id);
-      if (lock?.exterior) { a.add('Airlock', lock.x, y, lock.z, lock.dir); doors.push(lock); }
+    for (const v of cornerPoints(segments)) { a.add('Corner', v.x, y, v.z); if (roofs) a.add('RoofCorner', v.x, y, v.z, 0, false, 'roof'); }
+    if (roofs) {
+      // Rooftop services on every whole 2x2 block of habitat squares.
+      const habitat = new Set(squares.filter(b => b.type === 'habitat').map(b => key(b.x, b.z))), used = new Set();
+      for (const b of [...squares].sort((p, q) => p.z - q.z || p.x - q.x)) {
+        const block = [[0, 0], [1, 0], [0, 1], [1, 1]].map(([dx, dz]) => key(b.x + dx, b.z + dz));
+        if (block.every(k => habitat.has(k) && !used.has(k))) { block.forEach(k => used.add(k)); a.add('RoofModule', b.x * CELL_SIZE + 1, y, b.z * CELL_SIZE + 1, 0, false, 'roof'); }
+      }
     }
     return doors;
   }
@@ -114,49 +129,51 @@ export function createHabitatView(scene, kit) {
 
   let roomsKey = '', rooms = [];
   const blueprints = new Map();
-  const roomHeight = (modules, seed) => Math.max(...modules.map(m => { const c = footprint(m.type, m.x, m.z, m.rotation); return surfaceHeightAt(seed, c.reduce((s, q) => s + q.x, 0) / c.length * CELL_SIZE, c.reduce((s, q) => s + q.z, 0) / c.length * CELL_SIZE); }));
+  const roomHeight = (squares, seed) => Math.max(...squares.map(b => surfaceHeightAt(seed, b.x * CELL_SIZE, b.z * CELL_SIZE)));
   function disposeObject(o) { o.traverse(n => { if (n.isMesh) n.geometry.dispose(); }); o.removeFromParent(); }
 
   function rebuildRooms(state, layout) {
     for (const r of rooms) disposeObject(r.group);
     rooms = [];
     for (const room of layout.rooms) {
-      const modules = state.buildings.filter(b => room.modules.has(b.id)), y = roomHeight(modules, state.seed);
-      const cells = new Set(room.cells.map(c => `${c.x},${c.z}`)), segments = layout.segments.filter(s => cells.has(`${s.cell.x},${s.cell.z}`));
-      const group = new THREE.Group(), a = assembler(), locks = layoutPieces(a, layout, room.cells, segments, modules, y);
+      const squares = state.buildings.filter(b => room.modules.has(b.id)), y = roomHeight(squares, state.seed);
+      const segments = layout.segments.filter(s => room.modules.has(s.id));
+      const group = new THREE.Group(), a = assembler(), locks = layoutPieces(a, squares, segments, y);
       const body = a.build('static'), roof = a.build('roof');
       if (body) group.add(body); if (roof) group.add(roof);
       const doors = locks.map(l => doorLeaves(l, y, group));
       root.add(group);
-      rooms.push({ room, group, roof, doors, y });
+      rooms.push({ room, group, roof, doors, y, squares });
     }
   }
 
+  /** Each unfinished square is drawn alone; it only redraws when its own neighbours change. */
   function updateBlueprints(state, obstructs) {
     const all = habitatLayout(state.buildings, { blueprints: true }), live = new Set();
+    let byId = null;
     for (const b of state.buildings) {
-      if (b.type !== 'habitat' || b.built) continue;
+      if (!isRoom(b) || b.built) continue;
       live.add(b.id);
-      const sig = `${all.sig}#${b.id}`;
+      const sig = `${b.type}:${b.x}:${b.z}:${b.rotation}:` + DIRS.map(([dx, dz]) => all.owner.has(key(b.x + dx, b.z + dz)) ? 1 : 0).join('');
       let view = blueprints.get(b.id);
       if (view?.sig !== sig) {
         if (view) disposeObject(view.group);
-        const cells = footprint(b.type, b.x, b.z, b.rotation), segments = all.segments.filter(s => s.id === b.id), y = roomHeight([b], state.seed);
-        const group = new THREE.Group(), a = assembler(), locks = layoutPieces(a, all, cells, segments, [b], 0);
+        if (!byId) { byId = new Map(); for (const s of all.segments) { if (!byId.has(s.id)) byId.set(s.id, []); byId.get(s.id).push(s); } }
+        const group = new THREE.Group(), a = assembler(), locks = layoutPieces(a, [b], byId.get(b.id) ?? [], 0, { roofs: false });
         const body = a.build('static', blueprintGood); if (body) { body.castShadow = false; group.add(body); }
         for (const l of locks) doorLeaves(l, 0, group, blueprintGood);
-        group.position.y = y; root.add(group);
-        view = { sig, group }; blueprints.set(b.id, view);
+        group.position.y = roomHeight([b], state.seed); root.add(group);
+        view = { sig, group, blocked: false }; blueprints.set(b.id, view);
       }
-      const blocked = obstructs(b), material = blocked ? blueprintBlocked : blueprintGood;
-      view.group.traverse(n => { if (n.isMesh) n.material = material; });
+      const blocked = obstructs(b);
+      if (view.blocked !== blocked || !view.painted) { view.group.traverse(n => { if (n.isMesh) n.material = blocked ? blueprintBlocked : blueprintGood; }); view.blocked = blocked; view.painted = true; }
       view.group.scale.y = .35 + .65 * (b.progress || 0);
     }
     for (const [id, view] of blueprints) if (!live.has(id)) { disposeObject(view.group); blueprints.delete(id); }
   }
 
   return {
-    /** `obstructs(b)` reports whether finishing blueprint `b` would trap the player in a wall. */
+    /** `obstructs(b)` reports whether finishing blueprint `b` would shut the player in. */
     update(state, dt, { player, powered, obstructs }) {
       const layout = habitatLayout(state.buildings);
       if (layout.sig !== roomsKey) { roomsKey = layout.sig; rebuildRooms(state, layout); }
@@ -174,6 +191,12 @@ export function createHabitatView(scene, kit) {
     },
     /** Floor height of the finished room under the world point, or null outdoors. */
     floorAt(state, x, z) { const room = roomAt(habitatLayout(state.buildings), x, z), r = room && rooms.find(r => r.room === room); return r ? r.y + FLOOR_TOP : null; },
+    /** Ceiling light positions: one per 2x2 block of finished room squares. */
+    lights() {
+      const result = [];
+      for (const r of rooms) for (const b of r.squares) if (b.x % 2 === 0 && b.z % 2 === 0 || r.squares.length === 1) result.push({ x: b.x * CELL_SIZE, y: r.y + 1.9, z: b.z * CELL_SIZE, greenhouse: b.type === 'greenhouse' });
+      return result;
+    },
     dispose() { for (const r of rooms) disposeObject(r.group); for (const v of blueprints.values()) disposeObject(v.group); scene.remove(root); owned.geometries.forEach(g => g.dispose()); owned.materials.forEach(m => m.dispose()); },
   };
 }

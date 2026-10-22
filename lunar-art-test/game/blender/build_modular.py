@@ -39,6 +39,12 @@ M = {
  'glass': material('Lunar • deep teal glazing', (.025,.14,.18), .55,.2),
  'light': material('Lunar • warm powered emission', (1,.61,.2), .1,.3, 3),
  'floor': material('Lunar • regolith composite', (.19,.22,.24), .1,.75),
+ # The runtime renders this material translucent by name.
+ 'greenglass': material('Lunar • greenhouse glazing', (.5,.78,.76), .1,.06),
+ 'leaf': material('Lunar • potato leaf', (.13,.4,.1), 0,.75),
+ 'soil': material('Lunar • hydroponic substrate', (.11,.075,.05), 0,.95),
+ 'water': material('Lunar • reclaimed water', (.06,.34,.56), .2,.08),
+ 'grow': material('Lunar • grow light emission', (1,.5,.82), .1,.3, 2.5),
 }
 
 def finish(o, name, mat, bevel=0, smooth=False):
@@ -171,9 +177,76 @@ def cabinet():
     box('Cabinet status', (.3, .465, .62), (.1, .02, .04), 'light')
     box('Service conduit', (0, .17, 1.86), (1.9, .055, .055), 'orange')
 
+def glass_wall():
+    """Greenhouse glazing segment: low plinth, slim graphite frame, tall pane."""
+    box('Glass plinth', (0, 0, .3), (1.0, .23, .36), 'ivory')
+    box('Glass head rail', (0, 0, 2.06), (1.0, .2, .12), 'dark')
+    box('Glass transom', (0, 0, 1.3), (1.0, .2, .04), 'dark')
+    for x in [-.48, .48]: box('Glass mullion', (x, 0, 1.26), (.05, .2, 1.62), 'dark')
+    box('Greenhouse pane', (0, 0, 1.28), (.92, .03, 1.5), 'greenglass')
+
+def glass_roof():
+    box('Glass roof pane', (0, 0, 2.18), (2.0, 2.0, .04), 'greenglass')
+    box('Glass roof rib', (0, 0, 2.22), (2.0, .08, .1), 'dark')
+    box('Glass roof rib', (0, 0, 2.22), (.08, 2.0, .1), 'dark')
+
+def glass_roof_edge():
+    box('Glass roof beam', (0, -.02, 2.17), (2.0, .22, .2), 'dark')
+
+def airlock_floor():
+    """Hazard markings and a drain grate laid over an airlock square's floor."""
+    for y in [-.78, .78]: box('Airlock floor stripe', (0, y, .136), (1.7, .1, .008), 'orange')
+    box('Airlock drain grate', (0, 0, .136), (1.1, .9, .008), 'metal')
+
 PIECES = [('Floor', floor_tile), ('Wall', wall), ('Window', window), ('Airlock', airlock), ('AirlockDoor', airlock_door),
           ('Corner', corner_post), ('Roof', roof_tile), ('RoofEdge', roof_edge), ('RoofCorner', roof_corner),
-          ('RoofModule', roof_module), ('Cabinet', cabinet)]
+          ('RoofModule', roof_module), ('Cabinet', cabinet), ('GlassWall', glass_wall), ('GlassRoof', glass_roof),
+          ('GlassRoofEdge', glass_roof_edge), ('AirlockFloor', airlock_floor)]
+
+# --- Interior objects: one grid square each, standing on the floor deck (z=0), front -Y (game +Z). ---
+def grow_bed():
+    box('Planter', (0, 0, .24), (1.62, 1.3, .48), 'ivory', .03)
+    box('Planter rim', (0, 0, .49), (1.68, 1.36, .03), 'dark')
+    box('Substrate', (0, 0, .47), (1.48, 1.16, .04), 'soil')
+    for x in [-.78, .78]: box('Grow light post', (x, .58, .9), (.06, .06, 1.8), 'dark')
+    box('Grow light housing', (0, .1, 1.82), (1.66, .9, .06), 'dark', .01)
+    for y in [-.18, .1, .38]: box('Grow light strip', (0, y, 1.785), (1.5, .08, .02), 'grow')
+    box('Irrigation line', (0, -.62, .55), (1.5, .04, .04), 'orange')
+
+def plants():
+    """Potato plants; the runtime scales this node with growth."""
+    for i, (x, y) in enumerate([(-.5, -.35), (0, -.35), (.5, -.35), (-.5, .35), (0, .35), (.5, .35)]):
+        bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=1, radius=.24, location=(x, y, .66))
+        o = bpy.context.object; o.scale = (1, 1, .75); o.rotation_euler = (0, 0, i * .9)
+        finish(o, 'Potato plant', 'leaf')
+
+def galley():
+    box('Galley counter', (0, .5, .45), (1.7, .7, .9), 'ivory', .02)
+    box('Galley worktop', (0, .48, .92), (1.78, .78, .05), 'metal')
+    box('Hob', (-.42, .48, .953), (.62, .46, .016), 'dark')
+    cyl('Cooking pot', (-.42, .48, 1.05), .15, .18, 'metal', 14)
+    box('Galley splashback', (0, .86, 1.3), (1.7, .04, .7), 'dark')
+    box('Galley screen', (.38, .835, 1.36), (.6, .01, .32), 'glass')
+    box('Extractor hood', (-.42, .64, 1.86), (.78, .44, .14), 'metal', .02)
+    box('Galley stripe', (0, .143, .78), (1.7, .01, .05), 'orange')
+    for x in [-.43, .43]: box('Cupboard seam', (x, .143, .42), (.012, .01, .6), 'dark')
+
+def meal_tray():
+    box('Meal tray', (.42, .42, .955), (.52, .36, .02), 'orange')
+    cyl('Meal bowl', (.32, .42, 1.0), .11, .07, 'ivory', 12)
+    cyl('Meal cup', (.56, .44, 1.0), .05, .1, 'metal', 8)
+
+def recycler():
+    box('Recycler plinth', (0, .3, .06), (1.6, 1.1, .12), 'dark')
+    for x in [-.42, .42]:
+        cyl('Water tank', (x, .42, .82), .32, 1.4, 'metal', 16)
+        cyl('Tank sight band', (x, .42, .72), .328, .55, 'water', 16)
+        cyl('Tank cap', (x, .42, 1.55), .22, .08, 'dark', 12)
+    box('Filter stack', (0, .02, .6), (.46, .34, .96), 'ivory', .02)
+    box('Filter status', (0, -.155, .9), (.2, .01, .05), 'light')
+    cyl('Manifold', (0, .42, 1.42), .05, 1.0, 'orange', 8, (0, math.pi / 2, 0))
+
+INTERIOR = {'growbed': [('GrowBed', grow_bed), ('Plants', plants)], 'galley': [('Galley', galley), ('MealTray', meal_tray)], 'recycler': [('Recycler', recycler)]}
 
 # --- Conveyor corner: enters from +X, turns 90 degrees and leaves toward -Y (game +Z). ---
 def conveyor_corner():
@@ -204,6 +277,12 @@ kit = {}
 for piece, builder in PIECES:
     objects = []; builder(); kit[piece] = join(objects, piece)
 export('habitat-kit', list(kit.values()))
+interior = {}
+for asset, parts in INTERIOR.items():
+    nodes = []
+    for piece, builder in parts:
+        objects = []; builder(); nodes.append(join(objects, piece)); interior[piece] = nodes[-1]
+    export(asset, nodes)
 
 objects = []; conveyor_corner()
 corner_groups = {key: [o for o in objects if o.data.materials[0] == mat] for key, mat in M.items()}
@@ -211,12 +290,14 @@ corner_parts = [join(group, f'conveyor_corner_{key}') for key, group in corner_g
 export('conveyor-corner', corner_parts)
 
 # --- Preview: an L-shaped joined complex assembled from the kit, plus the corner belt. ---
-def place(piece, x, y, rot=0, mirror=False):
-    o = kit[piece].copy(); scene.collection.objects.link(o); created['objects'].append(o)
-    o.location = (x, y, 0); o.rotation_euler = (0, 0, rot)
+library = {**kit, **interior}
+def place(piece, x, y, rot=0, mirror=False, z=0):
+    o = library[piece].copy(); scene.collection.objects.link(o); created['objects'].append(o)
+    o.location = (x, y, z); o.rotation_euler = (0, 0, rot)
     if mirror: o.scale.x = -1
     return o
-for piece in kit.values(): piece.location = (0, 0, -50)
+for piece in library.values(): piece.location = (0, 0, -50)
+greenhouse = {(2, 0), (3, 0), (2, 1), (3, 1)}
 cells = [(0, 0), (1, 0), (0, 1), (1, 1), (2, 0), (3, 0), (2, 1), (3, 1), (0, 2), (1, 2), (0, 3), (1, 3)]
 cellset = set(cells)
 dirs = [(0, -1), (1, 0), (0, 1), (-1, 0)]
@@ -231,18 +312,20 @@ for cx, cy in cells:
         if door:
             if cx in (0, 2): place('Airlock', mx + 1, my, rot)
         elif not (d == 0 and cx in (1, 3) and cy == 0):
-            for s in (-.5, .5): place('Window' if d in (1, 3) else 'Wall', mx + px * s, my + py * s, rot)
+            for s in (-.5, .5): place('GlassWall' if (cx, cy) in greenhouse else 'Window' if d in (1, 3) else 'Wall', mx + px * s, my + py * s, rot)
 for door_x in (1, 5):
     place('AirlockDoor', door_x - .33, -1); place('AirlockDoor', door_x + .33, -1, 0, True)
 for x, y in [(-1, -1), (7, -1), (7, 3), (3, 3), (3, 7), (-1, 7)]: place('Corner', x, y)
-# Roof one module so both the open interior and the finished shell read in the preview.
-for cx, cy in [(2, 0), (3, 0), (2, 1), (3, 1)]:
-    place('Roof', cx * 2, cy * 2)
+# Glaze the greenhouse wing; the habitat stays open so its interior reads in the preview.
+for cx, cy in greenhouse:
+    place('GlassRoof', cx * 2, cy * 2)
     for d, (dx, dy) in enumerate(dirs):
-        if (cx + dx, cy + dy) not in cellset: place('RoofEdge', cx * 2 + dx, cy * 2 + dy, [0, math.pi / 2, math.pi, -math.pi / 2][d])
-place('RoofModule', 5, 1)
-for x, y in [(7, -1), (7, 3)]: place('RoofCorner', x, y)
-place('Cabinet', 1, 7, math.pi)
+        if (cx + dx, cy + dy) not in cellset: place('GlassRoofEdge', cx * 2 + dx, cy * 2 + dy, [0, math.pi / 2, math.pi, -math.pi / 2][d])
+for cx, cy in [(2, 0), (3, 0), (2, 1), (3, 1)]:
+    place('GrowBed', cx * 2, cy * 2, 0, False, .13); place('Plants', cx * 2, cy * 2, 0, False, .13)
+place('Galley', 0, 6, 0, False, .13); place('MealTray', 0, 6, 0, False, .13)
+place('Recycler', 2, 6, 0, False, .13)
+place('AirlockFloor', 0, 0)
 belt = [o for o in corner_parts]
 for o in belt: o.location = (-6, -2, 0)
 
