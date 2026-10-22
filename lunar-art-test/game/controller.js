@@ -31,8 +31,7 @@ export function movePlayer(state,dx,dz,dt,defs){
   // Landing ship itself is solid; the rest of the pad is walkable.
   if(Math.hypot(x,z+10)<1.9)return true;
   for(const b of state.buildings){
-   if(!b.built||b.type==='habitat')continue;
-   const d=defs[b.type];if(!d)continue;
+   const d=defs[b.type];if(!b.built||!d||d.walkable)continue;
    const w=b.rotation?d.d:d.w,h=b.rotation?d.w:d.d,r=.32;
    if(x>b.x*2-1-r&&x<(b.x+w-1)*2+1+r&&z>b.z*2-1-r&&z<(b.z+h-1)*2+1+r)return true;
   }return false;

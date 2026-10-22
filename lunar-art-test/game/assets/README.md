@@ -12,8 +12,12 @@ Art direction: graphic lunar industrialism. Strong functional silhouettes, selec
 | Habitat | 1,584 | 10 |
 | Solar array | 684 | 5 |
 | Battery | 880 | 5 |
-| Hopper | 624 | 4 |
+| Hopper (revised for Phase B output collar) | 756 | 4 |
 | Work light | 220 | 4 |
+| Mining rover | 1,638 | 15 |
+| Regolith processor | 2,396 | 5 |
+| Conveyor belt | 378 | 4 |
+| Storage crate | 572 | 5 |
 
 The astronaut has one skin,15 bones, and five animation clips: Idle, Walk, Run, Jump, Build. Blender may append a numeric suffix to action names when preserving earlier scenes; runtime resolves the base clip name. Static geometry merges by material; habitat Roof remains independently hideable. The construction tool is hidden outside the Build state.
 
@@ -30,3 +34,5 @@ Preview `/game/art-lab.html` to inspect models and animation clips in Three.js. 
 These remain a first playable art pass. There is no terrain-adaptive foot IK, character combat animation, facial animation, production LOD set, or populated-colony performance certification yet. All animations are in place; the controller owns translation and jump height.
 
 Lunar plains kit: `rock-a.glb` (398 triangles), `rock-b.glb` (408), `rock-c.glb` (368), `cave-mouth.glb` (1,352, separate ArchRoof). Vertex-painted, beveled Blender meshes authored against `../art-direction/lunar-voxel-plains-concept.png`. Source: `lunar-plains-kit.blend` with the reference image packed; authoring script: `../blender/build_lunar_plains.py`. The runtime normalizes rock geometry to match deterministic collision radii and instances the variants.
+
+Production kit (Phase B): `rover.glb`, `processor.glb`, `conveyor.glb`, `storage.glb` and the revised `hopper.glb`. The rover keeps separate named nodes (`Wheel_LF/RF/LB/RB`, `Drill`, `Cargo`) that the runtime spins, digs and fills; everything else merges by material. Source: `production-library.blend` (preview `production-library.png`); script: `../blender/build_production.py`, which builds in a temporary scene and removes it so an open Blender file is left untouched.

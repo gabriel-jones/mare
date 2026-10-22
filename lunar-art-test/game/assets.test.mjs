@@ -36,7 +36,7 @@ test('astronaut has a 15-bone skin and five distinct Blender clips with animated
  assert.ok(d.nodes.some(n=>n.name.startsWith('ConstructionTool')));
 });
 test('industrial exports contain only intended assets, retain a hideable roof, and fit draw budgets',()=>{
- const budgets={starship:3500,launchpad:1500,solar:1500,battery:1500,hopper:1200,habitat:2500,lamp:600};
+ const budgets={starship:3500,launchpad:1500,solar:1500,battery:1500,hopper:1200,habitat:2500,lamp:600,processor:2600,conveyor:450,storage:800};
  for(const [name,budget] of Object.entries(budgets)){
   const {json:d}=glb(name);let triangles=0,parts=0;
   assert.equal((d.animations??[]).length,0);
@@ -49,6 +49,15 @@ test('industrial exports contain only intended assets, retain a hideable roof, a
  }
 });
 
+test('mining rover keeps wheels, drill arm and cargo load as separate pivoting nodes',()=>{
+ const {json:d}=glb('rover');let triangles=0;
+ for(const mesh of d.meshes)for(const p of mesh.primitives)triangles+=d.accessors[p.indices].count/3;
+ assert.ok(triangles<=1800,`rover: ${triangles} triangles`);
+ const names=d.nodes.map(n=>n.name);
+ assert.deepEqual(names.filter(n=>n.startsWith('Wheel_')).sort(),['Wheel_LB','Wheel_LF','Wheel_RB','Wheel_RF']);
+ for(const name of ['Drill','Cargo']){const node=d.nodes.find(n=>n.name===name);assert.ok(node,`${name} node`);assert.ok(node.translation&&node.translation[1]>.5,`${name} pivots above ground`);}
+ assert.ok(d.nodes.length<=16,'merged static parts');
+});
 test('Blender plains kit exports clean, colored, budgeted rocks and a separable cave roof',()=>{
  for(const name of ['rock-a','rock-b','rock-c','cave-mouth']){
   const {json:d}=glb(name);assert.equal(d.scenes.length,1,'only the active asset scene is exported');

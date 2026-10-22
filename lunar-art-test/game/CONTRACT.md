@@ -16,3 +16,8 @@ Export `createUI(root,{onSelect,onRotate,onSave,onLoad,onReset,onCancel,onTimeTo
 
 ## main.js + index.html (orchestrator owner)
 Input, movement/collision, interaction, placement raycast, fixed-step tick, persistence localStorage, render and UI orchestration. Tests/integration. No other agent edits these.
+
+## Phase B additions
+Definitions move to `defs.js` (re-exported by `sim.js`): adds `conveyor` (1×1, walkable), `processor` (2×3), `storage` (1×1); habitat and conveyor are `walkable`. Rotation is 0–3 (odd rotations swap w/d); models face +Z at rotation 0, turned by `rotation*PI/2`. Directions `DIRS=[[0,1],[1,0],[0,-1],[-1,0]]`. Definitions may declare `inputs`/`outputs` ports `{x,z,dir}` in local cells; `ports(b,kind)` returns world `{cell,dir,neighbor}`.
+State version 2 adds `reserves:{oxygen}`, `robots:[{id,type:'rover',x,z,heading,task,cargo,charge,...}]`, `miningArea:{x,z}|null`, `mined:{'x:z':remaining}`; buildings may carry `items`, `inventory`, `input`, `output`, `progress`. Version 1 saves migrate with the starter rover. New sim exports: `deconstruct(state,id)`, `collectStorage(state,id)`, `setMiningArea(state,x,z)`, all returning `{ok,reason}`. Production advances inside `tick` only when `dt>0`; machines use the previous tick's `power.powered`. Paths are runtime-only caches, never saved.
+`world.setGhost(type,x,z,rotation,valid,line)` accepts `type:'mine'` and an optional belt line of cells.

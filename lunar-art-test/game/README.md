@@ -7,9 +7,10 @@ Dependencies are installed in the parent directory (`npm install` there). Origin
 ## Play
 
 - WASD: screen-relative movement with brisk acceleration and stopping. Shift: run. Space: lunar-gravity jump. Scroll: zoom.
-- Click a build card or press1–5. R rotates the footprint. Click ground to place; Escape dismisses placement.
-- Walk within5m and hold E to construct. Step outside solid machine footprints before finishing.
-- Point at an unfinished blueprint and press Delete to refund it.
+- Click a build card or press 1–9 (9 is Mining area). R rotates the footprint in four directions; ground arrows show machine ports (cyan in, amber out). Click ground to place; drag with the conveyor to lay a straight belt line. Escape dismisses placement.
+- Walk within5m and hold E to construct. Step outside solid machine footprints before finishing. Belts and the habitat are walkable.
+- Point at an unfinished blueprint and press Delete (or Backspace) to refund it; point at a finished structure to dismantle it for a full refund.
+- Production: build a hopper, then set a Mining area. The rover mines, unloads at the nearest hopper and recharges. Belt the hopper's output into a processor's input, and its output into a storage crate. Press E beside a crate to collect metal and silicon. Oxygen goes to the colony reserve.
 - Build solar, battery, habitat and hopper to complete the starter checklist. Add work lights for night.
 - Walk into the habitat to reveal its interior.
 - Save/Load and20-second autosave use browser storage. New colony requires inline confirmation. No server-side save or co-op yet.
@@ -21,7 +22,9 @@ Dependencies are installed in the parent directory (`npm install` there). Origin
 
 Blender-authored models and the rigged astronaut are in `assets/`; the character uses Idle, Walk, Run, Jump, and Build clips with blended transitions. Model studio: http://127.0.0.1:8765/game/art-lab.html. Scripts live in `blender/`. Repeated structures have merged static geometry by material.
 
-Current limits: fixed2×2 habitat, shared electrical grid, starter inventory only. No mining, factories, full room painting, food, quests, combat, multiplayer, launch or orbital-view gameplay yet. Those are subsequent implementation phases, described in the root planning documents.
+Production: `defs.js` holds structure definitions, footprints and rotated ports; `production.js` steps the rover, belts, hoppers, processors and crates; `paths.js` is the rover's grid A*; `production-view.js` renders the rover, instanced belt items and the mining overlay. `production.test.mjs` covers the full loop. Production models are built by `blender/build_production.py`.
+
+Current limits: fixed2×2 habitat, shared electrical grid, one mining rover, a single regolith recipe. No full room painting, food, quests, combat, multiplayer, launch or orbital-view gameplay yet. Those are subsequent implementation phases, described in the root planning documents.
 
 Terrain: `terrain.js` owns deterministic basin height, craters, cave landmarks and boulders; `terrain-view.js` renders the surface. New construction rejects slopes over 0.2 gradient, foundation height differences over 0.38 m and intersecting large rocks. Movement blocks slopes above 0.65 and solid boulders. Cave mouths now lead to explorable procedural passages; alien behavior is not implemented yet. Legacy saves bypass new terrain placement validation to preserve colonies.
 

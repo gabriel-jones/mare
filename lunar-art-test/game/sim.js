@@ -1,30 +1,18 @@
 import { caveWalkable } from './caves.js';
 import { terrainReason } from './terrain.js';
+import { CELL_SIZE, DEFS, ITEMS, dims, footprint } from './defs.js';
+import { createRover, ensureBuildingState, productionDemand, stepProduction, MINING_RADIUS, REGOLITH_PER_CELL, ROVER, PROCESSOR_INPUT_CAP, PROCESSOR_OUTPUT_CAP, BELT_SPACING } from './production.js';
+export { CELL_SIZE, DEFS, footprint } from './defs.js';
 /** Pure, serializable simulation. Positions use 2m cells; building anchors are minimum cells. */
-export const CELL_SIZE = 2;
 export const DAY_DURATION = 240;
-export const DEFS = Object.freeze({
-  solar: { name: 'Solar array', w: 2, d: 2, cost: { metal: 18, silicon: 8 }, buildTime: 4, description: 'Generates up to 8 kW in sunlight.' },
-  battery: { name: 'Battery bank', w: 1, d: 2, cost: { metal: 14, silicon: 5 }, buildTime: 3, description: 'Stores 180 kJ of surplus power for the lunar night.' },
-  hopper: { name: 'Regolith hopper', w: 2, d: 2, cost: { metal: 20, silicon: 2 }, buildTime: 4, description: 'A storage foundation for future mining operations.' },
-  habitat: { name: 'Habitat', w: 2, d: 2, cost: { metal: 32, silicon: 8 }, buildTime: 6, description: 'A four-square walkable shelter. Consumes 1 kW.' },
-  lamp: { name: 'Work light', w: 1, d: 1, cost: { metal: 4, silicon: 1 }, buildTime: 1.5, description: 'Lights the base at night. Consumes 0.2 kW.' },
-});
+export const SAVE_VERSION = 2;
 
 export function createState(seed = 1847) {
   if (!Number.isSafeInteger(seed)) throw new Error('Seed must be an integer.');
-  return { version: 1, seed, time: 0, inventory: { metal: 240, silicon: 100 }, player: { x: 0, z: 8, y: 0 }, buildings: [], nextId: 1, power: { generation: 0, demand: 0, stored: 0, capacity: 0, supplied: 0, powered: true } };
+  return { version: SAVE_VERSION, seed, time: 0, inventory: { metal: 240, silicon: 100 }, reserves: { oxygen: 0 }, player: { x: 0, z: 8, y: 0 }, buildings: [], nextId: 1, robots: [createRover()], miningArea: null, mined: {}, power: { generation: 0, demand: 0, stored: 0, capacity: 0, supplied: 0, powered: true } };
 }
-const validRotation = r => r === 0 || r === 1;
+const validRotation = r => Number.isInteger(r) && r >= 0 && r <= 3;
 const finite = n => typeof n === 'number' && Number.isFinite(n);
-export function footprint(type, x, z, rotation = 0) {
-  const def = DEFS[type];
-  if (!def || !Number.isSafeInteger(x) || !Number.isSafeInteger(z) || !validRotation(rotation)) return [];
-  const w = rotation ? def.d : def.w, d = rotation ? def.w : def.d;
-  const cells = [];
-  for (let dx = 0; dx < w; dx++) for (let dz = 0; dz < d; dz++) cells.push({ x: x + dx, z: z + dz });
-  return cells;
-}
 function geometryReason(state, type, x, z, rotation) {
   const cells = footprint(type, x, z, rotation);
   if (!cells.length) return 'Invalid building or grid position.';
@@ -65,14 +53,15 @@ export function construct(state, id, dt) {
   if (Math.hypot(state.player.x-cx,state.player.z-cz) > 5) return { ok: false, reason: 'Move within 5 metres to construct.' };
   // Match controller collision padding: completing a machine around the player
   // would otherwise leave them unable to take even the first step out.
-  if (b.type !== 'habitat') {
-    const def = DEFS[b.type], w = b.rotation ? def.d : def.w, d = b.rotation ? def.w : def.d, radius = 0.32;
+  if (!DEFS[b.type].walkable) {
+    const { w, d } = dims(b.type, b.rotation), radius = 0.32;
     if (state.player.x > b.x * CELL_SIZE - 1 - radius && state.player.x < (b.x + w - 1) * CELL_SIZE + 1 + radius && state.player.z > b.z * CELL_SIZE - 1 - radius && state.player.z < (b.z + d - 1) * CELL_SIZE + 1 + radius) {
       return { ok: false, reason: 'Step outside the footprint to construct this machine.' };
     }
   }
   b.progress = Math.min(1, b.progress + dt / DEFS[b.type].buildTime);
   b.built = b.progress >= 1;
+  ensureBuildingState(b);
   return { ok: true, reason: b.built ? 'Construction complete.' : 'Constructing…' };
 }
 export function cancelBlueprint(state, id) {
@@ -84,12 +73,42 @@ export function cancelBlueprint(state, id) {
   state.buildings.splice(index,1);
   return { ok: true, reason: 'Blueprint cancelled; materials returned.' };
 }
+/** Dismantles a finished structure for a full refund. Carried metal and silicon are returned; regolith is spilled. */
+export function deconstruct(state, id) {
+  const index = state.buildings.findIndex(b => b.id === id);
+  if (index < 0) return { ok: false, reason: 'Structure no longer exists.' };
+  const b = state.buildings[index];
+  if (!b.built) return cancelBlueprint(state, id);
+  for (const [item, amount] of Object.entries(DEFS[b.type].cost)) state.inventory[item] += amount;
+  for (const store of [b.inv, b.out]) for (const item of ['metal', 'silicon']) state.inventory[item] += Math.floor(store?.[item] ?? 0);
+  for (const item of b.items ?? []) if (item.type !== 'regolith') state.inventory[item.type] += 1;
+  state.buildings.splice(index, 1);
+  return { ok: true, reason: `${DEFS[b.type].name} dismantled; materials returned.` };
+}
+/** Transfers usable materials from a storage crate into the player's inventory. */
+export function collectStorage(state, id) {
+  const b = state.buildings.find(b => b.id === id);
+  if (!b || b.type !== 'storage' || !b.built) return { ok: false, reason: 'No storage crate here.' };
+  const metal = b.inv.metal, silicon = b.inv.silicon;
+  if (!metal && !silicon) return { ok: false, reason: b.inv.regolith ? 'This crate only holds raw regolith.' : 'Storage crate is empty.' };
+  state.inventory.metal += metal; state.inventory.silicon += silicon;
+  b.inv.metal = 0; b.inv.silicon = 0;
+  return { ok: true, reason: `Collected ${[metal && `${metal} metal`, silicon && `${silicon} silicon`].filter(Boolean).join(' and ')}.`, metal, silicon };
+}
+export function setMiningArea(state, x, z) {
+  if (state.player.cave != null) return { ok: false, reason: 'Mining areas are set on the surface.' };
+  if (!Number.isSafeInteger(x) || !Number.isSafeInteger(z) || Math.abs(x) > 58 - MINING_RADIUS || Math.abs(z) > 58 - MINING_RADIUS) return { ok: false, reason: 'Outside the mining range.' };
+  state.miningArea = { x, z };
+  return { ok: true, reason: 'Mining area set. The rover will dig here and unload at the nearest hopper.' };
+}
 export function daylightAt(time) { return Math.max(0,Math.sin(time / DAY_DURATION * Math.PI * 2 + Math.PI / 3)); }
 export function tick(state, dt) {
   if (!finite(dt) || dt < 0) throw new Error('Simulation time must be nonnegative and finite.');
   state.time += dt;
+  // Production runs on the previous tick's supply state, so derived power always matches the saved state.
+  if (dt > 0) stepProduction(state, dt, state.power.powered !== false);
   const daylight = daylightAt(state.time), night = daylight <= 0.05;
-  let generation = 0, demand = 0, capacity = 0;
+  let generation = 0, demand = productionDemand(state), capacity = 0;
   for (const b of state.buildings) {
     if (!b.built) continue;
     if (b.type === 'solar') generation += 8 * daylight;
@@ -104,9 +123,45 @@ export function tick(state, dt) {
   state.power = { generation, demand, stored, capacity, supplied, powered: supplied + 1e-8 >= demand };
 }
 export function serialize(state) { return JSON.stringify(state); }
+
+const count = (n, max) => finite(n) && n >= 0 && n <= max;
+function restoreBuilding(raw) {
+  const b = { id: raw.id, type: raw.type, x: raw.x, z: raw.z, rotation: raw.rotation, progress: raw.progress, built: raw.built };
+  if (!b.built) return b;
+  if (b.type === 'conveyor' && raw.items != null) {
+    if (!Array.isArray(raw.items) || raw.items.length > Math.ceil(1 / BELT_SPACING) + 1) throw new Error('Invalid belt contents.');
+    let previous = Infinity;
+    b.items = raw.items.map(item => {
+      if (!ITEMS.includes(item?.type) || !count(item.p, 1) || item.p > previous) throw new Error('Invalid belt contents.');
+      previous = item.p;
+      return { type: item.type, p: item.p };
+    });
+  }
+  const limits = { hopper: [DEFS.hopper.capacity, ['regolith']], storage: [DEFS.storage.capacity, ITEMS], processor: [PROCESSOR_INPUT_CAP, ['regolith']] }[b.type];
+  if (limits && raw.inv != null) {
+    b.inv = {};
+    for (const item of limits[1]) { if (!count(raw.inv[item], limits[0])) throw new Error('Invalid storage contents.'); b.inv[item] = raw.inv[item]; }
+  }
+  if (b.type === 'processor') {
+    if (raw.out != null) { b.out = {}; for (const item of ['metal', 'silicon']) { if (!count(raw.out?.[item], PROCESSOR_OUTPUT_CAP)) throw new Error('Invalid processor output.'); b.out[item] = raw.out[item]; } }
+    if (raw.work != null) { if (!count(raw.work, 1)) throw new Error('Invalid processor progress.'); b.work = raw.work; }
+  }
+  return ensureBuildingState(b);
+}
+function restoreRobot(raw, index) {
+  const tasks = ['idle', 'toMine', 'mining', 'toHopper', 'docked', 'blocked'];
+  if (!raw || raw.kind !== 'miner' || !Number.isSafeInteger(raw.id) || !finite(raw.x) || !finite(raw.z) || Math.abs(raw.x) > 125 || Math.abs(raw.z) > 125 || !tasks.includes(raw.task) || !count(raw.cargo, ROVER.capacity) || !count(raw.charge, 1) || !finite(raw.facing)) throw new Error('Invalid robot.');
+  const r = { ...createRover(raw.id), x: raw.x, z: raw.z, facing: raw.facing, task: raw.task, cargo: raw.cargo, charge: raw.charge, target: null };
+  if (raw.target != null) {
+    if (!Number.isSafeInteger(raw.target.x) || !Number.isSafeInteger(raw.target.z) || (raw.target.id != null && !Number.isSafeInteger(raw.target.id))) throw new Error('Invalid robot target.');
+    r.target = raw.target.id != null ? { id: raw.target.id, x: raw.target.x, z: raw.target.z } : { x: raw.target.x, z: raw.target.z };
+  } else if (r.task !== 'idle') r.task = 'idle';
+  if (raw.wait != null) { if (!count(raw.wait, 10)) throw new Error('Invalid robot.'); r.wait = raw.wait; }
+  return r;
+}
 export function deserialize(text) {
   const raw = JSON.parse(text);
-  if (!raw || raw.version !== 1 || !Number.isSafeInteger(raw.seed) || !finite(raw.time) || raw.time < 0 || !Array.isArray(raw.buildings) || raw.buildings.length > 1369) throw new Error('Invalid or unsupported save.');
+  if (!raw || (raw.version !== 1 && raw.version !== SAVE_VERSION) || !Number.isSafeInteger(raw.seed) || !finite(raw.time) || raw.time < 0 || !Array.isArray(raw.buildings) || raw.buildings.length > 13689) throw new Error('Invalid or unsupported save.');
   const state = createState(raw.seed);
   state.time = raw.time;
   for (const item of ['metal','silicon']) {
@@ -123,16 +178,34 @@ export function deserialize(text) {
   if(raw.exploredCaves&&typeof raw.exploredCaves==='object')for(const [id,cells] of Object.entries(raw.exploredCaves)){if(/^[0-2]$/.test(id)&&Array.isArray(cells))state.exploredCaves[id]=cells.filter(k=>typeof k==='string'&&/^-?\d{1,2},-?\d{1,2}$/.test(k)).slice(0,6000);}
   const ids = new Set();
   for (const b of raw.buildings) {
-    if (!b || !Number.isSafeInteger(b.id) || b.id < 1 || ids.has(b.id) || !finite(b.progress) || b.progress < 0 || b.progress > 1 || typeof b.built !== 'boolean' || b.built !== (b.progress === 1)) throw new Error('Invalid building.');
+    if (!b || !Number.isSafeInteger(b.id) || b.id < 1 || ids.has(b.id) || !finite(b.progress) || b.progress < 0 || b.progress > 1 || typeof b.built !== 'boolean' || b.built !== (b.progress === 1) || !validRotation(b.rotation)) throw new Error('Invalid building.');
     const reason = geometryReason(state,b.type,b.x,b.z,b.rotation);
     if (reason) throw new Error(`Invalid building: ${reason}`);
-    state.buildings.push({id:b.id,type:b.type,x:b.x,z:b.z,rotation:b.rotation,progress:b.progress,built:b.built});
+    state.buildings.push(restoreBuilding(b));
     ids.add(b.id);
   }
   if (!Number.isSafeInteger(raw.nextId) || raw.nextId <= Math.max(0,...ids)) throw new Error('Invalid entity sequence.');
   state.nextId = raw.nextId;
   if (!finite(raw.power?.stored) || raw.power.stored < 0) throw new Error('Invalid battery charge.');
   state.power.stored = raw.power.stored;
+  // Version 1 colonies predate mining: they receive the starting rover and empty reserves.
+  if (raw.version === SAVE_VERSION) {
+    if (!count(raw.reserves?.oxygen, 1e9)) throw new Error('Invalid reserves.');
+    state.reserves.oxygen = raw.reserves.oxygen;
+    if (!Array.isArray(raw.robots) || raw.robots.length > 64) throw new Error('Invalid robots.');
+    state.robots = raw.robots.map(restoreRobot);
+    if (raw.miningArea != null) {
+      if (!Number.isSafeInteger(raw.miningArea.x) || !Number.isSafeInteger(raw.miningArea.z) || Math.abs(raw.miningArea.x) > 58 || Math.abs(raw.miningArea.z) > 58) throw new Error('Invalid mining area.');
+      state.miningArea = { x: raw.miningArea.x, z: raw.miningArea.z };
+    }
+    if (!raw.mined || typeof raw.mined !== 'object' || Array.isArray(raw.mined)) throw new Error('Invalid mining record.');
+    const mined = Object.entries(raw.mined);
+    if (mined.length > 13689) throw new Error('Invalid mining record.');
+    for (const [cell, amount] of mined) {
+      if (!/^-?\d{1,2},-?\d{1,2}$/.test(cell) || !count(amount, REGOLITH_PER_CELL)) throw new Error('Invalid mining record.');
+      state.mined[cell] = amount;
+    }
+  }
   tick(state,0);
   return state;
 }

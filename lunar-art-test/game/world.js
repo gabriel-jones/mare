@@ -1,7 +1,10 @@
 import { caveOrigin,caveToWorld } from './cave-space.js';
 import { createCaveView } from './cave-view.js';
-import { buildingStatus } from './building-status.js';
-import { heightAt } from './terrain.js';
+import { buildingStatus, robotStatus } from './building-status.js';
+import { DIRS, ports as machinePorts } from './defs.js';
+import { MINING_RADIUS } from './production.js';
+import { createProductionView } from './production-view.js';
+import { surfaceHeightAt as heightAt } from './terrain.js';
 import { createTerrainView } from './terrain-view.js';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -18,7 +21,7 @@ export async function createWorld(canvas, initialState) {
   renderer.toneMapping=THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure=1.12;
   const loader=new GLTFLoader();
-  const assetNames=['starship','launchpad','solar','battery','hopper','habitat','lamp','rock-a','rock-b','rock-c','cave-mouth'];
+  const assetNames=['starship','launchpad','solar','battery','hopper','habitat','lamp','conveyor','processor','storage','rover','rock-a','rock-b','rock-c','cave-mouth'];
   const loaded=await Promise.all(assetNames.map(name=>loader.loadAsync(`./assets/${name}.glb`).then(g=>[name,g.scene]).catch(e=>{console.error('Asset failed:',name,e);return [name,null];})));
   const models=new Map(loaded);
   const astronautGLTF=await loader.loadAsync('./assets/astronaut-v2.glb').catch(e=>{console.error('Animated astronaut failed',e);return null;});
@@ -38,24 +41,28 @@ export async function createWorld(canvas, initialState) {
   scene.add(sun,sun.target);
   const fill=new THREE.HemisphereLight('#b3cbed','#272a3d',1.15);scene.add(fill);
   const terrainRoot=new THREE.Group();scene.add(terrainRoot);
-  let caveView=null,activeCave=null;
+  const productionView=createProductionView(scene,models);
+  let caveView=null,activeCave=null,smoothedGround=null;
 
   const structures=new Map();
   const statusLayer=document.createElement('div');statusLayer.className='building-status-layer';statusLayer.setAttribute('aria-label','Building status');document.body.append(statusLayer);
   const statusLabels=new Map(),statusPoint=new THREE.Vector3();
-  const statusIcons={battery:'<rect x="3" y="5" width="16" height="14" rx="2"/><path d="M21 9v6M7 9v6m4-6v6m4-6v6"/>',power:'<path d="m14 2-9 12h7l-2 8 9-12h-7l2-8Z"/><path d="m3 3 18 18"/>',sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2"/>',build:'<path d="m14 3 7 7-4 3-3-3-9 11-3-3L13 8l-2-2 3-3Z"/>'};
+  const statusIcons={battery:'<rect x="3" y="5" width="16" height="14" rx="2"/><path d="M21 9v6M7 9v6m4-6v6m4-6v6"/>',power:'<path d="m14 2-9 12h7l-2 8 9-12h-7l2-8Z"/><path d="m3 3 18 18"/>',sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2"/>',build:'<path d="m14 3 7 7-4 3-3-3-9 11-3-3L13 8l-2-2 3-3Z"/>',ore:'<path d="m4 15 5-8 4 4 3-3 4 7Z"/><path d="M3 19h18"/>',box:'<path d="M4 8 12 4l8 4v8l-8 4-8-4Z"/><path d="m4 8 8 4 8-4M12 12v8"/>',gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2"/>',rover:'<rect x="4" y="8" width="13" height="6" rx="1"/><path d="M17 11h3l1 3"/><circle cx="7" cy="17" r="2"/><circle cx="15" cy="17" r="2"/>'};
   function updateStatuses(){
-    const live=new Set(state.buildings.map(b=>b.id));
+    const entries=[];
+    for(const b of state.buildings){const object=structures.get(b.id);entries.push({key:String(b.id),status:object?buildingStatus(b,state):null,anchor:object?.root,height:object?.statusHeight,name:DEFS[b.type].name});}
+    for(const r of state.robots??[]){const view=productionView.rovers.get(r.id);entries.push({key:`robot-${r.id}`,status:view?robotStatus(r,state):null,anchor:view?.root,height:1.9,name:'Mining rover'});}
+    const live=new Set(entries.map(e=>e.key));
     for(const [id,label] of statusLabels)if(!live.has(id)){label.remove();statusLabels.delete(id);}
     const rect=canvas.getBoundingClientRect(),placed=[];
-    for(const b of state.buildings){
-      const status=buildingStatus(b,state),object=structures.get(b.id);let label=statusLabels.get(b.id);
-      if(!status||!object){if(label)label.hidden=true;continue;}
-      if(!label){label=document.createElement('div');label.className='building-status';label.dataset.buildingId=b.id;label.innerHTML='<div class="status-pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg><span></span><div class="status-meter"><i></i></div></div><div class="status-leader"></div>';statusLayer.append(label);statusLabels.set(b.id,label);}
+    for(const {key:id,status,anchor,height,name} of entries){
+      let label=statusLabels.get(id);
+      if(!status||!anchor){if(label)label.hidden=true;continue;}
+      if(!label){label=document.createElement('div');label.className='building-status';label.dataset.buildingId=id;label.innerHTML='<div class="status-pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg><span></span><div class="status-meter"><i></i></div></div><div class="status-leader"></div>';statusLayer.append(label);statusLabels.set(id,label);}
       const key=`${status.icon}:${status.text}:${status.tone}`;
-      if(label.dataset.status!==key){label.dataset.status=key;label.dataset.tone=status.tone;label.querySelector('svg').innerHTML=statusIcons[status.icon];label.querySelector('span').textContent=status.text;label.setAttribute('aria-label',`${DEFS[b.type].name}: ${status.text}`);}
-      const meter=label.querySelector('.status-meter');meter.hidden=status.fill==null;if(status.fill!=null)meter.firstElementChild.style.transform=`scaleX(${status.fill})`;
-      statusPoint.copy(object.root.position);statusPoint.y+=object.statusHeight+.55;statusPoint.project(camera);
+      if(label.dataset.status!==key){label.dataset.status=key;label.dataset.tone=status.tone;label.querySelector('svg').innerHTML=statusIcons[status.icon];label.querySelector('span').textContent=status.text;label.setAttribute('aria-label',`${name}: ${status.text}`);}
+      const meter=label.querySelector('.status-meter');meter.hidden=status.fill==null;if(status.fill!=null)meter.firstElementChild.style.transform=`scaleX(${Math.max(0,Math.min(1,status.fill))})`;
+      statusPoint.copy(anchor.position);statusPoint.y+=height+.55;statusPoint.project(camera);
       let x=rect.left+(statusPoint.x+1)*rect.width/2,y=rect.top+(1-statusPoint.y)*rect.height/2;
       label.hidden=statusPoint.z<-1||statusPoint.z>1||x<32||x>rect.right-32||y<75||y>rect.bottom-80;
       if(label.hidden)continue;
@@ -136,12 +143,35 @@ export async function createWorld(canvas, initialState) {
     } else if(type==='lamp'){
       cylinder(root,steel,0,1.8,0,.09,3.4);box(root,dark,0,3.4,0,.65,.18,.65);box(root,amber,0,3.28,0,.5,.12,.5);
       light=new THREE.PointLight('#ffc777',0,13,2);light.position.set(0,2.8,0);root.add(light);
-    }
+    } else if(type==='conveyor'){
+      box(root,dark,0,.3,0,1.3,.1,1.98);for(const x of [-.72,.72])box(root,steel,x,.38,0,.14,.2,1.98);box(root,orange,0,.37,.3,.5,.02,.5);
+    } else box(root,ivory,0,.75,0,w-.4,1.3,d-.4);
     return {root,roof,light};
   }
   const ghost=new THREE.Group();scene.add(ghost);let ghostKey='';
   const ghostGood=new THREE.MeshBasicMaterial({color:'#8cddb9',transparent:true,opacity:.3,depthWrite:false}),ghostBad=new THREE.MeshBasicMaterial({color:'#ff715d',transparent:true,opacity:.35,depthWrite:false});materials.add(ghostGood);materials.add(ghostBad);
-  function setGhost(type,x,z,rotation,valid){if(!DEFS[type]){clearGhost();return;}const key=[type,x,z,rotation,valid].join(':');if(key===ghostKey)return;ghostKey=key;ghost.clear();for(const c of footprint(type,x,z,rotation))box(ghost,valid?ghostGood:ghostBad,c.x*2,heightAt(state.seed,c.x*2,c.z*2)+.08,c.z*2,1.94,.13,1.94);ghost.visible=true;grid.material.opacity=.28;}
+  // Flat ground arrows: belt travel, machine inputs (cyan, pointing in) and outputs (amber, pointing out).
+  const arrowShape=new THREE.Shape();arrowShape.moveTo(-.38,-.32);arrowShape.lineTo(0,.38);arrowShape.lineTo(.38,-.32);arrowShape.lineTo(0,-.12);arrowShape.closePath();
+  const arrowGeo=new THREE.ShapeGeometry(arrowShape);arrowGeo.rotateX(-Math.PI/2);arrowGeo.rotateY(Math.PI);geometries.add(arrowGeo);
+  const arrowMaterial=(color,overlay=false)=>{const m=new THREE.MeshBasicMaterial({color,transparent:true,opacity:.9,depthWrite:false,depthTest:!overlay,side:THREE.DoubleSide});materials.add(m);return m;};
+  const arrows={input:arrowMaterial('#72d7ec'),output:arrowMaterial('#f3a24b')},previewArrows={input:arrowMaterial('#72d7ec',true),output:arrowMaterial('#f3a24b',true)},beltArrow=arrowMaterial('#ffffff',true);
+  function groundArrow(parent,material,x,z,dir,scale=1,lift=.12){const o=new THREE.Mesh(arrowGeo,material);o.position.set(x,heightAt(state.seed,x,z)+lift,z);o.rotation.y=dir*Math.PI/2;o.scale.setScalar(scale);o.renderOrder=3;parent.add(o);return o;}
+  function portArrows(parent,b,preview=false){
+    const look=preview?previewArrows:arrows,scale=preview?1.3:.8,lift=preview?.3:.12;
+    for(const p of machinePorts(b,'inputs'))if(b.type!=='storage')groundArrow(parent,look.input,(p.cell.x+p.neighbor.x),(p.cell.z+p.neighbor.z),(p.dir+2)%4,scale,lift);
+    for(const p of machinePorts(b,'outputs'))groundArrow(parent,look.output,(p.cell.x+p.neighbor.x),(p.cell.z+p.neighbor.z),p.dir,scale,lift);
+  }
+  function setGhost(type,x,z,rotation,valid,line=null){
+    if(type!=='mine'&&!DEFS[type]){clearGhost();return;}
+    const items=line??[{x,z,rotation,valid}],key=type+JSON.stringify(items);if(key===ghostKey)return;ghostKey=key;ghost.clear();
+    for(const item of items){
+      const cells=type==='mine'?Array.from({length:(MINING_RADIUS*2+1)**2},(_,i)=>({x:item.x-MINING_RADIUS+i%(MINING_RADIUS*2+1),z:item.z-MINING_RADIUS+Math.floor(i/(MINING_RADIUS*2+1))})):footprint(type,item.x,item.z,item.rotation);
+      for(const c of cells)box(ghost,item.valid?ghostGood:ghostBad,c.x*2,heightAt(state.seed,c.x*2,c.z*2)+.08,c.z*2,type==='mine'?1.7:1.94,.13,type==='mine'?1.7:1.94);
+      if(type==='conveyor')groundArrow(ghost,beltArrow,item.x*2,item.z*2,item.rotation,1.1,.3);
+      else if(type!=='mine')portArrows(ghost,{type,x:item.x,z:item.z,rotation:item.rotation},true);
+    }
+    ghost.visible=true;grid.material.opacity=.28;
+  }
   function clearGhost(){ghost.visible=false;ghostKey='';grid.material.opacity=0;}
   const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2(),hit=new THREE.Vector3();
   function pick(clientX,clientY){if(state.player.cave!=null)return null;const r=canvas.getBoundingClientRect();if(!r.width||!r.height)return null;pointer.set((clientX-r.left)/r.width*2-1,-(clientY-r.top)/r.height*2+1);raycaster.setFromCamera(pointer,camera);const hits=raycaster.intersectObject(terrainView.ground);if(!hits.length)return null;hit.copy(hits[0].point);const x=Math.round(hit.x/2),z=Math.round(hit.z/2);const b=state.buildings.find(b=>footprint(b.type,b.x,b.z,b.rotation).some(c=>c.x===x&&c.z===z));return {x,z,worldX:hit.x,worldZ:hit.z,...(b?{buildingId:b.id}:{})};}
@@ -175,32 +205,35 @@ export async function createWorld(canvas, initialState) {
     scene.fog.density=.0012;suitFill.distance=underground?6:8;headlamp.distance=underground?20:18;
     if(underground){suitFill.intensity=3;headlamp.intensity=145;}
     const position=underground?caveToWorld(state.seed,state.player.cave,renderPose.x,renderPose.z):{x:renderPose.x,y:heightAt(state.seed,renderPose.x,renderPose.z),z:renderPose.z};
-    player.position.set(position.x,position.y+(renderPose.y||0),position.z);
+    if(smoothedGround==null||Math.abs(position.y-smoothedGround)>2)smoothedGround=position.y;
+    else smoothedGround+=(position.y-smoothedGround)*(1-Math.exp(-Math.min(dt,.1)*24));
+    player.position.set(position.x,smoothedGround+(renderPose.y||0),position.z);
     player.rotation.y=(renderPose.facing||0)+(underground?caveOrigin(state.seed,state.player.cave).angle:0);
     if(suitUnderground!==underground){suitMaterials.forEach(({material,color,environment})=>{material.color.copy(color).multiplyScalar(underground?.3:1);material.envMapIntensity=underground?.05:environment;});suitUnderground=underground;}
     actor?.update(renderPose,dt);
     if(canvas.dataset.animation!==renderPose.animation)canvas.dataset.animation=renderPose.animation||'idle';
-    const ids=new Set(state.buildings.map(b=>b.id));for(const [id,o] of structures)if(!ids.has(id)){scene.remove(o.root);o.ownedMaterials?.forEach(m=>m.dispose());structures.delete(id);}
+    const ids=new Set(state.buildings.map(b=>b.id));for(const [id,o] of structures)if(!ids.has(id)){scene.remove(o.root,o.ports);o.ownedMaterials?.forEach(m=>m.dispose());structures.delete(id);}
     for(const b of state.buildings){
       let o=structures.get(b.id);
-      if(o&&o.type!==b.type){scene.remove(o.root);o.ownedMaterials.forEach(m=>m.dispose());structures.delete(b.id);o=null;}
-      if(!o){o=buildModel(b.type);o.type=b.type;o.ownedMaterials=[];const clones=new Map();o.root.traverse(n=>{if(n.isMesh){n.castShadow=true;n.receiveShadow=true;const copy=m=>{if(!clones.has(m.uuid)){const c=m.clone();c.userData.baseEmission=c.emissiveIntensity;c.userData.baseColor=c.color.clone();c.userData.baseEmissive=c.emissive.clone();clones.set(m.uuid,c);o.ownedMaterials.push(c);}return clones.get(m.uuid);};n.material=Array.isArray(n.material)?n.material.map(copy):copy(n.material);}});o.statusHeight=new THREE.Box3().setFromObject(o.root).max.y;structures.set(b.id,o);scene.add(o.root);}
+      if(o&&(o.type!==b.type||o.rotation!==b.rotation)){scene.remove(o.root,o.ports);o.ownedMaterials.forEach(m=>m.dispose());structures.delete(b.id);o=null;}
+      if(!o){o=buildModel(b.type);o.type=b.type;o.rotation=b.rotation;o.ports=new THREE.Group();portArrows(o.ports,b);scene.add(o.ports);o.ownedMaterials=[];const clones=new Map();o.root.traverse(n=>{if(n.isMesh){n.castShadow=true;n.receiveShadow=true;const copy=m=>{if(!clones.has(m.uuid)){const c=m.clone();c.userData.baseEmission=c.emissiveIntensity;c.userData.baseColor=c.color.clone();c.userData.baseEmissive=c.emissive.clone();clones.set(m.uuid,c);o.ownedMaterials.push(c);}return clones.get(m.uuid);};n.material=Array.isArray(n.material)?n.material.map(copy):copy(n.material);}});o.statusHeight=new THREE.Box3().setFromObject(o.root).max.y;structures.set(b.id,o);scene.add(o.root);}
       o.root.visible=true;
-      const def=DEFS[b.type],w=b.rotation?def.d:def.w,d=b.rotation?def.w:def.d;
+      const def=DEFS[b.type],w=b.rotation%2?def.d:def.w,d=b.rotation%2?def.w:def.d;
       const bx=(b.x+(w-1)/2)*2,bz=(b.z+(d-1)/2)*2;
-      o.root.position.set(bx,heightAt(state.seed,bx,bz),bz);o.root.rotation.y=b.rotation?Math.PI/2:0;
+      o.root.position.set(bx,heightAt(state.seed,bx,bz),bz);o.root.rotation.y=b.rotation*Math.PI/2;
       if(o.built!==b.built){o.ownedMaterials.forEach(m=>{m.transparent=!b.built;m.opacity=b.built?1:.5;m.depthWrite=b.built;m.color.copy(b.built?m.userData.baseColor:new THREE.Color('#79d5ed'));m.emissive.copy(b.built?m.userData.baseEmissive:new THREE.Color('#2c8ca9'));m.emissiveIntensity=b.built?m.userData.baseEmission:.85;});o.root.traverse(n=>{if(n.isMesh)n.castShadow=b.built;});o.built=b.built;}
       if(!b.built)o.root.scale.y=.35+.65*(b.progress||0);
       else o.root.scale.y=1;
       if(o.roof)o.roof.visible=!(state.player.x>b.x*2-1&&state.player.x<(b.x+w)*2-1&&state.player.z>b.z*2-1&&state.player.z<(b.z+d)*2-1);
       if(o.light){const powered=b.built&&state.power.powered!==false;o.light.intensity=powered?(1-daylight)*(b.type==='habitat'?10:26):0;o.ownedMaterials.forEach(m=>{m.emissiveIntensity=b.built?(m.userData.baseEmission||0)*(powered?1:0):.85;});}
     }
+    productionView.update(state,dt,daylight);
     follow.set(player.position.x,player.position.y+1.05,player.position.z);
     const cameraDistance=4;camera.position.set(follow.x+26*cameraDistance,follow.y+34*cameraDistance,follow.z+26*cameraDistance);camera.lookAt(follow);camera.updateMatrixWorld();
     if(underground)caveView.update(state,dt);else updateStatuses();
     renderer.render(scene,camera);canvas.dataset.drawCalls=String(renderer.info.render.calls);canvas.dataset.triangles=String(renderer.info.render.triangles);
   }
-  function dispose(){disposed=true;caveView?.dispose();statusLayer.remove();terrainView.dispose();grid.geometry.dispose();grid.material.dispose();actor?.dispose();reflection.dispose();canvas.removeEventListener('wheel',zoom);for(const o of structures.values())o.ownedMaterials?.forEach(m=>m.dispose());geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());renderer.dispose();}
+  function dispose(){disposed=true;caveView?.dispose();productionView.dispose();statusLayer.remove();terrainView.dispose();grid.geometry.dispose();grid.material.dispose();actor?.dispose();reflection.dispose();canvas.removeEventListener('wheel',zoom);for(const o of structures.values()){o.ownedMaterials?.forEach(m=>m.dispose());scene.remove(o.ports);}geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());renderer.dispose();}
   resize();update(initialState,1);
   return {renderer,scene,camera,update,pick,setGhost,clearGhost,resize,dispose};
 }
