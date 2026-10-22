@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lunar Frontier · Model studio</title>
+<style>
+*{box-sizing:border-box}body{margin:0;color:#dce5e8;background:#101923;font:13px system-ui}canvas{display:block;position:fixed;inset:0;width:100%;height:100%}header{position:fixed;top:24px;left:26px;right:26px;display:flex;justify-content:space-between;pointer-events:none}h1{font-size:21px;font-weight:500;margin:6px 0}small{font-size:9px;letter-spacing:.22em;color:#d3a46d}a{color:#ddc4a2;text-decoration:none;pointer-events:auto}aside{position:fixed;bottom:24px;left:auto;right:26px;width:min(380px,calc(100% - 52px));padding:16px;background:#111c28e8;border:1px solid #75889a44;border-radius:10px;max-width:650px}label{display:flex;align-items:center;gap:14px}select,button{background:#273545;color:#d9e5e8;border:1px solid #72869a55;border-radius:5px;padding:8px 12px;font:inherit}button{cursor:pointer;margin-right:5px;margin-top:12px}button[aria-pressed=true]{background:#af5b2c;color:#fff3df}p{font-size:11px;color:#8eacbe;margin:12px 0 0}#status{margin-bottom:10px;color:#c2d4dc}#error{color:#ffab8c}
+</style>
+<script type="importmap">{"imports":{"three":"../node_modules/three/build/three.module.js","three/addons/":"../node_modules/three/examples/jsm/"}}</script>
+</head><body>
+<canvas id="studio"></canvas>
+<header><div><small>LUNAR FRONTIER / BLENDER ASSETS</small><h1>Form & motion studio</h1></div><a href="./">Return to colony ↗</a></header>
+<aside><div id="status">Loading suit and motion clips…</div><label>Inspect <select id="model" aria-label="Model"><option value="astronaut-v2">Astronaut</option><option value="starship">Starship</option><option value="launchpad">Launchpad</option><option value="habitat">Habitat</option><option value="solar">Solar array</option><option value="battery">Battery bank</option><option value="hopper">Regolith hopper</option><option value="lamp">Work light</option></select></label>
+<div id="animations"><button data-clip="idle" aria-pressed="true">Idle</button><button data-clip="walk" aria-pressed="false">Walk</button><button data-clip="run" aria-pressed="false">Run</button><button data-clip="jump" aria-pressed="false">Jump</button><button data-clip="build" aria-pressed="false">Build</button></div>
+<p>Drag to orbit · scroll to inspect · animation is in place; movement comes from the game controller</p></aside>
+<script type="module" src="./art-lab.js"></script></body></html>

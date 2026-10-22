@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lunar / Art study 01</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#10171e;color:#e8eceb;font:14px system-ui,sans-serif}canvas{display:block;width:100vw;height:100vh}header{position:absolute;top:30px;left:32px;pointer-events:none}small{font-size:11px;letter-spacing:.22em;color:#a3b0bb}h1{font-size:27px;font-weight:500;letter-spacing:-.04em;margin:9px 0}header p{color:#a3b0bb;margin:0;font-size:13px}aside{position:absolute;bottom:28px;left:32px;background:#15202be8;border:1px solid #ffffff18;padding:18px;border-radius:12px;max-width:calc(100vw - 64px)}button{background:#273441;border:1px solid #ffffff15;color:#cbd4da;border-radius:6px;padding:9px 13px;cursor:pointer;margin:5px 4px 10px 0}button[aria-pressed=true]{background:#df6f33;color:#11181e;border-color:#df6f33}label{display:flex;align-items:center;gap:15px;color:#a9bac7;font-size:12px}input{accent-color:#e07943}#status{position:absolute;right:30px;bottom:30px;font-size:11px;color:#99aab9;max-width:260px}#error{color:#ffab84} .hint{margin:10px 0 0;color:#7f95a5;font-size:11px} @media(max-width:600px){header{top:20px;left:20px}aside{left:20px;bottom:20px}#status{top:110px;left:20px;right:auto;bottom:auto}}
+</style>
+<script type="importmap">{"imports":{"three":"./node_modules/three/build/three.module.js","three/addons/":"./node_modules/three/examples/jsm/"}}</script>
+<header><small>LUNAR FRONTIER / STUDY 01</small><h1>Form. Material. Light.</h1><p>Astronaut · regolith miner · lunar surface</p></header>
+<aside>
+ <div><button id="pbr" aria-pressed="true">Soft PBR</button><button id="graphic" aria-pressed="false">Graphic</button></div>
+ <div><button id="wide">Colony distance</button><button id="close">Inspect models</button><button id="motion" aria-pressed="true">Pause drill</button></div>
+ <label>Sun angle <input id="sun" type="range" min="12" max="75" value="38" aria-label="Sun elevation"></label>
+ <p class="hint">Drag to orbit · scroll to zoom · right-drag to pan</p>
+</aside>
+<div id="status">Loading lunar study…</div>
+<script type="module" src="./viewer.js"></script>
+</html>

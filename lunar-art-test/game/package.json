@@ -1,0 +1,1 @@
+{"type":"module","scripts":{"test":"node --test sim.test.mjs assets.test.mjs"}}
