@@ -49,3 +49,7 @@ export function terrainBlocked(seed,x,z,buildings=[],defs={}){
  if(buildings.some(b=>{const d=defs[b.type];if(!d)return false;return x>=b.x*2-2&&x<=(b.x+(b.rotation?d.d:d.w))*2&&z>=b.z*2-2&&z<=(b.z+(b.rotation?d.w:d.d))*2;}))return false;
  return slopeAt(seed,x,z)>.65||terrainData(seed).boulders.some(b=>Math.hypot(x-b.x,z-b.z)<b.radius+.3);
 }
+
+// Visual voxel shelves use broad four-metre cells. Physics retains the continuous
+// field above for stable slope checks; character grounding uses the shelf height.
+export function surfaceHeightAt(seed,x,z){const cx=Math.floor(x/4)*4+2,cz=Math.floor(z/4)*4+2,h=heightAt(seed,cx,cz),step=h>2?.75:.25;return Math.round(h/step)*step;}

@@ -28,3 +28,5 @@ Sources:
 Preview `/game/art-lab.html` to inspect models and animation clips in Three.js. `/game/` integrates them into the colony, with acceleration/deceleration, wrapped facing interpolation, fixed-step render interpolation, Shift running, and cross-faded animation states.
 
 These remain a first playable art pass. There is no terrain-adaptive foot IK, character combat animation, facial animation, production LOD set, or populated-colony performance certification yet. All animations are in place; the controller owns translation and jump height.
+
+Lunar plains kit: `rock-a.glb` (398 triangles), `rock-b.glb` (408), `rock-c.glb` (368), `cave-mouth.glb` (1,352, separate ArchRoof). Vertex-painted, beveled Blender meshes authored against `../art-direction/lunar-voxel-plains-concept.png`. Source: `lunar-plains-kit.blend` with the reference image packed; authoring script: `../blender/build_lunar_plains.py`. The runtime normalizes rock geometry to match deterministic collision radii and instances the variants.

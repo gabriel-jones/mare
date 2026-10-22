@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import {heightAt,terrainData,randomStream,slopeAt} from './terrain.js';
+import {heightAt,terrainData,randomStream,surfaceHeightAt} from './terrain.js';
 export function createTerrainView(seed,root,models=new Map()){
  const random=randomStream(seed),data=terrainData(seed),geometries=[],materials=[],textures=[];
  const material=(color,options={})=>{const m=new THREE.MeshStandardMaterial({color,roughness:1,...options});materials.push(m);return m;};
@@ -7,21 +7,24 @@ export function createTerrainView(seed,root,models=new Map()){
  const pixels=new Uint8Array(128*128*4);
  for(let i=0;i<pixels.length;i+=4){const v=210+Math.floor(random()*28);pixels[i]=pixels[i+1]=pixels[i+2]=v;pixels[i+3]=255;}
  const dust=new THREE.DataTexture(pixels,128,128);dust.wrapS=dust.wrapT=THREE.RepeatWrapping;dust.repeat.set(130,130);dust.generateMipmaps=true;dust.minFilter=THREE.LinearMipmapLinearFilter;dust.needsUpdate=true;textures.push(dust);
- // Dense enough for crater relief near play; coarse mesh for the distant plains.
- const vertices=[],colors=[],uvs=[],indices=[],color=new THREE.Color(),dustColor=new THREE.Color('#a49b8f'),stoneColor=new THREE.Color('#716a7d');
- function patch(size,steps,excludeCentre=false){
-  const offset=vertices.length/3,step=size/steps;
-  for(let j=0;j<=steps;j++)for(let i=0;i<=steps;i++){
-   const x=-size/2+i*step,z=-size/2+j*step,h=heightAt(seed,x,z),slope=slopeAt(seed,x,z);
-   vertices.push(x,h-.035,z);uvs.push(x/384+.5,z/384+.5);
-   const stone=THREE.MathUtils.smoothstep(slope,.28,.85);color.copy(dustColor).lerp(stoneColor,stone*.85);color.multiplyScalar(1+Math.sin(x*.12+z*.075)*.035);colors.push(color.r,color.g,color.b);
-  }
-  for(let j=0;j<steps;j++)for(let i=0;i<steps;i++){
-   const x=-size/2+(i+.5)*step,z=-size/2+(j+.5)*step;if(excludeCentre&&Math.abs(x)<96&&Math.abs(z)<96)continue;
-   const a=offset+j*(steps+1)+i,b=a+steps+1;indices.push(a,b,a+1,a+1,b,b+1);
+ // Voxel shelves: horizontal dust tops, short bevels and exposed rock walls.
+ // There is no interpolation across a cliff step, so no triangular spike pattern.
+ const vertices=[],colors=[],uvs=[],indices=[],dustColor=new THREE.Color('#999387'),stoneColor=new THREE.Color('#655f70');
+ function face(points,color){const offset=vertices.length/3;for(const p of points){vertices.push(...p);colors.push(color.r,color.g,color.b);uvs.push(p[0]/384+.5,p[2]/384+.5);}for(let i=1;i<points.length-1;i++)indices.push(offset,offset+i,offset+i+1);}
+ const heights=new Map();const sample=(x,z)=>{const key=`${x}:${z}`;if(!heights.has(key))heights.set(key,surfaceHeightAt(seed,x,z));return heights.get(key);};
+ function cell(x,z,size){
+  const h=sample(x,z),half=size/2,neighbors=[[0,-1],[1,0],[0,1],[-1,0]].map(([dx,dz])=>sample(x+dx*size,z+dz*size));
+  const cliff=h>2||neighbors.some(n=>Math.abs(n-h)>=.75),bevel=cliff&&neighbors.some(n=>Math.abs(n-h)>.02)?.1:0,edgeH=h-(bevel?.08:0);
+  const outer=[[x-half,edgeH,z-half],[x+half,edgeH,z-half],[x+half,edgeH,z+half],[x-half,edgeH,z+half]],inner=[[x-half+bevel,h,z-half+bevel],[x+half-bevel,h,z-half+bevel],[x+half-bevel,h,z+half-bevel],[x-half+bevel,h,z+half-bevel]];
+  const top=dustColor.clone().lerp(stoneColor,cliff?.19:0);face([...inner].reverse(),top);
+  for(let i=0;i<4;i++){
+   const next=(i+1)%4;
+   if(bevel)face([inner[i],inner[next],outer[next],outer[i]].reverse(),top.clone().lerp(stoneColor,.15));
+   if(neighbors[i]<edgeH-.02){const lower=neighbors[i]-.08,wall=top.clone().lerp(stoneColor,Math.min(1,(h-neighbors[i])/1.1));face([outer[i],[outer[i][0],lower,outer[i][2]],[outer[next][0],lower,outer[next][2]],outer[next]],wall);}
   }
  }
- patch(192,128);patch(384,64,true);
+ for(let z=-126;z<128;z+=4)for(let x=-126;x<128;x+=4)cell(x,z,4);
+ for(let z=-220;z<224;z+=8)for(let x=-220;x<224;x+=8){if(Math.abs(x)<128&&Math.abs(z)<128)continue;cell(x,z,8);}
  const groundGeo=new THREE.BufferGeometry();groundGeo.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));groundGeo.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));groundGeo.setAttribute('uv',new THREE.Float32BufferAttribute(uvs,2));groundGeo.setIndex(indices);groundGeo.computeVertexNormals();
  const groundMat=material('#ffffff',{vertexColors:true,flatShading:true,side:THREE.DoubleSide});
  const blankRoof=new THREE.DataTexture(new Uint8Array([0]),1,1,THREE.RedFormat);blankRoof.needsUpdate=true;textures.push(blankRoof);
@@ -72,12 +75,12 @@ export function createTerrainView(seed,root,models=new Map()){
   const template=models.get(['rock-a','rock-b','rock-c'][variant]);let source=null;
   template?.updateMatrixWorld(true);template?.traverse(o=>{if(o.isMesh&&!source)source=o;});
   if(!source)continue;
-  const geo=source.geometry.clone().applyMatrix4(source.matrixWorld);geometries.push(geo);
+  const geo=source.geometry.clone().applyMatrix4(source.matrixWorld);geo.computeBoundingBox();const bounds=geo.boundingBox,size=new THREE.Vector3(),center=new THREE.Vector3();bounds.getSize(size);bounds.getCenter(center);geo.translate(-center.x,-bounds.min.y,-center.z);geo.scale(2/size.x,1/size.y,2/size.z);geometries.push(geo);
   const items=data.boulders.filter(r=>r.variant===variant),instances=new THREE.InstancedMesh(geo,source.material,items.length);instances.castShadow=true;instances.receiveShadow=true;root.add(instances);rockBatches.push({items,instances});
  }
  const portals=[];const caveDark=new THREE.MeshBasicMaterial({color:'#050609',side:THREE.DoubleSide});materials.push(caveDark);
  for(let id=0;id<data.caves.length;id++){
-  const c=data.caves[id],group=new THREE.Group();group.position.set(c.x,heightAt(seed,c.x,c.z),c.z);group.rotation.y=c.angle+Math.PI;root.add(group);
+  const c=data.caves[id],group=new THREE.Group();group.position.set(c.x,surfaceHeightAt(seed,c.x,c.z),c.z);group.rotation.y=c.angle+Math.PI;root.add(group);
   const model=models.get('cave-mouth')?.clone(true);let roof=null;
   if(model){model.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}if(o.name.startsWith('ArchRoof'))roof=o;});group.add(model);}
   const back=add(new THREE.CircleGeometry(2.65,20,0,Math.PI),caveDark,group);back.scale.y=1.73;back.position.z=-1.8;back.castShadow=false;
@@ -90,8 +93,8 @@ export function createTerrainView(seed,root,models=new Map()){
   for(const p of portals){const inside=player?.cave===p.id;if(p.roof)p.roof.visible=!inside;p.back.visible=!inside;}
   const key=buildings.map(b=>[b.id,b.x,b.z,b.rotation].join(':')).join('|');if(key===occupancy)return;occupancy=key;
   const occupied=new Set(buildings.flatMap(b=>footprint(b.type,b.x,b.z,b.rotation).map(c=>`${c.x},${c.z}`)));
-  for(const batch of rockBatches){batch.items.forEach((r,i)=>{const hidden=buildings.some(b=>footprint(b.type,b.x,b.z,b.rotation).some(c=>Math.abs(c.x*2-r.x)<r.radius+1.5&&Math.abs(c.z*2-r.z)<r.radius+1.5));dummy.position.set(r.x,heightAt(seed,r.x,r.z)-.12,r.z);dummy.rotation.set(.04,r.angle,.03);dummy.scale.set(hidden?0:r.radius*.78,hidden?0:r.height*.6,hidden?0:r.radius*.78);dummy.updateMatrix();batch.instances.setMatrixAt(i,dummy.matrix);});batch.instances.instanceMatrix.needsUpdate=true;}
-  pebbleData.forEach((r,i)=>{dummy.position.set(r.x,heightAt(seed,r.x,r.z),r.z);dummy.rotation.set(0,r.angle,.2);dummy.scale.set(r.size,r.size*.45,r.size);if(occupied.has(`${Math.round(r.x/2)},${Math.round(r.z/2)}`)||Math.hypot(r.x,r.z+10)<9)dummy.scale.setScalar(0);dummy.updateMatrix();pebbles.setMatrixAt(i,dummy.matrix);});pebbles.instanceMatrix.needsUpdate=true;
+  for(const batch of rockBatches){batch.items.forEach((r,i)=>{const hidden=buildings.some(b=>footprint(b.type,b.x,b.z,b.rotation).some(c=>Math.abs(c.x*2-r.x)<r.radius+1.5&&Math.abs(c.z*2-r.z)<r.radius+1.5));dummy.position.set(r.x,surfaceHeightAt(seed,r.x,r.z)-.12,r.z);dummy.rotation.set(.04,r.angle,.03);dummy.scale.set(hidden?0:r.radius,hidden?0:r.height,hidden?0:r.radius);dummy.updateMatrix();batch.instances.setMatrixAt(i,dummy.matrix);});batch.instances.instanceMatrix.needsUpdate=true;}
+  pebbleData.forEach((r,i)=>{dummy.position.set(r.x,surfaceHeightAt(seed,r.x,r.z),r.z);dummy.rotation.set(0,r.angle,.2);dummy.scale.set(r.size,r.size*.45,r.size);if(occupied.has(`${Math.round(r.x/2)},${Math.round(r.z/2)}`)||Math.hypot(r.x,r.z+10)<9)dummy.scale.setScalar(0);dummy.updateMatrix();pebbles.setMatrixAt(i,dummy.matrix);});pebbles.instanceMatrix.needsUpdate=true;
  }
  return {ground,update,setCaveCutaway,dispose(){root.clear();geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());textures.forEach(t=>t.dispose());}};
 }

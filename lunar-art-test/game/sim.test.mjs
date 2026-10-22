@@ -293,3 +293,12 @@ test('the reported trapped surface position becomes walkable without resetting a
  for(let i=0;i<30;i++)movePlayer(s,0,1,1/30,DEFS);
  assert.ok(s.player.x>-46&&s.player.z>-36,'character moves away from the cliff');
 });
+
+test('voxel surface has stable broad shelves and preserves a level starting clearing',async()=>{
+ const {surfaceHeightAt}=await import('./terrain.js');
+ assert.equal(surfaceHeightAt(1847,0,8),0);
+ for(const [x,z] of [[30,22],[-50,54],[70,-66]]){
+  assert.equal(surfaceHeightAt(1847,x-.5,z-.5),surfaceHeightAt(1847,x+.5,z+.5));
+  assert.ok(Number.isFinite(surfaceHeightAt(1847,x,z)));
+ }
+});

@@ -1,0 +1,9 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Voxel lunar plains • art review</title><link rel="stylesheet" href="../game.css"><style>canvas{position:fixed;inset:0;width:100%;height:100%;outline:none}</style><script type="importmap">{"imports":{"three":"../../node_modules/three/build/three.module.js","three/addons/":"../../node_modules/three/examples/jsm/"}}</script></head><body><canvas id="game" tabindex="0"></canvas><script type="module">
+// Isolated, reproducible daytime review. Never reads or writes colony saves.
+import{createWorld}from'../world.js';import{createState,tick}from'../sim.js';
+const state=createState();state.time=25;state.player.facing=Math.PI;state.player.animation='idle';
+state.buildings=[['solar',-5,1],['battery',-2,1],['habitat',1,1],['lamp',4,0]].map(([type,x,z],i)=>({id:i+1,type,x,z,rotation:0,progress:1,built:true}));state.power.stored=125;tick(state,0);
+// Asset paths are resolved against the game root by the document base.
+const base=document.createElement('base');base.href='../';document.head.append(base);
+const world=await createWorld(document.querySelector('canvas'),state);window.addEventListener('resize',world.resize);let last=performance.now();function frame(now){world.update(state,Math.min((now-last)/1000,.1));last=now;requestAnimationFrame(frame)}requestAnimationFrame(frame);
+</script></body></html>
