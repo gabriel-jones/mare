@@ -286,7 +286,11 @@ async function start(){
   window.addEventListener('pagehide',()=>{try{localStorage.setItem(KEY,serialize(state));}catch{}});
   boot.remove();document.body.dataset.ready='true';canvas.focus({preventScroll:true});
   ui.update(state,view());
+  const fps=document.createElement('div');fps.className='fps-meter';document.body.append(fps);
+  let fpsFrames=0,fpsSince=performance.now(),fpsWorst=0;
   function frame(now){
+   fpsFrames++;fpsWorst=Math.max(fpsWorst,now-last);
+   if(now-fpsSince>=500){const rate=fpsFrames*1000/(now-fpsSince);fps.textContent=`${Math.round(rate)} fps · ${fpsWorst.toFixed(0)} ms worst`;fps.dataset.level=rate>=50?'good':rate>=30?'ok':'bad';fpsFrames=0;fpsSince=now;fpsWorst=0;}
    const dt=Math.min((now-last)/1000,.1);last=now;accumulator+=dt;
    while(accumulator>=1/30){fixedUpdate(1/30);accumulator-=1/30;}
    if(stepWatcher(watcher,state,dt)==='vanished'){const remark=noteSighting(state);if(remark)setTimeout(()=>ui.say(remark),1500);}
