@@ -79,9 +79,9 @@ export async function createWorld(canvas, initialState) {
     if(state.power.powered!==false){
       for(const b of state.buildings){
         const p=b.built&&b.type!=='conveyor'&&!DEFS[b.type].layer&&structures.get(b.id)?.root.position;
-        if(p)candidates.push({x:p.x,y:p.y+2.6,z:p.z,intensity:(1-daylight)*9,distance:8,color:0xffc777});
+        if(p)candidates.push({x:p.x,y:p.y+2.6,z:p.z,intensity:(1-daylight)*14,distance:10,color:0xffc777});
       }
-      for(const l of habitatView.lights())candidates.push({...l,intensity:(1-daylight)*(l.greenhouse?7:10),distance:7,color:l.greenhouse?0xffb0dc:0xffcf8c});
+      for(const l of habitatView.lights())candidates.push({...l,intensity:(1-daylight)*(l.greenhouse?10:15),distance:9,color:l.greenhouse?0xffb0dc:0xffcf8c});
     }
     for(const c of candidates)c.d=Math.hypot(c.x-follow.x,c.z-follow.z);
     candidates.sort((a,b)=>a.d-b.d);
@@ -359,11 +359,11 @@ export async function createWorld(canvas, initialState) {
     // Underground the surface sinks almost to black over a second, leaving only the cave light and colony lamps.
     caveBlend+=((underground?1:0)-caveBlend)*(1-Math.exp(-Math.min(dt,.1)*3));
     const surfaceLight=1-.94*caveBlend;
-    scene.environmentIntensity=(.035+daylight*.265)*surfaceLight;
-    sun.intensity=(.18+daylight*3.1)*surfaceLight;fill.intensity=(.5+daylight*.7)*surfaceLight;
-    suitFill.intensity=2+(1-daylight)*5;headlamp.intensity=8+(1-daylight)*37;padLight.intensity=(5+(1-daylight)*18)*surfaceLight;
+    scene.environmentIntensity=(.01+daylight*.29)*surfaceLight;
+    sun.intensity=(.05+daylight*3.23)*surfaceLight;fill.intensity=(.1+daylight*1.1)*surfaceLight;
+    suitFill.intensity=2+(1-daylight)*3;headlamp.intensity=8+(1-daylight)*62;padLight.intensity=(5+(1-daylight)*22)*surfaceLight;
     sun.position.set(follow.x-25,12+daylight*38,follow.z-30);sun.target.position.set(follow.x,0,follow.z);sun.target.updateMatrixWorld();
-    scene.background.setRGB((.025+daylight*.035)*surfaceLight,(.038+daylight*.05)*surfaceLight,(.065+daylight*.075)*surfaceLight);scene.fog.color.copy(scene.background);
+    scene.background.setRGB((.01+daylight*.05)*surfaceLight,(.016+daylight*.072)*surfaceLight,(.03+daylight*.11)*surfaceLight);scene.fog.color.copy(scene.background);
     scene.fog.density=.0012;suitFill.distance=underground?6:8;headlamp.distance=underground?20:18;
     if(underground){suitFill.intensity=9;headlamp.intensity=145;}
     const position=underground?caveToWorld(state.seed,state.player.cave,renderPose.x,renderPose.z,zone):{x:renderPose.x,y:habitatView.floorAt(state,renderPose.x,renderPose.z)??heightAt(state.seed,renderPose.x,renderPose.z),z:renderPose.z};

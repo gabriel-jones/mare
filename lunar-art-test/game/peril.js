@@ -107,13 +107,11 @@ export function craftFlares(state) {
   return { ok: true, reason: `${FLARE.makes} flares made.` };
 }
 /**
- * Strikes a flare in hand and throws it at `target` (cave-local {x,z}, or world metres on the surface, where flares
- * are only for an infested base; straight ahead without one), landing short of the
- * first wall in the way. It burns from the strike: `age` runs from the throw, `t` is the burn left once it lands.
+ * Strikes a flare in hand and throws it at `target` (cave-local {x,z}, or world metres on the surface; straight ahead
+ * without one), landing short of the first wall in the way. It burns from the strike: `age` runs from the throw, `t` is the burn left once it lands.
  */
 export function throwFlare(state, target = null) {
   const p = state.player;
-  if (p.cave == null && !infested(state)) return { ok: false, reason: 'Save flares for the dark.' };
   if (!inv.count(state.inventory, 'flare')) return { ok: false, reason: 'No flares. Press X to make some from metal.' };
   if (state.flares?.some(f => (f.age ?? Infinity) < FLARE.release)) return { ok: false, reason: '' };
   const zone = p.zone ?? 0, aimed = target && Math.hypot(target.x - p.x, target.z - p.z) > .5;

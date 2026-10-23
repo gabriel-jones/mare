@@ -232,7 +232,7 @@ export function createUI(root, callbacks = {}) {
       const lines = [];
       if (view.missionUse) lines.push(`<kbd>E</kbd> ${view.missionUse.verb}${view.missionUse.hold && view.missionUse.progress > 0 ? ` <span class="hint-progress"><i style="transform:scaleX(${view.missionUse.progress})"></i></span>` : ''}`);
       else if (view.use && !view.nearbyBuilding) lines.push(`<kbd>E</kbd> ${view.use.verb}`);
-      if (state.player.cave != null || infested(state)) {
+      if (state.player.cave != null || infested(state) || view.night) {
         const flares = count(state.inventory, 'flare');
         if (flares) lines.push(`<kbd>Q</kbd> Throw flare · ${flares}`);
         else if (count(state.inventory, 'metal') >= 2) lines.push('<kbd>X</kbd> Make 3 flares · 2 metal');

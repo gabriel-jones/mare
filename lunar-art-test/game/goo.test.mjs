@@ -88,7 +88,7 @@ test('a powered vat cultures goo; dark too long it breaches, choking growers and
 test('on an infested surface flares burn the goo and the hatchlings; hatchlings bite', () => {
   const s = base(), vat = build(s, 'goovat', 0, 0);
   add(s.inventory, 'flare', 4);
-  assert.match(throwFlare(s, { x: 0, z: 0 }).reason, /dark/, 'no flares on a clean surface');
+  assert.equal(throwFlare(s, { x: 0, z: 0 }).ok, true, 'flares can be thrown anywhere'); s.flares = [];
   add(s.inventory, 'goo', 1); interact(s, vat.id); s.power.stored = 0; s.time = 150;
   run(s, GOO.breachAfter + 1, .5); assert.ok(s.brood.length);
   // A hatchling reaches the player and bites.

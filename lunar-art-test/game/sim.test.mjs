@@ -405,7 +405,7 @@ test('flares are made from metal, thrown short of walls underground, and light t
  const {caveLayout,visibleCaveCells}=await import('./caves.js'),P=await import('./peril.js');
  const s=createState();s.inventory=createInventory({metal:3});
  assert.equal(P.craftFlares(s).ok,true);assert.equal(count(s.inventory,'flare'),3);assert.equal(P.craftFlares(s).ok,false,'needs more metal');
- assert.equal(P.throwFlare(s).ok,false,'not on the surface');
+ assert.equal(P.throwFlare(s).ok,true,'on the surface too');s.flares=[];
  s.player={x:0,z:4,y:0,satiety:100,cave:0,facing:Math.PI/2};
  assert.equal(P.throwFlare(s).ok,true);const f=s.flares[0];assert.ok(f.x<4&&f.x>=0,'stops before the side wall');
  const cave=caveLayout(s.seed,0),dark=visibleCaveCells(cave,0,30,Math.PI),lit=visibleCaveCells(cave,0,30,Math.PI,[{x:0,z:40,r:P.FLARE.radius}]);
