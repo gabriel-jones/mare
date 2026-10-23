@@ -184,3 +184,36 @@ body[data-region=cave] canvas#game { filter:saturate(calc(.72 - var(--cave-depth
 .orbit-label i { width:5px;height:5px;border-radius:50%;background:#8fc4ff; }
 .orbit-label[hidden] { display:none; }
 body[data-orbit=open] .game-ui, body[data-orbit=open] .building-status-layer { visibility:hidden; }
+.research-view { position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;background:radial-gradient(ellipse at 30% 20%,#141b24,#05070b 70%);color:#e8ecf2; }
+.research-head { display:flex;align-items:center;gap:28px;padding:22px 28px 10px; }
+.research-head small { font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#9aa6b6; }
+.research-head h2 { margin:2px 0 0;font-size:22px;font-weight:600; }
+.research-stats { display:flex;gap:22px;margin-left:auto;font-size:12px;color:#9aa6b6; }
+.research-stats strong { margin:0 4px 0 6px;color:#f2f2e9;font-size:15px;font-variant-numeric:tabular-nums; }
+.research-close { width:34px;height:34px;border-radius:50%;border:1px solid #ffffff33;background:#ffffff0d;color:inherit;font-size:20px;line-height:1; }
+.research-scroll { flex:1;overflow:auto;padding:6px 28px 0; }
+.research-tree { position:relative; }
+.research-band { position:absolute;left:0;right:0;border-top:1px solid #ffffff14; }
+.research-band h3 { margin:8px 0 0;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#7e8a99;font-weight:600; }
+.research-links { position:absolute;inset:0;pointer-events:none;overflow:visible; }
+.research-links path { fill:none;stroke:#ffffff1f;stroke-width:2; }
+.research-links path[data-state=open] { stroke:#8fc4ff66; }
+.research-links path[data-state=done] { stroke:#edbd79aa; }
+.research-node { position:absolute;width:158px;height:126px;display:grid;grid-template-rows:64px auto 1fr auto;justify-items:center;gap:2px;padding:8px 8px 7px;border-radius:7px;border:1px solid #ffffff22;background:#0d131dd9;color:inherit;text-align:center;cursor:pointer;transition:border-color .12s,background .12s; }
+.research-node img { width:64px;height:64px;object-fit:contain;filter:drop-shadow(0 4px 6px #0008); }
+.research-node strong { font-size:12px;font-weight:600; }
+.research-node small { font-size:10px;line-height:1.25;color:#98a3b3;overflow:hidden; }
+.research-node:hover:not(:disabled) { border-color:#8fc4ff;background:#132030; }
+.research-node[data-state=active] { border-color:#8fc4ff;box-shadow:0 0 0 1px #8fc4ff55,0 0 18px #8fc4ff33; }
+.research-node[data-state=done] { border-color:#edbd7988;cursor:default; }
+.research-node[data-state=done] strong { color:#edbd79; }
+.research-node[data-state=locked],.research-node[data-state=hidden] { opacity:.5;cursor:not-allowed; }
+.research-node[data-state=locked] img,.research-node[data-state=hidden] img { filter:grayscale(1) brightness(.6); }
+.research-bar { position:relative;width:100%;height:3px;border-radius:2px;background:#ffffff14;overflow:hidden; }
+.research-bar i { display:block;height:100%;background:#8fc4ff;transform-origin:left;transform:scaleX(0); }
+.research-node[data-state=done] .research-bar i { background:#edbd79; }
+.research-foot { margin:0;padding:10px 28px 18px;font-size:11px;color:#7e8a99; }
+.game-ui .research-toggle { position:fixed;top:22px;right:88px;padding:11px 12px; }
+.research-toggle svg { color:#edbd79; }
+.research-badge { position:absolute;top:-4px;right:-4px;width:10px;height:10px;border-radius:50%;background:#edbd79;box-shadow:0 0 8px #edbd79; }
+body[data-research=open] .game-ui, body[data-research=open] .building-status-layer { visibility:hidden; }

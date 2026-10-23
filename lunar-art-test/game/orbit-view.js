@@ -5,7 +5,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { LAUNCH, RESEARCH_PER_SATELLITE, TECHS } from './space.js';
+import { LAUNCH } from './space.js';
 import { BODIES, createSolarSystem } from './celestial.js';
 
 const PARKING = 1.32;
@@ -18,7 +18,7 @@ const viewDistance = id => id === 'system' ? 2900 : id === 'moon' ? 4.8 : id ===
 const zoomRange = id => id === 'system' ? [500, 6000] : id === 'belt' ? [3, 60] : (r => [r * 1.4, r * 40])(BODIES.find(b => b.id === id).radius);
 const ease = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 
-/** Full-screen 3D view of the solar system and lunar orbit: satellites, the Starship, research and the Return order. */
+/** Full-screen 3D view of the solar system and lunar orbit: satellites, the Starship and the Return order. */
 export function createOrbitView(callbacks = {}) {
   const root = document.createElement('section');
   root.className = 'orbit-view'; root.hidden = true; root.setAttribute('aria-label', 'Orbital view');
@@ -28,13 +28,11 @@ export function createOrbitView(callbacks = {}) {
     <aside class="orbit-facts"><dl data-orbit-field="facts"></dl></aside>
     <aside class="orbit-panel">
       <div class="orbit-stat"><span>Satellites</span><strong data-orbit-field="satellites">0</strong></div>
-      <div class="orbit-stat"><span>Research</span><strong data-orbit-field="rate">0</strong><small>pts / min</small></div>
       <div class="orbit-ship"><span data-orbit-field="ship"></span><button type="button" class="orbit-return" data-orbit="return">Return to the pad</button></div>
-      <h3>Research</h3><div class="orbit-techs"></div>
     </aside>`;
   document.body.append(root);
   const canvas = root.querySelector('canvas'), fields = Object.fromEntries([...root.querySelectorAll('[data-orbit-field]')].map(el => [el.dataset.orbitField, el]));
-  const returnButton = root.querySelector('.orbit-return'), techs = root.querySelector('.orbit-techs'), labelLayer = root.querySelector('.orbit-labels');
+  const returnButton = root.querySelector('.orbit-return'), labelLayer = root.querySelector('.orbit-labels');
   const labels = new Map(BODIES.map(b => { const el = document.createElement('button'); el.type = 'button'; el.className = 'orbit-label'; el.dataset.focus = b.id; el.innerHTML = `<i></i>${b.name}`; labelLayer.append(el); return [b.id, el]; }));
   let renderer = null, composer, scene, camera, system, network, ringGroup, satGroup, ship, flame, satTemplate = null, colony, itemModels = null, disposed = false;
   let yaw = .6, pitch = .32, distance = viewDistance('moon'), focusId = 'moon', flight = null, drag = null, time = 0, ringKey = -1;
@@ -152,27 +150,10 @@ export function createOrbitView(callbacks = {}) {
       if (show) el.style.transform = `translate(${(projected.x * .5 + .5) * w}px, ${(-projected.y * .5 + .5) * h + px + 4}px) translateX(-50%)`;
     }
   }
-  let techKey = '';
-  function renderTechs(state) {
-    const r = state.research, key = JSON.stringify([r.selected, r.done, state.blueprints ?? []]);
-    if (key !== techKey) {
-      techKey = key;
-      techs.innerHTML = Object.entries(TECHS).map(([id, t]) => {
-        const done = r.done.includes(id), active = r.selected === id, hidden = t.schematic && !(state.blueprints ?? []).includes(id);
-        return `<button type="button" class="orbit-tech" data-tech="${id}" data-state="${done ? 'done' : active ? 'active' : 'idle'}" ${done || hidden ? 'disabled' : ''}><strong>${t.name}</strong><small>${done ? 'Researched · build it from the menu (B)' : hidden ? 'Needs a schematic from deep in the caves.' : t.description}</small><span class="orbit-bar"><i></i></span><em data-tech-field="${id}"></em></button>`;
-      }).join('');
-    }
-    for (const [id, t] of Object.entries(TECHS)) {
-      const progress = Math.min(1, (r.progress[id] ?? 0) / t.cost), el = techs.querySelector(`[data-tech="${id}"]`);
-      el.querySelector('.orbit-bar i').style.transform = `scaleX(${r.done.includes(id) ? 1 : progress})`;
-      el.querySelector('em').textContent = r.done.includes(id) ? 'Done' : `${Math.floor(r.progress[id] ?? 0)} / ${t.cost}`;
-    }
-  }
   const onClick = e => {
     const b = e.target.closest('button'); if (!b) return;
     if (b.dataset.orbit === 'close') api.close();
     else if (b.dataset.orbit === 'return') callbacks.onReturn?.();
-    else if (b.dataset.tech) callbacks.onResearch?.(b.dataset.tech);
     else if (b.dataset.focus) focus(b.dataset.focus);
     b.blur();
   };
@@ -225,10 +206,8 @@ export function createOrbitView(callbacks = {}) {
       }
       colony.scale.setScalar(1 + .25 * Math.sin(time * 3));
       fields.satellites.textContent = String(state.satellites);
-      fields.rate.textContent = String(state.satellites * RESEARCH_PER_SATELLITE);
       fields.ship.textContent = { pad: s.payload ? `Starship on the pad · ${s.payload} satellite${s.payload > 1 ? 's' : ''} aboard` : 'Starship on the pad', ascent: 'Starship climbing to orbit…', orbit: 'Starship in parking orbit', descent: 'Starship descending…' }[s.status];
       returnButton.hidden = s.status !== 'orbit';
-      renderTechs(state);
       placeLabels();
       composer.render();
       root.dataset.drawn = String(Number(root.dataset.drawn ?? 0) + 1);

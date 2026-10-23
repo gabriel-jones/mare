@@ -1,9 +1,10 @@
 import { daylightAt } from './sim.js';
-import { DEFS } from './defs.js';
+import { DEFS, ITEM_INFO } from './defs.js';
 import { HAULER } from './hauler.js';
 import { ELECTROLYSIS, LAUNCH, REACTOR_POWER, electrolyserReady, touchesPad } from './space.js';
 import { processorReady, melterReady, fabricatorReady, assemblerReady, currentPart, ASSEMBLY, FAB, remainingRegolith, roverHasWork, hasMelter, miningCells, dockSpace, total, ROVER, RECIPE, MELT, PROCESSOR_INPUT_CAP } from './production.js';
-import { LIFE, roomStatus } from './life.js';
+import { LIFE, roomStatus, readyCount } from './life.js';
+import { CROPS, MILL, isGrower } from './farm.js';
 
 const roomCache={state:null,time:-1,result:null};
 function roomsOf(state){
@@ -55,15 +56,18 @@ export function buildingStatus(building,state){
  const room=DEFS[building.type].layer?roomsOf(state).at(building.x,building.z):null;
  if(DEFS[building.type].layer==='floor')return room?.pressurised?{text:'Pressurised',read:'LIFE SUPPORT NOMINAL',tone:'charge'}:{text:room?.reason??'No airlock',read:'ROOM UNPRESSURISED',tone:'warning'};
  if(DEFS[building.type].layer==='interior'&&!room?.pressurised)return {text:'No air',read:'ROOM UNPRESSURISED',tone:'inactive'};
- if(building.type==='growbed'){
-  if(building.grow>=1)return {text:'Ripe',read:'PRESS E TO HARVEST',tone:'low'};
-  if(!building.watered&&state.reserves.water<LIFE.growWater)return {text:'Needs water',read:`WATER ${Math.floor(state.reserves.water)}`,tone:'warning',glyph:'water'};
-  return state.power.powered===false?noPower:{text:'Growing',read:`${Math.floor(building.grow*100)}% TO HARVEST`,tone:'charge',fill:building.grow};
+ if(isGrower(building)){
+  const crop=CROPS[building.crop],name=ITEM_INFO[building.crop].name.toUpperCase();
+  if(building.grow>=1)return {text:'Ripe',read:`PRESS E TO HARVEST ${name}`,tone:'low'};
+  if(!building.watered&&state.reserves.water<crop.water)return {text:'Needs water',read:`WATER ${Math.floor(state.reserves.water)}`,tone:'warning',glyph:'water'};
+  return state.power.powered===false&&crop.power?noPower:{text:'Growing',read:`${name} · ${Math.floor(building.grow*100)}%`,tone:'charge',fill:building.grow};
  }
- if(building.type==='galley'){
-  if(building.meals)return {text:building.meals>1?`${building.meals} meals`:'Meal ready',read:'PRESS E TO COLLECT',tone:'low'};
-  if(building.crops>=LIFE.cookInput)return state.power.powered===false?noPower:{text:'Cooking',read:`POTATOES ${building.crops}`,tone:'charge',fill:building.work};
-  return {text:'Needs potatoes',read:`POTATOES ${building.crops??0} / ${LIFE.cookInput}`,tone:'inactive'};
+ if(building.type==='galley'||building.type==='mill'){
+  const ready=Object.entries(building.ready??{}).filter(([,n])=>n);
+  if(ready.length){const [item,n]=ready[0];return {text:ready.length>1||n>1?`${readyCount(building)} ready`:`${ITEM_INFO[item].name} ready`,read:'PRESS E TO COLLECT',tone:'low'};}
+  const next=building.queue?.[0];
+  if(next)return state.power.powered===false?noPower:{text:building.type==='galley'?'Cooking':'Milling',read:ITEM_INFO[building.type==='galley'?next:MILL.makes[next]].name.toUpperCase(),tone:'charge',fill:building.work};
+  return building.type==='galley'?{text:'Needs ingredients',read:building.recipe?ITEM_INFO[building.recipe].name.toUpperCase():'AUTO RECIPE',tone:'inactive'}:{text:'Needs grain',read:'WHEAT OR SOYBEANS',tone:'inactive'};
  }
  if(building.type==='recycler'){
   if(state.reserves.water>=LIFE.waterCap)return {text:'Tanks full',read:`WATER ${Math.floor(state.reserves.water)}`,tone:'inactive'};

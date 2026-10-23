@@ -14,6 +14,10 @@ const ICONS = {
   airlock: '<path d="M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16M3 21h18M12 3v18"/><path d="m8 12-2 0m10 0 2 0"/>',
   growbed: '<path d="M3 15h18l-2 6H5ZM12 15V8m0 3c-3 0-4-2-4-4 3 0 4 2 4 4Zm0-2c0-3 2-4 4-4 0 3-2 4-4 4Z"/>',
   galley: '<path d="M3 11h18v10H3ZM3 15h18M8 7c0-2 2-2 2-4m4 4c0-2 2-2 2-4"/>',
+  hydrorack: '<path d="M5 3v18M19 3v18M5 8h14M5 14h14M5 20h14"/><path d="M9 8c0-2 1-3 2-3m3 3c0-2 1-3 2-3M9 14c0-2 1-3 2-3m3 3c0-2 1-3 2-3"/>',
+  verticalfarm: '<path d="M7 2h10v20H7ZM7 7h10M7 12h10M7 17h10"/><path d="M10 7V5m4 2V5m-4 7v-2m4 2v-2m-4 7v-2m4 2v-2"/>',
+  mushroomtray: '<path d="M3 18h18v3H3Z"/><path d="M5 14a3 3 0 0 1 6 0Zm2 0v4m6-6a4 4 0 0 1 8 0Zm4 0v6"/>',
+  mill: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/><path d="M12 4v6m0 4v6M4 12h6m4 0h6"/>',
   recycler: '<path d="M12 3s5 6 5 9.5a5 5 0 0 1-10 0C7 9 12 3 12 3Z"/><path d="m9 13 2 2 4-4"/>',
   conveyor: '<path d="M3 15h18M3 19h18M7 15v4m5-4v4m5-4v4"/><path d="m9 6 3 3-3 3m4-6 3 3-3 3"/>',
   processor: '<path d="M3 21V11h6l3-3h4v13Zm13-13V3h4v18M7 15h2m2 0h2"/><circle cx="18" cy="13" r="1"/>',
@@ -39,11 +43,12 @@ const TOOLS = {
   dismantle: { name: 'Dismantle', key: 'z', description: 'Click or drag over structures and blueprints to take them down. Materials are returned.' },
 };
 // Palette sections, in menu order.
-const GROUPS = [['Power & industry', ['solar', 'battery', 'hopper', 'conveyor', 'processor', 'melter', 'storage']], ['Rooms', ['habitat', 'greenhouse', 'airlock']], ['Fittings', ['growbed', 'galley', 'recycler']], ['Space', ['fabricator', 'assembler', 'electrolyser', 'tank', 'dock', 'roverbay']], ['Deep', ['xenolab', 'reactor']], ['Tools', ['mine', 'dismantle']]];
+const GROUPS = [['Power & industry', ['solar', 'battery', 'hopper', 'conveyor', 'processor', 'melter', 'storage']], ['Rooms', ['habitat', 'greenhouse', 'airlock']], ['Fittings', ['growbed', 'hydrorack', 'verticalfarm', 'mushroomtray', 'galley', 'mill', 'recycler']], ['Space', ['fabricator', 'assembler', 'electrolyser', 'tank', 'dock', 'roverbay']], ['Deep', ['xenolab', 'reactor']], ['Tools', ['mine', 'dismantle']]];
 const svg = (paths, width = 1.5) => `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
 const number = (value) => Math.round(Number(value) || 0).toLocaleString();
 const costText = def => def.cost ? Object.entries(def.cost).map(([item, n]) => `${n} ${ITEM_INFO[item]?.name.toLowerCase() ?? item}`).join(', ') : 'Free';
 const slotKey = i => String((i + 1) % 10);
+const RESEARCH_ICON = '<path d="M9 3h6M10 3v6L5 19a1.5 1.5 0 0 0 1.3 2h11.4a1.5 1.5 0 0 0 1.3-2L14 9V3"/><path d="M7.5 15h9"/>';
 const ORBIT_ICON = '<circle cx="12" cy="12" r="4"/><ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(-25 12 12)"/><circle cx="20" cy="8" r="1.2"/>';
 const ROVER_ICON = '<path d="M3 15h18v-4l-3-4H9l-2 4H3zM7 11h11M12 7V4h3"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>';
 
@@ -75,7 +80,8 @@ export function createUI(root, callbacks = {}) {
       <div class="robots-panel" aria-label="Robots" hidden></div>
       <button type="button" class="build-toggle" data-action="build" aria-expanded="false" aria-controls="build-menu">${buildIcon}<span>Build</span><kbd>B</kbd></button>
       <button type="button" class="build-toggle robots-toggle" data-action="robots" aria-expanded="false" aria-label="Robots" title="Robots (G)">${svg(ROVER_ICON, 1.6)}<kbd>G</kbd></button>
-      <button type="button" class="build-toggle robots-toggle orbit-toggle" data-action="orbit" aria-label="Orbit" title="Orbit and research (O)">${svg(ORBIT_ICON, 1.6)}<kbd>O</kbd><b class="orbit-badge" hidden></b></button>
+      <button type="button" class="build-toggle robots-toggle orbit-toggle" data-action="orbit" aria-label="Orbit" title="Orbit (O)">${svg(ORBIT_ICON, 1.6)}<kbd>O</kbd><b class="orbit-badge" hidden></b></button>
+      <button type="button" class="build-toggle robots-toggle research-toggle" data-action="research" aria-label="Research" title="Research (T)">${svg(RESEARCH_ICON, 1.6)}<kbd>T</kbd><b class="research-badge" hidden></b></button>
       <div class="selection-tools" hidden>
         <span class="selected-name"></span>
         <small class="selected-reason"></small>
@@ -121,6 +127,7 @@ export function createUI(root, callbacks = {}) {
     else if (button.dataset.removeZone) callbacks.onRemoveZone?.(Number(button.dataset.removeZone));
     else if (button.dataset.action === 'robots') setRobots(robotsPanel.hidden);
     else if (button.dataset.action === 'orbit') callbacks.onOrbit?.();
+    else if (button.dataset.action === 'research') callbacks.onResearch?.();
     else if (button.dataset.slot) callbacks.onSlot?.(Number(button.dataset.slot));
     else if (button.dataset.action === 'build') setOpen(menu.hidden);
     else if (button.dataset.action === 'rotate') callbacks.onRotate?.();
@@ -140,6 +147,9 @@ export function createUI(root, callbacks = {}) {
       if (!robotsPanel.hidden && now - robotsAt > 250) { robotsAt = now; renderRobots(state); }
       const badge = root.querySelector('.orbit-badge'), sats = state.satellites ?? 0;
       if (badge.textContent !== String(sats)) { badge.textContent = String(sats); badge.hidden = !sats; }
+      // Points waiting with nothing being researched.
+      const idle = !state.research?.selected && (state.research?.bank ?? 0) >= 1;
+      root.querySelector('.research-badge').hidden = !idle;
       fields.oxygen.textContent = number(state.reserves?.oxygen);
       fields.water.textContent = number(state.reserves?.water);
       fields.power.textContent = `${number(state.power.generation)} / ${number(state.power.demand)}`;

@@ -8,10 +8,24 @@ export const LAUNCH = Object.freeze({ fuel: 80, payload: 3, hold: 2, ascent: 9, 
 // One water makes one unit of hydrolox; a drinking reserve is always left for the colony.
 export const ELECTROLYSIS = Object.freeze({ time: 2, power: 3, waterFloor: 20 });
 export const RESEARCH_PER_SATELLITE = 4; // points per minute
+/** Research branches, in display order. */
+export const BRANCHES = Object.freeze({ farming: 'Farming', industry: 'Industry', deep: 'Deep' });
+/** The research tree. `requires` must all be done before a tech can be chosen; `schematic` techs also need their find. */
 export const TECHS = Object.freeze({
-  roverbay: { name: 'Rover bay', cost: 24, description: 'A bay that builds extra mining rovers.' },
-  reactor: { name: 'Resonance reactor', cost: 40, schematic: true, description: 'Steady power from a rare-earth lattice, day and night.' },
+  hydroponics: { name: 'Hydroponics', branch: 'farming', cost: 14, description: 'A hydroponic rack for greenhouses.' },
+  soy: { name: 'Soybeans', branch: 'farming', cost: 10, requires: ['hydroponics'], description: 'Slow, filling beans for the rack.' },
+  tomato: { name: 'Tomatoes', branch: 'farming', cost: 10, requires: ['hydroponics'], description: 'Fresh fruit for the rack: salads, pizza and medicine.' },
+  algae: { name: 'Algae culture', branch: 'farming', cost: 10, requires: ['hydroponics'], description: 'Fast filler grown in water. Thirsty, but needs no light.' },
+  mycology: { name: 'Mycology', branch: 'farming', cost: 14, requires: ['hydroponics'], description: 'A mushroom tray that grows in the dark of a habitat.' },
+  processing: { name: 'Food processing', branch: 'farming', cost: 14, requires: ['soy'], description: 'A mill: wheat into flour, soybeans into protein.' },
+  medicine: { name: 'Field medicine', branch: 'farming', cost: 12, requires: ['tomato'], description: 'The galley learns to make medkits that mend the suit.' },
+  vertical: { name: 'Vertical farming', branch: 'farming', cost: 20, requires: ['processing'], description: 'A tall greenhouse tower of trays.' },
+  wheat: { name: 'Wheat', branch: 'farming', cost: 12, requires: ['vertical'], description: 'Wheat for the vertical farm, milled into flour.' },
+  roverbay: { name: 'Rover bay', branch: 'industry', cost: 24, description: 'A bay that builds extra mining rovers.' },
+  reactor: { name: 'Resonance reactor', branch: 'deep', cost: 40, schematic: true, description: 'Steady power from a rare-earth lattice, day and night.' },
 });
+/** Prerequisites not yet researched. */
+export const missingFor = (state, id) => (TECHS[id].requires ?? []).filter(r => !techDone(state, r));
 /** Research points a xeno lab gets from studying each find. */
 export const STUDY = Object.freeze({ artifact: 12, heart: 60 });
 export const REACTOR_POWER = 10;
@@ -26,7 +40,7 @@ export const hasSchematic = (state, id) => !TECHS[id]?.schematic || (state.bluep
 export function lockedReason(state, type) {
   const tech = DEFS[type]?.research;
   if (tech && !hasSchematic(state, tech)) return `Locked: find the ${TECHS[tech].name.toLowerCase()} schematic deep in the caves.`;
-  return tech && !techDone(state, tech) ? `Locked: research the ${TECHS[tech].name} in orbit first (O).` : null;
+  return tech && !techDone(state, tech) ? `Locked: research ${TECHS[tech].name} first (T).` : null;
 }
 
 const padRing = c => c.x >= -5 && c.x <= 5 && c.z >= -9 && c.z <= -1;
@@ -77,6 +91,8 @@ export function selectResearch(state, id) {
   if (id != null && !TECHS[id]) return { ok: false, reason: 'Unknown technology.' };
   if (id != null && techDone(state, id)) return { ok: false, reason: `${TECHS[id].name} is already researched.` };
   if (id != null && !hasSchematic(state, id)) return { ok: false, reason: `Find the ${TECHS[id].name.toLowerCase()} schematic in the caves first.` };
+  const missing = id != null ? missingFor(state, id) : [];
+  if (missing.length) return { ok: false, reason: `Research ${missing.map(m => TECHS[m].name).join(' and ')} first.` };
   state.research.selected = id;
   return { ok: true, reason: id ? `Researching ${TECHS[id].name}.` : 'Research paused.' };
 }
@@ -145,7 +161,7 @@ export function studyFinds(state, id) {
   if (!points) return { ok: false, reason: 'Bring artifacts from the caves to study.' };
   for (const item of Object.keys(STUDY)) inv.remove(state.inventory, item, inv.count(state.inventory, item));
   state.research.bank += points;
-  return { ok: true, reason: `Studied · +${points} research points. Spend them in orbit (O).` };
+  return { ok: true, reason: `Studied · +${points} research points. Spend them in research (T).` };
 }
 export const costText = cost => Object.entries(cost).map(([item, n]) => `${n} ${item}`).join(' and ');
 export function createHauler(id, home) {

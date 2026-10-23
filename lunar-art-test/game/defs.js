@@ -10,12 +10,27 @@ export const PARTS = Object.freeze({
   wing: { name: 'Solar wing', input: { metal: 1, silicon: 3 } },
   chip: { name: 'Compute chip', input: { silicon: 4 } },
 });
-/** Items the player can carry. `food` is how much satiety eating one restores. */
+/** Items the player can carry. `food` is how much satiety eating one restores; `heal` is suit health. */
 export const ITEM_INFO = Object.freeze({
   metal: { name: 'Metal', stack: 200 },
   silicon: { name: 'Silicon', stack: 200 },
   crop: { name: 'Potatoes', stack: 30, food: 15 },
-  meal: { name: 'Meal', stack: 10, food: 40 },
+  greens: { name: 'Greens', stack: 30, food: 8 },
+  soy: { name: 'Soybeans', stack: 30, food: 6 },
+  tomato: { name: 'Tomatoes', stack: 30, food: 10 },
+  algae: { name: 'Algae', stack: 30, food: 5 },
+  wheat: { name: 'Wheat', stack: 40 },
+  mushroom: { name: 'Mushrooms', stack: 30, food: 8 },
+  flour: { name: 'Flour', stack: 30 },
+  protein: { name: 'Soy protein', stack: 30 },
+  meal: { name: 'Hash browns', stack: 10, food: 40 },
+  salad: { name: 'Salad', stack: 10, food: 30 },
+  bread: { name: 'Bread', stack: 10, food: 45 },
+  stew: { name: 'Soy stew', stack: 10, food: 50 },
+  broth: { name: 'Mushroom broth', stack: 10, food: 30 },
+  algaecake: { name: 'Algae cakes', stack: 10, food: 35 },
+  pizza: { name: 'Pizza', stack: 10, food: 60 },
+  medkit: { name: 'Medkit', stack: 5, heal: 50 },
   core: { name: 'Processor core', stack: 1 },
   frame: { name: 'Satellite frame', stack: 10 },
   wing: { name: 'Solar wing', stack: 10 },
@@ -38,8 +53,12 @@ export const DEFS = Object.freeze({
   habitat: { name: 'Habitat', key: 'h', w: 1, d: 1, cost: { metal: 8, silicon: 2 }, buildTime: 1.5, layer: 'floor', room: 'habitat', paint: true, walkable: true, enclosed: true, power: 0.25, description: 'Drag to paint living space. Walls and roof form around the shape. 0.25 kW per square.' },
   greenhouse: { name: 'Greenhouse', w: 1, d: 1, cost: { metal: 4, silicon: 6 }, buildTime: 1.5, layer: 'floor', room: 'greenhouse', paint: true, walkable: true, enclosed: true, power: 0.25, description: 'Drag to paint glazed growing space. Joins habitats into one building.' },
   airlock: { name: 'Airlock', w: 1, d: 1, cost: { metal: 12, silicon: 4 }, buildTime: 3, layer: 'floor', room: 'airlock', airlock: true, walkable: true, enclosed: true, power: 0.2, description: 'Place against a room with its arrow facing out. The only way in or out.' },
-  growbed: { name: 'Grow bed', w: 1, d: 1, inset: 0.15, cost: { metal: 6, silicon: 2 }, buildTime: 2, layer: 'interior', needs: 'greenhouse', description: 'Grows potatoes in a pressurised greenhouse. Uses water and 0.4 kW while growing.' },
-  galley: { name: 'Galley', w: 1, d: 1, inset: 0.3, cost: { metal: 14, silicon: 4 }, buildTime: 3, layer: 'interior', needs: 'habitat', description: 'Cooks 2 potatoes into a filling meal. Uses 1.5 kW while cooking.' },
+  growbed: { name: 'Grow bed', w: 1, d: 1, inset: 0.15, cost: { metal: 6, silicon: 2 }, buildTime: 2, layer: 'interior', needs: 'greenhouse', description: 'Grows potatoes or greens in a pressurised greenhouse. Uses water and 0.4 kW while growing.' },
+  hydrorack: { name: 'Hydroponic rack', w: 1, d: 1, inset: 0.2, cost: { metal: 12, silicon: 6 }, buildTime: 3, layer: 'interior', needs: 'greenhouse', research: 'hydroponics', description: 'Grows soybeans, tomatoes or algae in a greenhouse, once each is researched.' },
+  verticalfarm: { name: 'Vertical farm', w: 1, d: 2, inset: 0.15, cost: { metal: 24, silicon: 10 }, buildTime: 5, layer: 'interior', needs: 'greenhouse', research: 'vertical', description: 'A tower of trays for wheat, the hungriest crop for space. Uses 0.8 kW while growing.' },
+  mushroomtray: { name: 'Mushroom tray', w: 1, d: 1, inset: 0.2, cost: { metal: 8, silicon: 2 }, buildTime: 2, layer: 'interior', needs: 'habitat', research: 'mycology', description: 'Grows mushrooms in the dark of a habitat room. No power, a little water.' },
+  galley: { name: 'Galley', w: 1, d: 1, inset: 0.3, cost: { metal: 14, silicon: 4 }, buildTime: 3, layer: 'interior', needs: 'habitat', description: 'Cooks crops into meals; better recipes give lasting effects. Uses 1.5 kW while cooking.' },
+  mill: { name: 'Mill', w: 1, d: 1, inset: 0.25, cost: { metal: 16, silicon: 4 }, buildTime: 3, layer: 'interior', needs: 'habitat', research: 'processing', description: 'Grinds wheat into flour and soybeans into protein. Uses 1 kW while milling.' },
   recycler: { name: 'Water recycler', w: 1, d: 1, inset: 0.25, cost: { metal: 10, silicon: 6 }, buildTime: 3, layer: 'interior', needs: 'habitat', description: 'Reclaims water inside a pressurised habitat. Uses 0.5 kW.' },
   conveyor: { name: 'Conveyor belt', key: 'c', w: 1, d: 1, cost: { metal: 1 }, buildTime: 0.25, walkable: true, description: 'Carries items forward. Drag a route; it can turn corners.' },
   processor: { name: 'Regolith processor', w: 2, d: 3, cost: { metal: 45, silicon: 15 }, buildTime: 7, inputs: [{ x: 0, z: 0, dir: 2 }], outputs: [{ x: 0, z: 2, dir: 0 }], description: 'Refines regolith into metal and silicon, venting oxygen to colony reserves. Uses 3 kW while running.' },
@@ -55,7 +74,7 @@ export const DEFS = Object.freeze({
   reactor: { name: 'Resonance reactor', w: 2, d: 2, cost: { metal: 30, titanium: 12, rareearth: 4 }, buildTime: 8, research: 'reactor', description: 'An alien design: a rare-earth lattice that gives a steady 10 kW, day and night. Needs its schematic from the caves, then research.' },
 });
 /** Stencil codes for machine callouts: `MLT-02` is the second ice melter built. */
-export const CODES = Object.freeze({ solar: 'SOL', battery: 'BAT', hopper: 'HOP', habitat: 'HAB', greenhouse: 'GRN', airlock: 'ALK', growbed: 'BED', galley: 'GAL', recycler: 'RCY', conveyor: 'BLT', processor: 'PRC', melter: 'MLT', storage: 'CRT', fabricator: 'FAB', assembler: 'ASM', electrolyser: 'ELY', tank: 'TNK', dock: 'DCK', roverbay: 'RVB', xenolab: 'XEN', reactor: 'RCT' });
+export const CODES = Object.freeze({ solar: 'SOL', battery: 'BAT', hopper: 'HOP', habitat: 'HAB', greenhouse: 'GRN', airlock: 'ALK', growbed: 'BED', hydrorack: 'HYD', verticalfarm: 'VRT', mushroomtray: 'MSH', mill: 'MIL', galley: 'GAL', recycler: 'RCY', conveyor: 'BLT', processor: 'PRC', melter: 'MLT', storage: 'CRT', fabricator: 'FAB', assembler: 'ASM', electrolyser: 'ELY', tank: 'TNK', dock: 'DCK', roverbay: 'RVB', xenolab: 'XEN', reactor: 'RCT' });
 export const tagOf = b => `${CODES[b.type] ?? 'UNT'}-${String(b.serial ?? 0).padStart(2, '0')}`;
 export const ROOM_TYPES = Object.freeze(Object.keys(DEFS).filter(type => DEFS[type].layer === 'floor'));
 

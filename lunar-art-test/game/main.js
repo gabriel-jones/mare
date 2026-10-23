@@ -13,6 +13,7 @@ import {objective,missionAction,salvage,installCore,processorUnlocked,noteSighti
 import {createWatcher,stepWatcher} from './watcher.js';
 import {shipAction,holdLaunch,releaseLaunch,loadSatellite,recallShip,selectResearch,machineAction,lockedReason} from './space.js';
 import {createOrbitView} from './orbit-view.js';
+import {createResearchView} from './research-view.js';
 import {createHunt,stepHunt,fire,reload,craftRounds,roll,wrench,pinned,grabbedBy} from './hunt.js';
 import {worldVectorToCave} from './cave-space.js';
 
@@ -23,7 +24,7 @@ const SHORTCUTS={...Object.fromEntries(Object.entries(DEFS).filter(([,def])=>def
 const canvas=document.querySelector('#game'),boot=document.querySelector('#boot');
 let state=createState(),selectedType=null,rotation=0,world,ui,selectedSlot=0;
 let placementReason='',constructionReason='',hover=null,targetId=null,constructing=false,speed=1,saveStatus='Not saved',beltPath=null,paintPath=null,erasing=null;
-let orbit=null,shipStatus='pad';
+let orbit=null,research=null,shipStatus='pad';
 let jumpVelocity=0,accumulator=0,last=performance.now(),uiClock=0,autoClock=0,salvageReason='';
 const watcher=createWatcher();
 const keys=new Set();
@@ -274,9 +275,10 @@ async function start(){
  try{
   let restored=false;
   try{const raw=localStorage.getItem(KEY);if(raw){state=deserialize(raw);resetPlayer();restored=true;saveStatus='Restored local save';}}catch(e){saveStatus='New colony · save unreadable';}
-  ui=createUI(document.querySelector('#ui'),{onSelect:select,onAssign:(robot,area)=>{const r=assignRover(state,robot,area);if(!r.ok)notify(r.reason);},onRemoveZone:id=>notify(removeMiningArea(state,id).reason),onSlot:i=>{if(selectedSlot===i)eatSelected();selectedSlot=i;ui.update(state,view());},onRotate:()=>{rotation=(rotation+1)%4;refreshGhost();},onSave:save,onLoad:load,onReset:()=>{state=createState(Math.floor(Math.random()*999999));selectedType=null;resetPlayer();targetId=null;keys.clear();world?.clearGhost();save();notify('New lunar landing created.');},onCancel:()=>select(null),onOrbit:()=>orbit?.toggle(),onTimeToggle:()=>{speed=speed===1?12:1;notify(speed===1?'Normal day/night speed.':'Day/night simulation ×12. Movement stays normal.');}});
+  ui=createUI(document.querySelector('#ui'),{onSelect:select,onAssign:(robot,area)=>{const r=assignRover(state,robot,area);if(!r.ok)notify(r.reason);},onRemoveZone:id=>notify(removeMiningArea(state,id).reason),onSlot:i=>{if(selectedSlot===i)eatSelected();selectedSlot=i;ui.update(state,view());},onRotate:()=>{rotation=(rotation+1)%4;refreshGhost();},onSave:save,onLoad:load,onReset:()=>{state=createState(Math.floor(Math.random()*999999));selectedType=null;resetPlayer();targetId=null;keys.clear();world?.clearGhost();save();notify('New lunar landing created.');},onCancel:()=>select(null),onOrbit:()=>{research?.close();orbit?.toggle();},onResearch:()=>{orbit?.close();research?.toggle();},onTimeToggle:()=>{speed=speed===1?12:1;notify(speed===1?'Normal day/night speed.':'Day/night simulation ×12. Movement stays normal.');}});
   world=await createWorld(canvas,state);
-  orbit=createOrbitView({onReturn:()=>{notify(recallShip(state).reason);orbit.close();},onResearch:id=>notify(selectResearch(state,id).reason),onClose:()=>{keys.clear();canvas.focus({preventScroll:true});}});
+  orbit=createOrbitView({onReturn:()=>{notify(recallShip(state).reason);orbit.close();},onClose:()=>{keys.clear();canvas.focus({preventScroll:true});}});
+  research=createResearchView({onResearch:id=>notify(selectResearch(state,id).reason),onClose:()=>{keys.clear();canvas.focus({preventScroll:true});}});
   canvas.addEventListener('pointermove',e=>{aimClient={x:e.clientX,y:e.clientY};point(e);});
   canvas.addEventListener('pointerleave',()=>{if(beltPath||paintPath||erasing)return;hover=null;world.clearGhost();});
   canvas.addEventListener('pointerdown',e=>{
@@ -301,8 +303,10 @@ async function start(){
   window.addEventListener('keydown',e=>{
    if(/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)||e.ctrlKey||e.metaKey||e.altKey)return;
    const k=e.key.toLowerCase();
-   if(k==='o'&&!e.repeat){e.preventDefault();orbit.toggle();return;}
+   if(k==='o'&&!e.repeat){e.preventDefault();research.close();orbit.toggle();return;}
+   if(k==='t'&&!e.repeat){e.preventDefault();orbit.close();research.toggle();return;}
    if(orbit.open){if(k==='escape')orbit.close();return;}
+   if(research.open){if(k==='escape')research.close();return;}
    if(['w','a','s','d','e','f','q','x',' ','r','b','g','escape'].includes(k)||SHORTCUTS[k]||/^[0-9]$/.test(k))e.preventDefault();
    keys.add(k);if(e.repeat)return;
    if(state.player.cave!=null&&caveKey(k))return;
@@ -340,7 +344,7 @@ async function start(){
    if(stepWatcher(watcher,state,dt)==='vanished'){const remark=noteSighting(state);if(remark)setTimeout(()=>ui.say(remark),1500);}
    world.update(state,dt,interpolatePose(previousPose,state.player,accumulator/(1/30)),watcher,hunt);uiClock+=dt;autoClock+=dt;
    if(state.ship.status!==shipStatus){if(state.ship.status==='orbit'&&shipStatus==='ascent'){notify(`Satellites deployed. ${state.satellites} in orbit.`);orbit.show();}if(state.ship.status==='pad'&&shipStatus==='descent')notify('The Starship is back on the pad.');shipStatus=state.ship.status;}
-   orbit.update(state,dt);
+   orbit.update(state,dt);research.update(state);
    if(uiClock>.1){ui.update(state,view());refreshGhost();uiClock=0;}
    if(autoClock>20){try{localStorage.setItem(KEY,serialize(state));saveStatus='Autosaved locally';}catch{}autoClock=0;}
    requestAnimationFrame(frame);

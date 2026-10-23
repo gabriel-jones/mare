@@ -14,7 +14,9 @@ ROOT=Path('/Users/gabe/Documents/Playground/lunar-art-test/game')
 OUT=ROOT/'assets/inventory'
 BUDGETS={'metal':350,'silicon':650,'crop':1600,'meal':1500,'core':1100,
          'frame':1000,'wing':1200,'chip':1600,'satellite':2000,'titanium':300,
-         'rareearth':250,'artifact':150,'heart':200,'flare':850,'regolith':150,'ice':150}
+         'rareearth':250,'artifact':150,'heart':200,'flare':850,
+         'greens':900,'soy':900,'tomato':900,'algae':700,'wheat':700,'mushroom':900,'flour':700,'protein':500,
+         'salad':1200,'bread':900,'stew':1000,'broth':1000,'algaecake':900,'pizza':1400,'medkit':800,'regolith':150,'ice':150}
 
 
 def triangles(o):

@@ -2,6 +2,7 @@ import {terrainData} from './terrain.js';
 import * as THREE from 'three';
 import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {BUFFS,buffed} from './farm.js';
 import {caveLayout,visibleCaveCells,lineVisible,CAVE_CELL,SIGHT_RADIUS,BEAM_RANGE,CAVE_ZONES} from './caves.js';
 import {FLARE,MAX_DROPS,flareNow} from './peril.js';
 import {flareLight,FLARE_LIGHT,FLARE_GLOW} from './flare-view.js';
@@ -14,7 +15,7 @@ const SEEN_SIZE=64,SEEN_X0=32,SEEN_Z0=4;
  * a warmer headlamp beam ahead, and up to LIGHTS nearby glows (crystals, vents, the shaft of daylight, flares), each
  * uGlow (x, z, strength, radius).
  */
-export const SIGHT_PARS=`varying vec2 vCaveLocal;varying float vSeen;uniform vec2 uPlayer;uniform vec2 uFacing;uniform float uFlicker;
+export const SIGHT_PARS=`varying vec2 vCaveLocal;varying float vSeen;uniform vec2 uPlayer;uniform vec2 uFacing;uniform float uFlicker;uniform float uReach;
 uniform vec4 uGlow[${LIGHTS}];uniform vec3 uGlowColor[${LIGHTS}];uniform vec3 uVoid;uniform sampler2D uSeenMap;
 float caveHash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
 float caveNoise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);return mix(mix(caveHash(i),caveHash(i+vec2(1,0)),f.x),mix(caveHash(i+vec2(0,1)),caveHash(i+vec2(1,1)),f.x),f.y);}
@@ -27,8 +28,8 @@ float caveSeen(vec2 p){
 float caveGrit(vec2 p){return .72+.3*caveNoise(p*.9)+.16*caveNoise(p*4.3)+.08*caveNoise(p*13.0);}
 vec3 caveSightRaw(vec2 p){
  vec2 d=p-uPlayer;float r=length(d);
- float aura=1.0-smoothstep(1.5,${SIGHT_RADIUS.toFixed(1)},r);
- float beam=smoothstep(.52,.9,dot(d/max(.01,r),uFacing))*pow(max(0.0,1.0-r/${BEAM_RANGE.toFixed(1)}),1.4);
+ float aura=1.0-smoothstep(1.5,${SIGHT_RADIUS.toFixed(1)}*uReach,r);
+ float beam=smoothstep(.52,.9,dot(d/max(.01,r),uFacing))*pow(max(0.0,1.0-r/(${BEAM_RANGE.toFixed(1)}*uReach)),1.4);
  return (vec3(.012,.014,.02)+vec3(.5,.58,.74)*.42*aura*aura+vec3(1.0,.93,.8)*.78*beam)*uFlicker;
 }
 /** A pool of darkness carried by something that eats light: uVoid is (x, z, strength). */
@@ -59,7 +60,7 @@ export function createCaveView(seed,id,parent,zone=0,itemModels=null){
  const cave=caveLayout(seed,id,zone),root=new THREE.Group(),memory=caveMemoryKey(id,zone);parent.add(root);
  const seenNow=new Float32Array(SEEN_SIZE*SEEN_SIZE),seenTarget=new Float32Array(SEEN_SIZE*SEEN_SIZE),seenPixels=new Uint8Array(SEEN_SIZE*SEEN_SIZE);
  const seenMap=new THREE.DataTexture(seenPixels,SEEN_SIZE,SEEN_SIZE,THREE.RedFormat);seenMap.minFilter=seenMap.magFilter=THREE.LinearFilter;seenMap.needsUpdate=true;
- const sight={uSeenMap:{value:seenMap},uPlayer:{value:new THREE.Vector2()},uFacing:{value:new THREE.Vector2(0,1)},uFlicker:{value:1},uVoid:{value:new THREE.Vector3()},
+ const sight={uSeenMap:{value:seenMap},uPlayer:{value:new THREE.Vector2()},uFacing:{value:new THREE.Vector2(0,1)},uFlicker:{value:1},uReach:{value:1},uVoid:{value:new THREE.Vector3()},
   uGlow:{value:Array.from({length:LIGHTS},()=>new THREE.Vector4(0,0,0,6))},uGlowColor:{value:Array.from({length:LIGHTS},()=>new THREE.Color(0,0,0))}};
  const disposables=[],keep=x=>(disposables.push(x),x);
  /** Instanced surfaces lit by sight, which they take from the seen field where they stand. */
@@ -291,6 +292,8 @@ export function createCaveView(seed,id,parent,zone=0,itemModels=null){
   vents.visible=cave.vents.some(v=>seen.has(`${v.x},${v.z}`));
  }
  function update(state,dt){
+  // Night eyes (farm.js): the beam reaches further and the dark gives up its edges.
+  sight.uReach.value+=((buffed(state.player,'sight')?BUFFS.sight.reach:1)-sight.uReach.value)*(1-Math.exp(-dt*2));
   const p=state.player;time+=dt;
   if(!loaded){seen=new Set(state.exploredCaves?.[memory]||[]);loaded=true;}
   updateFlares(state);if(flaresHere.length!==flareCount||flaresHere.some(n=>n.now.stage!=='down')){flareCount=flaresHere.length;clock=1;lastFacing=-100;}

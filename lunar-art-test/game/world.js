@@ -22,6 +22,13 @@ import { createCombatView } from './combat-view.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 // Presentation only: the simulation owns all positions, resources, and time.
+/** Where each grower shows its ripe crop: [x, y, z, size] in the model's space. */
+const RIPE_SPOTS={
+  growbed:[[-.42,.51,.4,.42],[.42,.51,.4,.42]],
+  hydrorack:[[-.45,.6,0,.3],[.45,1.16,-.2,.3],[0,1.72,.1,.3]],
+  verticalfarm:[[-.3,.5,1,.4],[.3,.94,-.5,.4],[0,1.38,-1.2,.4],[-.2,1.82,.4,.4]],
+  mushroomtray:[[-.4,.86,.1,.32],[.42,.86,-.35,.32]],
+};
 export async function createWorld(canvas, initialState) {
   const renderer = new THREE.WebGLRenderer({canvas,antialias:true,alpha:false});
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
@@ -30,7 +37,7 @@ export async function createWorld(canvas, initialState) {
   renderer.toneMapping=THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure=1.12;
   const loader=new GLTFLoader();
-  const assetNames=['starship','launchpad','solar','battery','hopper','habitat-kit','conveyor','conveyor-corner','processor','storage','growbed','galley','recycler','melter','fabricator','assembler','electrolyser','tank','dock','roverbay','xenolab','reactor','lander','rover','hauler','rock-a','rock-b','rock-c','cave-mouth'];
+  const assetNames=['starship','launchpad','solar','battery','hopper','habitat-kit','conveyor','conveyor-corner','processor','storage','growbed','hydrorack','verticalfarm','mushroomtray','mill','galley','recycler','melter','fabricator','assembler','electrolyser','tank','dock','roverbay','xenolab','reactor','lander','rover','hauler','rock-a','rock-b','rock-c','cave-mouth'];
   const [loaded,itemModels]=await Promise.all([
     Promise.all(assetNames.map(name=>loader.loadAsync(`./assets/${name}.glb`).then(g=>[name,g.scene]).catch(e=>{console.error('Asset failed:',name,e);return [name,null];}))),
     loadItemLibrary(loader),
@@ -224,12 +231,10 @@ export async function createWorld(canvas, initialState) {
       const root=template.clone(true),part=name=>{let found=null;root.traverse(n=>{if(!found&&n.name.replace(/\.?\d{3}$/,'')===name)found=n;});return found;};
       if(type==='conveyor'&&turn<0)root.scale.x=-1;
       const oldTray=part('MealTray'),tray=itemModels&&oldTray?itemModels.replace(root,oldTray,'meal',.57):oldTray;
-      let crops=null;
-      if(type==='growbed'&&itemModels?.get('crop')){
-        crops=new THREE.Group();crops.name='Ripe potatoes';root.add(crops);
-        for(const x of [-.42,.42]){const crop=itemModels.create('crop',.42);crop.position.set(x,.51,.4);crops.add(crop);}
-      }
-      return {root,roof:null,emits:DEFS[type].layer==='interior',plants:part('Plants'),crops,tray,heater:part('Heater')};
+      // Ripe produce shows as the crop's own item model, laid where each grower holds it.
+      const crops=RIPE_SPOTS[type]&&itemModels?new THREE.Group():null;
+      if(crops){crops.name='Ripe crop';root.add(crops);}
+      return {root,roof:null,emits:DEFS[type].layer==='interior',plants:part('Plants'),crops,cropKind:null,tray,heater:part('Heater')};
     }
     const root=new THREE.Group(),w=DEFS[type].w*2,d=DEFS[type].d*2;
     box(root,dark,0,.12,0,w-.12,.24,d-.12);
@@ -357,8 +362,14 @@ export async function createWorld(canvas, initialState) {
       const bx=(b.x+(w-1)/2)*2,bz=(b.z+(d-1)/2)*2;
       o.root.position.set(bx,(def.layer==='interior'&&habitatView.floorAt(state,bx,bz))||heightAt(state.seed,bx,bz),bz);o.root.rotation.y=b.rotation*Math.PI/2;
       if(o.plants){o.plants.visible=b.built&&(b.grow>0||b.watered);o.plants.scale.setScalar(.2+.8*(b.grow??0));}
-      if(o.crops)o.crops.visible=b.built&&b.grow>=1;
-      if(o.tray)o.tray.visible=b.built&&b.meals>0;
+      if(o.crops){
+        if(o.cropKind!==b.crop&&b.crop&&itemModels?.get(b.crop)){
+          o.crops.clear();o.cropKind=b.crop;
+          for(const [x,y,z,size] of RIPE_SPOTS[b.type]){const crop=itemModels.create(b.crop,size);crop.position.set(x,y,z);crop.rotation.y=x*3+z;o.crops.add(crop);}
+        }
+        o.crops.visible=b.built&&b.grow>=1;
+      }
+      if(o.tray)o.tray.visible=b.built&&Object.values(b.ready??{}).some(n=>n>0);
       // Blueprints turn red while the player stands where the finished structure would trap them.
       const blocked=!b.built&&!isRoom(b)&&obstructs(b);
       if(o.built!==b.built||o.blocked!==blocked){o.ownedMaterials.forEach(m=>{m.transparent=!b.built;m.opacity=b.built?1:blocked?.6:.5;m.depthWrite=b.built;m.color.copy(b.built?m.userData.baseColor:blueprintColor[blocked?1:0]);m.emissive.copy(b.built?m.userData.baseEmissive:blueprintEmissive[blocked?1:0]);m.emissiveIntensity=b.built?m.userData.baseEmission:.85;});o.root.traverse(n=>{if(n.isMesh)n.castShadow=b.built;});o.built=b.built;o.blocked=blocked;}

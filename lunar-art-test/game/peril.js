@@ -2,6 +2,7 @@ import { caveLayout, caveWalkable, caveKey, CAVE_CELL, ZONE_NAMES } from './cave
 import { CELL_SIZE, ITEM_INFO } from './defs.js';
 import * as inv from './inventory.js';
 import { stepInfest, silkBlocks } from './infest.js';
+import { BUFFS, buffed } from './farm.js';
 
 /** The player's health, what hurts it underground, what happens at zero, and the flares that push back the dark. */
 export const HEALTH = Object.freeze({ max: 100, regen: 4, regenDelay: 5, vent: 14, toxic: 6 });
@@ -33,6 +34,8 @@ export function stepPeril(state, dt) {
     p.calm = (p.calm ?? HEALTH.regenDelay) + dt;
     if (p.cave == null && p.calm >= HEALTH.regenDelay) p.health = Math.min(HEALTH.max, p.health + HEALTH.regen * dt);
   }
+  // A mending meal knits the suit back up anywhere, even under attack.
+  if (buffed(p, 'regen') && p.health > 0) p.health = Math.min(HEALTH.max, p.health + BUFFS.regen.heal * dt);
   if (state.flares?.length) state.flares = state.flares.filter(f => {
     if (f.age != null && f.age < FLARE.release && f.age + dt >= FLARE.release) { f.fromX = p.x; f.fromZ = p.z; }
     if (f.age != null) f.age += dt;

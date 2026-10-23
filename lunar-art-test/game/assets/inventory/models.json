@@ -69,6 +69,81 @@
     "materialParts": 4,
     "originalTriangles": 924
   },
+  "greens": {
+    "triangles": 900,
+    "materialParts": 2,
+    "originalTriangles": 4032
+  },
+  "soy": {
+    "triangles": 900,
+    "materialParts": 2,
+    "originalTriangles": 1872
+  },
+  "tomato": {
+    "triangles": 900,
+    "materialParts": 2,
+    "originalTriangles": 1068
+  },
+  "algae": {
+    "triangles": 700,
+    "materialParts": 5,
+    "originalTriangles": 1936
+  },
+  "wheat": {
+    "triangles": 700,
+    "materialParts": 3,
+    "originalTriangles": 1036
+  },
+  "mushroom": {
+    "triangles": 900,
+    "materialParts": 3,
+    "originalTriangles": 1920
+  },
+  "flour": {
+    "triangles": 700,
+    "materialParts": 3,
+    "originalTriangles": 840
+  },
+  "protein": {
+    "triangles": 500,
+    "materialParts": 2,
+    "originalTriangles": 648
+  },
+  "salad": {
+    "triangles": 1200,
+    "materialParts": 4,
+    "originalTriangles": 1768
+  },
+  "bread": {
+    "triangles": 876,
+    "materialParts": 2,
+    "originalTriangles": 876
+  },
+  "stew": {
+    "triangles": 1000,
+    "materialParts": 6,
+    "originalTriangles": 1392
+  },
+  "broth": {
+    "triangles": 1000,
+    "materialParts": 5,
+    "originalTriangles": 1372
+  },
+  "algaecake": {
+    "triangles": 900,
+    "materialParts": 3,
+    "originalTriangles": 1748
+  },
+  "pizza": {
+    "triangles": 1400,
+    "materialParts": 6,
+    "originalTriangles": 2396
+  },
+  "medkit": {
+    "triangles": 800,
+    "materialParts": 4,
+    "originalTriangles": 972
+  },
   "regolith": {
     "triangles": 60,
     "materialParts": 1,

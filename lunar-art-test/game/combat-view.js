@@ -7,6 +7,7 @@ import {FLARE} from './peril.js';
 import {createFlareView} from './flare-view.js';
 import {createSmoke} from './smoke-view.js';
 import {createHiveView} from './hive-view.js';
+import {buffed} from './farm.js';
 
 /**
  * The hunt drawn underground: crawlers, their smoke, the aimed pistol and everything it throws (rounds, brass,
@@ -248,6 +249,8 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF}){
    sight.uFlicker.value=Math.max(.7,Math.min(sight.uFlicker.value,level));
   }
   if(nearest)sight.uVoid.value.set(nearest.x,nearest.z,alive*.85*Math.max(0,1-1.6*Math.max(closeness,onYou)));else sight.uVoid.value.set(0,0,0);
+  // Night eyes steady the lamp.
+  if(buffed(p,'sight'))sight.uFlicker.value=1-(1-sight.uFlicker.value)*.35;
   headlamp.intensity=145*sight.uFlicker.value;
   const health=p.health??100;if(lastHealth!=null&&health<lastHealth)hurtFlash=Math.min(1,hurtFlash+(lastHealth-health)/14);lastHealth=health;
   hurtFlash=Math.max(0,hurtFlash-dt*1.5);

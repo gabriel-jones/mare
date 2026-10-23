@@ -1,6 +1,7 @@
 import {worldVectorToCave} from './cave-space.js';
 import { caveWalkable } from './caves.js';
 import { silkBlocks } from './infest.js';
+import { BUFFS, buffed } from './farm.js';
 import { terrainBlocked } from './terrain.js';
 import { habitatLayout, wallBlocks } from './habitat.js';
 import { hunger } from './life.js';
@@ -20,7 +21,7 @@ export function interpolatePose(previous,current,alpha){
 }
 export function movePlayer(state,dx,dz,dt,defs){
  const p=state.player,step=Math.max(0,Math.min(dt,.05));
- const len=Math.hypot(dx,dz),speed=RUN_SPEED*hunger(p.satiety??100).speed;
+ const len=Math.hypot(dx,dz),speed=RUN_SPEED*hunger(p.satiety??100).speed*(buffed(p,'stamina')?BUFFS.stamina.speed:1);
  // Screen-space up = -X,-Z. Screen-space right = +X,-Z.
  let targetX=len?(dx+dz)*Math.SQRT1_2*speed/Math.max(1,len):0;
  let targetZ=len?(-dx+dz)*Math.SQRT1_2*speed/Math.max(1,len):0;

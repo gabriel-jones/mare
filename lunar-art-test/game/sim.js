@@ -4,6 +4,7 @@ import { CELL_SIZE, DEFS, DIRS, ITEMS, ITEM_INFO, dims, footprint } from './defs
 import { airlockApron, habitatLayout, isRoom, trapsPlayer } from './habitat.js';
 import * as inv from './inventory.js';
 import { LIFE, STARTING, ensureLifeState, hunger, lifeDemand, roomStatus, stepLife, useLife } from './life.js';
+import { CROPS, GALLEY, MILL, RECIPES as DISHES, isGrower, restoreBuffs } from './farm.js';
 import { createRover, ensureBuildingState, productionDemand, stepProduction, MINING_RADIUS, MAX_MINING_AREAS, REGOLITH_PER_CELL, ROVER, PROCESSOR_INPUT_CAP, PROCESSOR_OUTPUT_CAP, BELT_SPACING, MELT, FAB, ASSEMBLY, RECIPES, KIT, cycleRecipe, robotTopology } from './production.js';
 import { createResearch, createShip, buildRobot, lockedReason, restoreResearch, restoreShip, spaceDemand, stepSpace, studyFinds, touchesPad, REACTOR_POWER } from './space.js';
 import { restoreDelve } from './delve.js';
@@ -167,11 +168,13 @@ export function deconstruct(state, id) {
   const blocked = removalReason(state, b);
   if (blocked) return { ok: false, reason: blocked };
   if (!refund(state, b)) return { ok: false, reason: 'No room in your inventory for the materials.' };
-  const contents = { metal: 0, silicon: 0, crop: 0, meal: 0, frame: 0, wing: 0, chip: 0, satellite: 0 };
-  for (const store of [b.inv, b.out]) for (const item of ['metal', 'silicon', 'frame', 'wing', 'chip', 'satellite']) contents[item] += Math.floor(store?.[item] ?? 0);
-  for (const item of b.items ?? []) if (item.type in contents) contents[item.type] += 1;
-  if (b.type === 'galley') { contents.crop += b.crops; contents.meal += b.meals; }
-  if (b.type === 'growbed' && b.grow >= 1) contents.crop += LIFE.harvest;
+  const contents = {}, give = (item, n) => { if (n > 0 && ITEM_INFO[item]) contents[item] = (contents[item] ?? 0) + n; };
+  for (const store of [b.inv, b.out]) for (const item of ['metal', 'silicon', 'frame', 'wing', 'chip', 'satellite']) give(item, Math.floor(store?.[item] ?? 0));
+  for (const item of b.items ?? []) if (['metal', 'silicon', 'frame', 'wing', 'chip', 'satellite'].includes(item.type)) give(item.type, 1);
+  // Farm machines hand back what they hold: finished goods, and the ingredients of anything not yet made.
+  for (const [item, n] of Object.entries(b.ready ?? {})) give(item, n);
+  for (const q of b.queue ?? []) if (b.type === 'galley') for (const [item, n] of Object.entries(DISHES[q].input)) give(item, n); else give(q, 1);
+  if (isGrower(b) && b.grow >= 1) give(b.crop, CROPS[b.crop].yield);
   let lost = 0;
   for (const [item, n] of Object.entries(contents)) if (n) lost += inv.add(state.inventory, item, n);
   state.buildings.splice(index, 1);
@@ -299,8 +302,20 @@ function restoreBuilding(raw) {
   }
   const check = (field, valid) => { if (raw[field] == null) return; if (!valid(raw[field])) throw new Error(`Invalid ${DEFS[b.type].name.toLowerCase()} state.`); b[field] = raw[field]; };
   if (isRoom(b)) check('air', v => typeof v === 'boolean');
-  if (b.type === 'growbed') { check('grow', v => count(v, 1)); check('watered', v => typeof v === 'boolean'); }
-  if (b.type === 'galley') { check('crops', v => wholeCount(v, LIFE.cookInput * 2)); check('work', v => count(v, 1)); check('meals', v => wholeCount(v, LIFE.galleyMeals)); }
+  if (isGrower(b)) { check('crop', v => CROPS[v]?.grower === b.type); check('grow', v => count(v, 1)); check('watered', v => typeof v === 'boolean'); }
+  if (b.type === 'galley' || b.type === 'mill') {
+    const [cap, ok] = b.type === 'galley' ? [GALLEY, q => !!DISHES[q]] : [MILL, q => !!MILL.makes[q]], readyCap = b.type === 'galley' ? GALLEY.ready : MILL.cap;
+    check('queue', v => Array.isArray(v) && v.length <= (b.type === 'galley' ? cap.queue : cap.cap) && v.every(q => typeof q === 'string' && ok(q)));
+    check('work', v => count(v, 1));
+    check('ready', v => v && typeof v === 'object' && !Array.isArray(v) && Object.entries(v).every(([item, n]) => ITEM_INFO[item] && wholeCount(n, readyCap)));
+    if (b.type === 'galley') {
+      check('recipe', v => v === null || !!DISHES[v]);
+      // Before recipes a galley held loose potatoes and plain meals.
+      if (raw.crops != null && b.queue == null) { if (!wholeCount(raw.crops, 4)) throw new Error('Invalid galley state.'); b.queue = Array(Math.floor(raw.crops / 2)).fill('meal'); }
+      if (raw.meals != null && b.ready == null) { if (!wholeCount(raw.meals, 3)) throw new Error('Invalid galley state.'); b.ready = raw.meals ? { meal: raw.meals } : {}; }
+    }
+    if (b.queue) b.queue = [...b.queue]; if (b.ready) b.ready = { ...b.ready };
+  }
   if (b.type === 'recycler') check('work', v => count(v, 1));
   if (b.type === 'fabricator' || b.type === 'assembler') {
     const [stock, out] = b.type === 'fabricator' ? [{ metal: FAB.stock, silicon: FAB.stock }, { frame: FAB.out, wing: FAB.out, chip: FAB.out }] : [ASSEMBLY.stock, { satellite: ASSEMBLY.out }];
@@ -435,6 +450,7 @@ export function deserialize(text) {
   }
   restoreDelve(state, raw);
   restorePeril(state, raw);
+  restoreBuffs(state, raw);
   restoreInfest(state, raw);
   if (new Set(state.robots.map(r => r.id)).size !== state.robots.length) throw new Error('Invalid robots.');
   tick(state, 0);

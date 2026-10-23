@@ -7,7 +7,7 @@ export const LOOT_REACH = 2.1;
 export const LOOT_ITEM = Object.freeze({ ore: 'titanium', crystal: 'rareearth', artifact: 'artifact', heart: 'heart' });
 const VERBS = { ore: 'Chip out the titanium seam', crystal: 'Harvest the rare-earth crystal', artifact: 'Take the artifact', blueprint: 'Take the etched schematic', heart: 'Lift the heart' };
 
-export const SCHEMATIC = "An etched crystal schematic: a reactor that rings a rare-earth lattice like a bell and draws power from it. Our physics says that can't work. Research it from orbit (O) and we'll find out.";
+export const SCHEMATIC = "An etched crystal schematic: a reactor that rings a rare-earth lattice like a bell and draws power from it. Our physics says that can't work. Research it (T) and we'll find out.";
 export const HEART = "That's what they were guarding. It hums at the same frequency as the crystals, and the same as whatever keeps showing up on the crater rim. Take it to a xeno lab. Carefully.";
 
 export const zoneKey = (id, zone = 0) => zone ? `${id}:${zone}` : `${id}`;

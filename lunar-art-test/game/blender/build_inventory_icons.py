@@ -1,10 +1,11 @@
-"""Build all 14 carried-item icons using the approved inventory study's studio.
+"""Build every carried-item icon using the approved inventory study's studio.
 
 Run with Blender --background --python. Also safe to exec in a separate namespace
 inside live Blender: build_inventory(), render_icon(key), cleanup().
 """
 from pathlib import Path
 import math
+import os
 import random
 import bpy
 from mathutils import Vector
@@ -27,6 +28,26 @@ def materials(p):
             'orange': mat('burnt orange safety', (.8,.21,.045), .15,.45),
             'food': mat('cooked potato', (.65,.40,.14), 0,.85),
             'leaf': mat('green garnish', (.09,.25,.035), 0,.8),
+            'lettuce': mat('crisp lettuce', (.22,.48,.07), 0,.7),
+            'lettuce_pale': mat('lettuce heart', (.55,.72,.25), 0,.7),
+            'pod': mat('soy pod', (.42,.5,.17), 0,.8),
+            'bean': mat('soybean', (.78,.64,.32), 0,.6),
+            'tomato': mat('ripe tomato', (.72,.06,.02), 0,.28),
+            'calyx': mat('tomato calyx', (.07,.22,.04), 0,.8),
+            'algae': mat('algae culture', (.08,.42,.24), .05,.2,.25),
+            'wheat': mat('ripe wheat', (.78,.55,.18), 0,.7),
+            'wheat_head': mat('wheat ear', (.86,.66,.27), 0,.65),
+            'cap': mat('mushroom cap', (.55,.38,.24), 0,.6),
+            'stem': mat('mushroom stem', (.86,.83,.74), 0,.75),
+            'gill': mat('mushroom gills', (.42,.33,.26), 0,.9),
+            'sack': mat('flour sack', (.82,.76,.6), 0,.9),
+            'tofu': mat('pressed soy protein', (.6,.4,.17), 0,.65),
+            'crust': mat('baked crust', (.36,.14,.035), 0,.75),
+            'crumb': mat('bread crumb', (.93,.83,.6), 0,.9),
+            'broth': mat('amber broth', (.5,.22,.02), .1,.15),
+            'stew': mat('thick stew', (.2,.06,.015), 0,.5),
+            'sauce': mat('tomato sauce', (.6,.08,.02), 0,.45),
+            'cheese': mat('melted cheese', (.98,.82,.42), 0,.5),
         })
     return p
 
@@ -195,10 +216,178 @@ def flare(p):
     ico('Flare / burning tip',b+direction*.14,(.095,.095,.17),p['ember'],3)
 
 
-BUILDERS = [('metal',study['metal']),('silicon',silicon),('crop',study['potatoes']),
-            ('meal',meal),('core',core),('frame',frame),('wing',wing),('chip',study['chip']),
-            ('satellite',satellite),('titanium',titanium),('rareearth',rareearth),
-            ('artifact',study['artifact']),('heart',heart),('flare',flare)]
+def sphere(name,loc,scale,material,rotation=(0,0,0),segments=16):
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=segments,ring_count=max(6,segments//2),radius=1,location=loc)
+    o=bpy.context.object; o.scale=scale; o.rotation_euler=rotation
+    return finish(o,name,material,smooth=True)
+
+
+def tapered(name,loc,r1,r2,depth,material,vertices=24):
+    bpy.ops.mesh.primitive_cone_add(vertices=vertices,radius1=r1,radius2=r2,depth=depth,location=loc)
+    return finish(bpy.context.object,name,material,.015)
+
+
+def bowl(p,name,radius=.52,height=.34,fill=None):
+    tapered(name+' / bowl',(0,0,height/2),radius*.62,radius,height,p['ivory'])
+    tapered(name+' / foot',(0,0,.02),radius*.5,radius*.55,.04,p['dark'])
+    if fill: cylinder(name+' / surface',(0,0,height+.005),radius*.9,.02,p[fill],24)
+
+
+def greens(p):
+    materials(p)
+    for ring,(r,z,n,tilt,shade) in enumerate([(.36,.2,8,.9,'lettuce'),(.2,.34,6,.6,'lettuce'),(.06,.44,4,.3,'lettuce_pale')]):
+        for i in range(n):
+            a=i*math.tau/n+ring*.4
+            sphere('Greens / leaf',(math.cos(a)*r,math.sin(a)*r,z),(.34-ring*.06,.2-ring*.03,.07),p[shade],(0,-tilt,a))
+
+
+def soy(p):
+    materials(p)
+    for i,(x,y,a) in enumerate([(-.3,.05,.4),(0,-.05,-.1),(.3,.1,.3)]):
+        sphere('Soy / pod',(x,y,.14+i*.02),(.13,.46,.09),p['pod'],(0,0,a))
+        for t in [-.25,0,.25]:
+            sphere('Soy / bean bulge',(x-math.sin(a)*t,y+math.cos(a)*t,.2+i*.02),(.1,.11,.07),p['pod'],(0,0,a),10)
+    for x,y in [(-.05,-.48),(.15,-.42),(.32,-.52)]:
+        sphere('Soy / loose bean',(x,y,.07),(.09,.11,.075),p['bean'],segments=10)
+
+
+def tomato(p):
+    materials(p)
+    for x,y,r in [(-.2,.08,.4),(.34,-.2,.27)]:
+        sphere('Tomato / fruit',(x,y,r*.82),(r,r,r*.82),p['tomato'],segments=20)
+        star=[(x,y,r*1.66)]
+        for i in range(10):
+            a=i*math.tau/10; q=r*(.42 if i%2==0 else .14)
+            star.append((x+math.cos(a)*q,y+math.sin(a)*q,r*1.6))
+        mesh('Tomato / calyx',star,[(0,i+1,(i+1)%10+1) for i in range(10)],p['calyx'])
+        cylinder('Tomato / stem',(x,y,r*1.72),.03,.12,p['calyx'],6)
+
+
+def algae(p):
+    materials(p)
+    cylinder('Algae / culture vessel',(0,0,.55),.3,.8,p['algae'],24)
+    for z in [.12,.98]: cylinder('Algae / cap',(0,0,z),.33,.12,p['dark'],24)
+    for z in [.4,.7]: cylinder('Algae / band',(0,0,z),.315,.05,p['ivory'],24)
+    cylinder('Algae / valve',(0,0,1.1),.08,.12,p['orange'],10)
+    for i,(x,y,z) in enumerate([(.12,-.24,.5),(-.05,-.27,.68),(.08,-.25,.82)]):
+        sphere('Algae / bubble',(x,y,z),(.04,.03,.04),p['lettuce_pale'],segments=8)
+
+
+def wheat(p):
+    materials(p)
+    for i in range(7):
+        a=(i-3)*.13; b=(i%3-1)*.12
+        top=Vector((math.sin(a)*.9,math.sin(b)*.5,1.0)); base=Vector((math.sin(a)*.05,math.sin(b)*.04,0))
+        beam('Wheat / stalk',base,top,.03,p['wheat'])
+        d=(top-base).normalized()
+        o=ico('Wheat / ear',top+d*.17,(.06,.06,.22),p['wheat_head'],i)
+        o.rotation_euler=d.to_track_quat('Z','Y').to_euler()
+    cylinder('Wheat / binding',(0,0,.35),.12,.09,p['orange'],12)
+
+
+def mushroom(p):
+    materials(p)
+    for x,y,h,r in [(-.22,.1,.5,.36),(.3,-.05,.34,.26),(.05,-.35,.22,.18)]:
+        cylinder('Mushroom / stem',(x,y,h/2),r*.32,h,p['stem'],12)
+        sphere('Mushroom / cap',(x,y,h),(r,r,r*.55),p['cap'],segments=18)
+        cylinder('Mushroom / gills',(x,y,h-.01),r*.92,.02,p['gill'],18)
+
+
+def flour(p):
+    materials(p)
+    box('Flour / sack',(0,0,.42),(.82,.56,.84),p['sack'],.16)
+    tapered('Flour / gathered neck',(0,0,.95),.2,.08,.22,p['sack'],12)
+    sphere('Flour / tuft',(0,0,1.08),(.14,.12,.08),p['sack'],segments=10)
+    cylinder('Flour / tie',(0,0,.97),.11,.05,p['orange'],10)
+    box('Flour / label',(0,-.29,.45),(.5,.02,.32),p['orange'],.03)
+    box('Flour / label mark',(0,-.305,.45),(.24,.01,.06),p['ivory'],.01)
+
+
+def protein(p):
+    materials(p)
+    for i,(x,y,z,a) in enumerate([(-.1,.05,.12,.1),(.12,-.08,.36,-.12),(-.04,.04,.6,.25)]):
+        box('Protein / pressed block',(x,y,z),(.78,.42,.22),p['tofu'],.05,a)
+        box('Protein / wrapper band',(x,y,z),(.2,.44,.235),p['ivory'],.02,a)
+
+
+def salad(p):
+    materials(p)
+    bowl(p,'Salad')
+    for i in range(7):
+        a=i*math.tau/7
+        sphere('Salad / leaf',(math.cos(a)*.26,math.sin(a)*.26,.4),(.2,.12,.06),p['lettuce'],(0,-.5,a),12)
+    for i,(x,y) in enumerate([(-.1,-.12),(.16,.05),(-.05,.2)]):
+        sphere('Salad / tomato wedge',(x,y,.45),(.1,.1,.08),p['tomato'],segments=12)
+
+
+def bread(p):
+    materials(p)
+    sphere('Bread / loaf',(0,.12,.28),(.62,.34,.3),p['crust'],segments=20)
+    for i in range(3):
+        sphere('Bread / score',(-.3+i*.3,.12,.55),(.06,.2,.03),p['crumb'],(0,0,.6),10)
+    box('Bread / slice crust',(.22,-.4,.04),(.5,.42,.07),p['crust'],.05)
+    box('Bread / slice',(.22,-.4,.08),(.44,.36,.02),p['crumb'],.02)
+
+
+def stew(p):
+    materials(p)
+    bowl(p,'Stew',fill='stew')
+    for i,(x,y,m) in enumerate([(-.18,.05,'food'),(.14,.16,'tofu'),(.05,-.18,'food'),(.22,-.05,'tofu')]):
+        box('Stew / chunk',(x,y,.38),(.13,.13,.1),p[m],.03,i)
+    beam('Stew / spoon',(.15,-.1,.32),(.62,-.45,.62),.04,p['silver'])
+
+
+def broth(p):
+    materials(p)
+    bowl(p,'Broth',fill='broth')
+    for x,y in [(-.15,.05),(.12,.15),(.08,-.16)]:
+        sphere('Broth / mushroom slice',(x,y,.36),(.1,.1,.03),p['cap'],segments=12)
+    for x,y in [(-.05,-.2),(.22,-.02)]:
+        sphere('Broth / greens',(x,y,.36),(.08,.05,.02),p['lettuce'],segments=8)
+
+
+def algaecake(p):
+    materials(p)
+    cylinder('Algae cakes / plate',(0,0,.03),.62,.05,p['ivory'],28)
+    for i,(x,y,z) in enumerate([(-.2,.1,.1),(.22,.05,.1),(0,-.02,.24)]):
+        cylinder('Algae cakes / patty',(x,y,z),.25,.12,p['algae'],20)
+        cylinder('Algae cakes / seared edge',(x,y,z),.255,.05,p['crust'],20)
+
+
+def pizza(p):
+    materials(p)
+    cylinder('Pizza / crust',(0,0,.05),.62,.09,p['crust'],32)
+    cylinder('Pizza / sauce',(0,0,.1),.54,.02,p['sauce'],32)
+    rng=random.Random(5)
+    for i in range(9):
+        a=rng.uniform(0,math.tau); r=rng.uniform(.05,.42)
+        sphere('Pizza / cheese',(math.cos(a)*r,math.sin(a)*r,.115),(.11,.09,.025),p['cheese'],(0,0,a),10)
+    for a in [.4,1.9,3.3,4.6]:
+        sphere('Pizza / mushroom',(math.cos(a)*.3,math.sin(a)*.3,.13),(.07,.07,.02),p['cap'],segments=10)
+    for a in [1.1,2.6,5.4]:
+        sphere('Pizza / tomato',(math.cos(a)*.2,math.sin(a)*.2,.13),(.07,.07,.02),p['tomato'],segments=10)
+    for i in range(3):
+        box('Pizza / cut',(0,0,.125),(1.18,.012,.012),p['dark'],0,i*math.pi/3)
+
+
+def medkit(p):
+    materials(p)
+    box('Medkit / case',(0,0,.3),(1.0,.62,.56),p['ivory'],.06)
+    box('Medkit / seam',(0,0,.4),(1.02,.64,.03),p['dark'],.01)
+    box('Medkit / cross',(0,-.315,.28),(.28,.02,.09),p['orange'],.01)
+    box('Medkit / cross',(0,-.315,.28),(.09,.02,.28),p['orange'],.01)
+    box('Medkit / lid cross',(0,0,.585),(.34,.11,.02),p['orange'],.01)
+    box('Medkit / lid cross',(0,0,.585),(.11,.34,.02),p['orange'],.01)
+    beam('Medkit / handle',(-.2,0,.62),(.2,0,.62),.06,p['dark'])
+    for x in [-.36,.36]: box('Medkit / latch',(x,-.32,.42),(.1,.03,.1),p['silver'],.01)
+
+
+BUILDERS = [('metal',study['metal']),('silicon',silicon),('crop',study['potatoes']),('greens',greens),
+            ('soy',soy),('tomato',tomato),('algae',algae),('wheat',wheat),('mushroom',mushroom),
+            ('flour',flour),('protein',protein),('meal',meal),('salad',salad),('bread',bread),('stew',stew),
+            ('broth',broth),('algaecake',algaecake),('pizza',pizza),('medkit',medkit),('core',core),
+            ('frame',frame),('wing',wing),('chip',study['chip']),('satellite',satellite),('titanium',titanium),
+            ('rareearth',rareearth),('artifact',study['artifact']),('heart',heart),('flare',flare)]
 
 
 def build_inventory():
@@ -212,6 +401,9 @@ cleanup=study['cleanup']
 if __name__=='__main__':
     build_inventory()
     try:
-        for key,_ in BUILDERS: render_icon(key)
+        # LUNAR_ICONS=greens,soy renders just those; the library always holds every item.
+        only=[k for k in os.environ.get('LUNAR_ICONS','').split(',') if k]
+        for key,_ in BUILDERS:
+            if not only or key in only: render_icon(key)
     finally:
         cleanup()
