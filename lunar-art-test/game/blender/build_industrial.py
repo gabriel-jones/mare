@@ -156,24 +156,39 @@ def starship():
     for x in [-.4,.4]:box('Forward observation port',(x,-1.31,9.7),(.39,.08,.32),'glass',.06,rot=(math.radians(18),0,0))
 
 def launchpad():
-    cyl('Octagonal pad foundation',(0,0,.015),8.5,.06,'dark',16)
-    for i in range(12):
-        a=i*math.tau/12
-        # segmented low landing tiles, gaps reveal dark foundation
-        pts=[]
-        for r,t in [(2.7,a+.015),(7.9,a+.015),(7.9,a+math.tau/12-.015),(2.7,a+math.tau/12-.015)]:pts.append((r*math.cos(t),r*math.sin(t),.065))
-        me=bpy.data.meshes.new('Pad panel');me.from_pydata(pts,[],[(0,1,2,3)]);me.update();o=bpy.data.objects.new('Pad panel',me);scene.collection.objects.link(o);finish(o,'Pad panel','floor')
-        x,y=8.15*math.cos(a),8.15*math.sin(a)
-        cyl('Flush perimeter light',(x,y,.065),.10,.03,'light',8)
-    cyl('Central landing target',(0,0,.072),2.7,.015,'metal',32)
-    for x in [-2.5,2.5]:box('Landing target stripe',(x,0,.086),(.12,4.8,.01),'orange',0)
-    for y in [-2.4,2.4]:box('Landing target stripe',(0,y,.086),(5.1,.12,.01),'orange',0)
-    box('Terminal pedestal',(6.6,-4.4,.65),(.45,.45,1.25),'dark',.05)
-    box('Terminal housing',(6.6,-4.4,1.32),(.8,.5,.4),'ivory',.06)
-    box('Terminal screen',(6.6,-4.66,1.35),(.6,.02,.23),'glass',.02)
-    for x in [5.6,6.1]:
-        beam('Propellant pipe',(x,-5.8,.22),(x,-2.7,.22),.16,'metal')
-        box('Valve block',(x,-4.9,.24),(.28,.3,.3),'orange',.025)
+    # Fills the reserved 9 x 7 cell rectangle like any other skid: graphite foundation, regolith deck
+    # with seams on the 2 m grid, an orange safety curb, and a heat plate under the engines. Front is -Y.
+    W,D=17.7,13.7
+    box('Pad foundation',(0,0,.12),(W,D,.24),'dark',.08)
+    box('Pad deck',(0,0,.26),(W-.6,D-.6,.06),'floor',.02)
+    # Seams fall between grid cells, which are centred on even metres.
+    for x in range(-7,8,2):box('Deck seam',(x,0,.295),(.05,D-.7,.012),'dark',0)
+    for y in range(-5,6,2):box('Deck seam',(0,y,.295),(W-.7,.05,.012),'dark',0)
+    for x in [-1,1]:box('Safety curb',(x*(W/2-.22),0,.33),(.18,D-.2,.1),'orange',.02)
+    for y in [-1,1]:box('Safety curb',(0,y*(D/2-.22),.33),(W-.2,.18,.1),'orange',.02)
+    # Engine heat plate and blast grate, with chevrons marking the touchdown square.
+    box('Heat plate',(0,0,.31),(6.1,6.1,.05),'metal',.03)
+    box('Blast grate',(0,0,.34),(3.2,3.2,.02),'dark',0)
+    for i in range(-3,4):box('Grate bar',(i*.42,0,.355),(.06,3.0,.02),'metal',0)
+    for sx in [-1,1]:
+        for sy in [-1,1]:
+            box('Touchdown chevron',(sx*2.55,sy*2.2,.345),(.9,.16,.02),'orange',0)
+            box('Touchdown chevron',(sx*2.2,sy*2.55,.345),(.16,.9,.02),'orange',0)
+    # Corner bollards carry the pad lights.
+    for sx in [-1,1]:
+        for sy in [-1,1]:
+            box('Corner bollard',(sx*(W/2-.6),sy*(D/2-.6),.65),(.42,.42,.7),'ivory',.06)
+            box('Bollard light',(sx*(W/2-.6),sy*(D/2-.6),1.03),(.3,.3,.06),'light',.01)
+    for x in [-4,0,4]:
+        for y in [-1,1]:box('Edge light',(x,y*(D/2-.22),.39),(.5,.08,.02),'light',0)
+    # Fuelling station on the east edge, where propellant tanks stand, and the launch terminal at the front.
+    box('Fuel manifold',(W/2-.9,1.5,.5),(.7,3.4,.45),'ivory',.05)
+    for y in [.3,1.5,2.7]:box('Fuel coupling',(W/2-.45,y,.5),(.3,.36,.3),'orange',.025)
+    beam('Fuel line',(W/2-1.25,1.5,.45),(3.1,1.5,.45),.14,'metal')
+    box('Terminal pedestal',(6.6,-4.6,.75),(.45,.45,1.0),'dark',.05)
+    box('Terminal housing',(6.6,-4.6,1.42),(.8,.5,.4),'ivory',.06)
+    box('Terminal screen',(6.6,-4.86,1.45),(.6,.02,.23),'glass',.02)
+    box('Terminal stripe',(6.6,-4.86,1.24),(.62,.02,.05),'orange',0)
 
 def solar():
     for x in [-1.4,1.4]:

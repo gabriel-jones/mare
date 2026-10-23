@@ -163,9 +163,11 @@ export async function createWorld(canvas, initialState) {
     }
     grid.geometry.dispose();grid.geometry=new THREE.BufferGeometry();grid.geometry.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));grid.material.vertexColors=false;grid.material.color.set('#8590a2');
   }drapeGrid();
+  // The Starship stands on the pad's deck, not on the ground.
+  const PAD_DECK=.34;
   for(const name of ['launchpad','starship']){
     const imported=models.get(name);
-    if(imported){imported.position.set(0,0,-10);imported.traverse(o=>{if(o.isMesh){o.castShadow=name==='starship';o.receiveShadow=true;}});scene.add(imported);}
+    if(imported){imported.position.set(0,name==='starship'?PAD_DECK:0,-10);imported.traverse(o=>{if(o.isMesh){o.castShadow=name==='starship';o.receiveShadow=true;}});scene.add(imported);}
   }
   // Liftoff and landing: the ship rises on a flame and a glare light, and kicks up a ring of dust near the ground.
   const starship=models.get('starship');
@@ -185,7 +187,7 @@ export async function createWorld(canvas, initialState) {
     if(s.status==='descent')altitude=170*(1-Math.min(1,s.t/LAUNCH.descent))**2;
     starship.visible=s.status!=='orbit';
     const shake=flying&&altitude<4?(Math.random()-.5)*.08:0;
-    starship.position.set(shake,altitude,-10+shake);
+    starship.position.set(shake,PAD_DECK+altitude,-10+shake);
     flame.visible=flying;burnLight.intensity=flying?60+Math.random()*25:0;
     if(flying){const k=s.status==='descent'?.65+.35*Math.min(1,s.t/LAUNCH.descent):1;flame.scale.set(k*(.9+Math.random()*.2),k*(.85+Math.random()*.35),k*(.9+Math.random()*.2));}
     // Dust billows out while the plume is close to the ground.
