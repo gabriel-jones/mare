@@ -236,6 +236,8 @@ body[data-research=open] .game-ui, body[data-research=open] .building-status-lay
 .station-inputs b { font-weight:600;color:#c9c3b6;margin-left:2px; }
 .station-options button.missing > img { opacity:.45;filter:grayscale(.7); }
 .station-options button.missing span { color:#9a958b; }
+.station-options button.locked { opacity:.5;cursor:not-allowed; }
+.station-options button.locked > img { filter:grayscale(1); }
 
 .buffs { position:fixed;top:70px;left:24px;display:flex;gap:6px;pointer-events:none; }
 .buffs:empty { display:none; }

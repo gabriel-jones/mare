@@ -162,6 +162,54 @@ gbox('Pistol rear sight',(-.075,0,.12),(.014,.04,.014),graphite,'Slide',.002)
 gbox('Pistol front sight',(.15,0,.12),(.012,.008,.014),amber,'Slide',.002)
 gunparts=parts[gunparts_before:];bodyparts=parts[:toolparts_before]
 
+# Semi-auto rifle: a bullpup, so the short arms of the suit can hold it two-handed. Same frame as the pistol: the grip
+# sits in the right glove, the magazine behind it, the barrel out ahead; the left hand takes the fore-grip.
+gunmetal_rifle=mat('Rifle • olive ceramic',(.13,.15,.11),.55,.15)
+rifleparts_before=len(parts)
+gbox('Rifle grip',(-.012,0,-.005),(.05,.042,.13),rubber,'Hand.R',.008,.25)
+gbox('Rifle trigger guard',(.03,0,.008),(.09,.03,.008),gunmetal,'Hand.R',.002)
+gbox('Rifle trigger',(.03,0,.022),(.01,.012,.025),steel,'Hand.R',0)
+gbox('Rifle body',(.02,0,.06),(.34,.06,.075),gunmetal_rifle,'Hand.R',.012)
+gbox('Rifle butt',(-.16,0,.05),(.04,.064,.11),rubber,'Hand.R',.01)
+gbox('Rifle butt plate',(-.185,0,.05),(.012,.05,.09),orange,'Hand.R',.004)
+gbox('Rifle magazine',(-.08,0,-.03),(.06,.04,.1),graphite,'Hand.R',.006,-.15)
+gbox('Rifle handguard',(.24,0,.06),(.16,.062,.06),ivory,'Hand.R',.01)
+for side in [-1,1]:gbox('Rifle vent',(.24,side*.032,.06),(.11,.004,.012),graphite,'Hand.R',0)
+gbox('Rifle fore-grip',(.2,0,.0),(.035,.035,.075),rubber,'Hand.R',.006,.12)
+gcyl('Rifle barrel',.31,.43,.06,.014,steel,'Hand.R')
+gcyl('Rifle muzzle brake',.42,.47,.06,.022,graphite,'Hand.R')
+gbox('Rifle rail',(.06,0,.103),(.24,.024,.012),graphite,'Hand.R',.002)
+gcyl('Rifle scope',-.0,.15,.13,.022,graphite,'Hand.R')
+gcyl('Rifle scope lens',.148,.156,.13,.018,light,'Hand.R')
+for x in [.03,.12]:gbox('Rifle scope mount',(x,0,.114),(.02,.02,.02),graphite,'Hand.R',.002)
+for side in [-1,1]:gbox('Rifle power cell',(.02,side*.031,.075),(.14,.004,.012),light,'Hand.R',0)
+gbox('Rifle bolt handle',(-.02,.034,.075),(.03,.016,.014),steel,'Bolt',.003)
+gbox('Rifle ejection port',(-.04,.0305,.07),(.06,.004,.024),graphite,'Bolt',0)
+rifleparts=parts[rifleparts_before:]
+
+# Flamethrower, held low at the hip: a pistol grip behind, a front handle for the left hand, the nozzle and its pilot
+# light out ahead, and twin fuel tanks strapped over the backpack.
+flameparts_before=len(parts)
+gbox('Flamer grip',(-.012,0,-.005),(.05,.042,.13),rubber,'Hand.R',.008,.25)
+gbox('Flamer trigger',(.03,0,.022),(.01,.012,.03),steel,'Hand.R',0)
+gbox('Flamer guard',(.035,0,.004),(.08,.03,.008),gunmetal,'Hand.R',.002)
+gcyl('Flamer body',-.12,.24,.065,.05,graphite,'Hand.R')
+gbox('Flamer heat shield',(.15,0,.118),(.24,.085,.018),ivory,'Hand.R',.006)
+for x in [.07,.11,.15,.19,.23]:gbox('Flamer shield slot',(x,0,.128),(.012,.06,.004),graphite,'Hand.R',0)
+gcyl('Flamer cap',-.15,-.11,.065,.056,orange,'Hand.R')
+gcyl('Flamer nozzle',.24,.38,.065,.026,steel,'Hand.R')
+gcyl('Flamer nozzle bell',.37,.41,.065,.036,graphite,'Hand.R')
+gbox('Flamer pilot',(.35,0,.036),(.035,.02,.016),amber,'Hand.R',.003)
+gbox('Flamer handle',(.17,0,-.005),(.04,.04,.085),rubber,'Hand.R',.006,-.1)
+gcyl('Flamer gauge',.0,.014,.125,.02,light,'Hand.R')
+gbox('Flamer fuel cell',(.06,0,.0),(.09,.07,.05),orange,'Hand.R',.008)
+for x in [-.11,.11]:
+ cylinder('Flamer back tank',(x,.43,1.08),(x,.43,1.5),.07,orange,'Spine')
+ cylinder('Flamer tank valve',(x,.43,1.5),(x,.43,1.56),.03,steel,'Spine')
+ sphere('Flamer tank cap',(x,.43,1.08),(.07,.07,.03),graphite,'Spine',12,6)
+box('Flamer tank strap',(0,.44,1.3),(.34,.05,.05),graphite,'Spine',.01)
+flameparts=parts[flameparts_before:]
+
 # Armature: bone-local Y follows each limb; explicit X axis handles forward/back swing.
 arm=bpy.data.armatures.new('Frontier pressure suit skeleton');rig=bpy.data.objects.new('AstronautRig',arm);scene.collection.objects.link(rig)
 bpy.context.view_layer.objects.active=rig;rig.select_set(True);bpy.ops.object.mode_set(mode='EDIT')
@@ -180,7 +228,10 @@ for s in [-1,1]:
  bone('Hand.'+su,(s*.415,-.04,.89),(s*.415,-.06,.77),'Forearm.'+su)
 # The slide recoils along the barrel; marker bones give the runtime the muzzle, the aim line and the ejection port.
 bone('Slide',gun_point(-.08,0,.088),gun_point(.17,0,.088),'Hand.R')
-for name,p,parent in [('Muzzle',(.215,0,.088),'Hand.R'),('MuzzleAhead',(.315,0,.088),'Hand.R'),('Port',(.035,.03,.095),'Slide'),('PortOut',(.015,.1,.145),'Slide')]:
+bone('Bolt',gun_point(-.08,0,.075),gun_point(.06,0,.075),'Hand.R')
+for name,p,parent in [('Muzzle',(.215,0,.088),'Hand.R'),('MuzzleAhead',(.315,0,.088),'Hand.R'),('Port',(.035,.03,.095),'Slide'),('PortOut',(.015,.1,.145),'Slide'),
+ ('RifleMuzzle',(.47,0,.06),'Hand.R'),('RifleMuzzleAhead',(.57,0,.06),'Hand.R'),('RiflePort',(-.04,.035,.07),'Bolt'),('RiflePortOut',(-.06,.11,.12),'Bolt'),
+ ('Nozzle',(.41,0,.065),'Hand.R'),('NozzleAhead',(.51,0,.065),'Hand.R'),('Pilot',(.37,0,.036),'Hand.R')]:
  head=gun_point(*p);bone(name,head,head+GUN_UP*.03,parent,False)
 bpy.ops.object.mode_set(mode='OBJECT')
 
@@ -191,7 +242,7 @@ def join_skin(objects,name):
  bpy.ops.object.transform_apply(location=True,rotation=True,scale=True)
  mod=o.modifiers.new('Skeleton deformation','ARMATURE');mod.object=rig;o.parent=rig
  return o
-body=join_skin(bodyparts,'FrontierSuit');tool=join_skin(toolparts,'ConstructionTool');pistol=join_skin(gunparts,'Pistol')
+body=join_skin(bodyparts,'FrontierSuit');tool=join_skin(toolparts,'ConstructionTool');pistol=join_skin(gunparts,'Pistol');rifle=join_skin(rifleparts,'Rifle');flamer=join_skin(flameparts,'Flamethrower')
 for p in rig.pose.bones:p.rotation_mode='XYZ'
 rig.animation_data_create()
 
@@ -235,7 +286,11 @@ AIM_W,AIM_A,AIM_WL,AIM_AL=Vector((.1,-.45,1.32)),Vector((0,-1,0)),Vector((0,-.43
 POLE_R,POLE_L=(1,.3,-1),(-1,.3,-1)
 def aim(w=AIM_W,a=AIM_A,wl=AIM_WL,al=AIM_AL,up=(0,0,1)):
  reach('R',w,POLE_R);point('Hand.R',a,up);reach('L',wl,POLE_L);point('Hand.L',al)
-def aim_body(lean=.05):rx('Spine',lean);rx('Head',.04)
+STANCE_TWIST=0
+def aim_body(lean=.05):
+ rx('Spine',lean);rx('Head',.04)
+ # Long guns are held bladed: the chest turns so the left shoulder comes forward, the head keeps on the target.
+ if STANCE_TWIST:rig.pose.bones['Spine'].rotation_euler.y=STANCE_TWIST;rig.pose.bones['Head'].rotation_euler.y=-STANCE_TWIST
 
 def idle(t):
  wave=math.sin(t*math.tau);rig.pose.bones['Spine'].scale=(1,1,1+wave*.007)
@@ -335,7 +390,22 @@ def collapse(t):
  for su in ['L','R']:rx('Thigh.'+su,-.1*k-.5*m);rx('Shin.'+su,1.55*k);rx('Foot.'+su,.2*k);rx('UpperArm.'+su,.1*k-1.3*m);rx('Forearm.'+su,-.3*k-.3*m)
  rx('Spine',.3*k-.1*m);rx('Head',.35*k-.2*m)
 
-LOC_BONES={'Hips','Spine','Slide'}
+def bolt_fire(t):
+ # The rifle: a sharper, shorter kick into the shoulder and the bolt cycling.
+ f=round(t*8);k=KICK[f]*.7;aim_body(.05-.05*k);rx('Head',.04-.03*k)
+ aim(AIM_W+Vector((0,.04,.02))*k,(AIM_A+Vector((0,0,.22*k))).normalized(),AIM_WL+Vector((0,.04,.02))*k,AIM_AL)
+ rig.pose.bones['Bolt'].location.y=-.06*SLIDE[f]
+GRIP_REACH=.077
+def stance(right,fore,lean_left=(0,-.25,1),twist=0):
+ """Set the aim globals for a weapon: the right wrist, and the left wrist placed so the glove closes on the fore-grip
+ at gun-frame x=`fore` (the gun points along -y with its top up while aiming)."""
+ global AIM_W,AIM_WL,AIM_AL,STANCE_TWIST
+ AIM_W=Vector(right);STANCE_TWIST=twist
+ AIM_AL=Vector(lean_left).normalized()
+ grip=AIM_W+AIM_A*GRIP_REACH+AIM_A*fore*GUN_SCALE
+ AIM_WL=grip-AIM_AL*GRIP_REACH
+PISTOL_STANCE=(AIM_W.copy(),AIM_WL.copy(),AIM_AL.copy())
+LOC_BONES={'Hips','Spine','Slide','Bolt'}
 def make_clip(name,frames,pose,loop=True):
  # Pose every frame first, with nothing animating the rig so the solver reads a clean pose; then key them.
  rig.animation_data.action=None;samples=[]
@@ -359,11 +429,19 @@ clips=[make_clip('Idle',90,idle),make_clip('Walk',24,lambda t:gait(t)),make_clip
  make_clip('Hurt',18,hurt),make_clip('Roll',13,roll),make_clip('Jump',30,jump),make_clip('Land',10,land),
  make_clip('Struggle',24,struggle),make_clip('ThrowOff',20,throw_off),make_clip('Collapse',36,collapse),
  make_clip('TurnL',24,lambda t:turn(t,1)),make_clip('TurnR',24,lambda t:turn(t,-1))]
+stance((.1,-.36,1.34),.2,(0,-.3,1),.32)
+clips+=[make_clip('RifleAimIdle',60,aim_idle),make_clip('RifleAimWalk',24,lambda t:aim_gait(t)),make_clip('RifleAimRun',20,lambda t:aim_gait(t,True)),make_clip('RifleFire',8,bolt_fire),
+ make_clip('RifleTurnL',24,lambda t:turn(t,1)),make_clip('RifleTurnR',24,lambda t:turn(t,-1))]
+stance((.16,-.3,1.1),.17,(0,-.2,1),.28)
+clips+=[make_clip('FlameAimIdle',60,aim_idle),make_clip('FlameAimWalk',24,lambda t:aim_gait(t)),make_clip('FlameAimRun',20,lambda t:aim_gait(t,True)),
+ make_clip('FlameTurnL',24,lambda t:turn(t,1)),make_clip('FlameTurnR',24,lambda t:turn(t,-1))]
+CLIP_NAMES+=['RifleAimIdle','RifleAimWalk','RifleAimRun','RifleFire','RifleTurnL','RifleTurnR','FlameAimIdle','FlameAimWalk','FlameAimRun','FlameTurnL','FlameTurnR']
+AIM_W,AIM_WL,AIM_AL=PISTOL_STANCE;STANCE_TWIST=0
 reset_pose();refresh()
 
 scene.render.fps=30;scene.frame_start=1;scene.frame_end=91
 bpy.ops.object.select_all(action='DESELECT')
-for o in [rig,body,tool,pistol]:o.select_set(True)
+for o in [rig,body,tool,pistol,rifle,flamer]:o.select_set(True)
 bpy.context.view_layer.objects.active=rig
 for track in rig.animation_data.nla_tracks:track.mute=False
 with contextlib.redirect_stdout(io.StringIO()):
@@ -385,7 +463,12 @@ for engine in ['BLENDER_EEVEE_NEXT','BLENDER_EEVEE','CYCLES']:
 scene.render.resolution_x=900;scene.render.resolution_y=900;scene.render.image_settings.file_format='PNG'
 with contextlib.suppress(Exception):scene.eevee.taa_render_samples=32
 tool.hide_render=True
-for clip,frame,file in [('AimIdle',1,'astronaut-v3-aim.png'),('Fire',2,'astronaut-v3-fire.png'),('Struggle',7,'astronaut-v3-struggle.png'),('Roll',7,'astronaut-v3-roll.png'),('TurnL',19,'astronaut-v3-turn.png')]:
+PORTRAITS=[('AimIdle',1,'astronaut-v3-aim.png'),('Fire',2,'astronaut-v3-fire.png'),('Struggle',7,'astronaut-v3-struggle.png'),('Roll',7,'astronaut-v3-roll.png'),('TurnL',19,'astronaut-v3-turn.png'),
+ ('RifleAimIdle',1,'astronaut-v3-rifle.png'),('RifleFire',2,'astronaut-v3-rifle-fire.png'),('FlameAimIdle',1,'astronaut-v3-flame.png'),('FlameAimWalk',7,'astronaut-v3-flame-walk.png')]
+only=os.environ.get('LUNAR_PORTRAITS')
+for clip,frame,file in PORTRAITS:
+ if only and clip not in only.split(','):continue
+ pistol.hide_render=clip.startswith(('Rifle','Flame'));rifle.hide_render=not clip.startswith('Rifle');flamer.hide_render=not clip.startswith('Flame')
  rig.animation_data.action=clips[CLIP_NAMES.index(clip)];scene.frame_set(frame)
  scene.render.filepath=os.path.join(OUT,file);bpy.ops.render.render(write_still=True)
 rig.animation_data.action=None

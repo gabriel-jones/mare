@@ -95,7 +95,7 @@ test('saves reject unreachable player coordinates and invalid jump heights',()=>
     const s=createState();s.player=player;
     assert.throws(()=>deserialize(serialize(s)),/player position/);
   }
-  const s=createState();s.player={x:35,z:-35,y:10,satiety:100};
+  const s=createState();s.player={...s.player,x:35,z:-35,y:10,satiety:100};
   assert.deepEqual(deserialize(serialize(s)).player,s.player);
 });
 test('movement follows isometric screen axes and normalizes diagonal speed',()=>{
@@ -243,7 +243,7 @@ test('seeded cave networks are connected, varied, and safe to save underground',
   assert.equal(visited.size,cave.cells.size);assert.ok(cave.rooms.length>=10);assert.ok(caveWalkable(seed,id,0,3.2));
  }
  assert.notDeepEqual([...caveLayout(42,0).cells],[...caveLayout(43,0).cells]);
- const s=createState();s.player={x:0,z:4,y:0,satiety:100,cave:1};s.exploredCaves={1:['0,0','0,1']};
+ const s=createState();s.player={...s.player,x:0,z:4,y:0,satiety:100,cave:1};s.exploredCaves={1:['0,0','0,1']};
  assert.deepEqual(deserialize(serialize(s)),s);
  // A position that is no longer walkable (rock, or a feature added since) moves the player to the zone start.
  s.player.x=110;const moved=deserialize(serialize(s));assert.equal(moved.player.cave,1);assert.ok(caveWalkable(moved.seed,1,moved.player.x,moved.player.z));
@@ -376,7 +376,7 @@ test('caves give titanium, rare earth, artifacts and the reactor schematic, each
 });
 test('a xeno lab turns finds into research and a resonance reactor powers the night',async()=>{
  const {STUDY,REACTOR_POWER}=await import('./space.js');
- const s=createState();s.inventory=createInventory({metal:200,silicon:100,titanium:30,rareearth:8,artifact:2,heart:1});s.player={x:0,z:20,y:0,satiety:100};
+ const s=createState();s.inventory=createInventory({metal:200,silicon:100,titanium:30,rareearth:8,artifact:2,heart:1});s.player={...s.player,x:0,z:20,y:0,satiety:100};
  assert.equal(placeBlueprint(s,'xenolab',3,3).ok,true);const lab=s.buildings.at(-1);lab.progress=1;lab.built=true;
  assert.equal(interact(s,lab.id).ok,true);assert.equal(s.research.bank,STUDY.artifact*2+STUDY.heart);assert.equal(count(s.inventory,'artifact'),0);
  s.blueprints=['reactor'];s.research.done.push('reactor');

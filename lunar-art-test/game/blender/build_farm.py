@@ -202,7 +202,36 @@ def goo_level():
     for i, (x, y, z) in enumerate([(.3, -.3, .9), (-.35, -.2, 1.15), (.1, -.47, .55)]):
         cyl('Goo vein', (x, y + .1, z), .03, .35, 'vein', 6, (0, .4 * (i - 1), 0))
 
+# --- Armory: a workbench under a tool wall with racked long guns, ammo crates and a fuel cell at its foot. ---
+def armory():
+    box('Bench top', (0, .2, .86), (1.5, .8, .06), 'metal', .01)
+    box('Bench cabinet', (-.38, .3, .42), (.7, .6, .82), 'ivory', .02)
+    box('Cabinet drawer', (-.38, -.005, .6), (.6, .01, .16), 'dark')
+    box('Cabinet drawer', (-.38, -.005, .32), (.6, .01, .16), 'dark')
+    for x in [.62]:
+        box('Bench leg', (x, .2, .42), (.08, .7, .82), 'dark')
+    box('Bench stripe', (0, -.205, .86), (1.5, .01, .03), 'orange')
+    box('Tool wall', (0, .66, 1.5), (1.5, .06, 1.2), 'dark', .01)
+    box('Tool wall frame', (0, .63, 2.1), (1.56, .1, .06), 'metal')
+    for i, z in enumerate([1.25, 1.65]):
+        # A racked rifle silhouette: body, barrel, scope.
+        box('Racked rifle', (0, .6, z), (.8, .05, .1), 'dark' if i else 'ivory', .01)
+        box('Racked barrel', (.55, .6, z), (.3, .03, .03), 'metal')
+        box('Racked scope', (-.05, .58, z + .08), (.24, .04, .04), 'dark')
+        for x in [-.35, .3]: box('Rack hook', (x, .6, z - .08), (.04, .07, .04), 'orange')
+    box('Vise', (.45, .1, .95), (.18, .2, .12), 'orange', .01)
+    box('Vise jaw', (.45, -.02, 1.0), (.2, .04, .08), 'metal')
+    box('Parts tray', (-.2, .05, .9), (.4, .25, .03), 'dark')
+    for x in [-.32, -.2, -.08]: cyl('Round', (x, .05, .93), .02, .05, 'grain', 6)
+    box('Work screen', (-.45, .55, 1.0), (.4, .04, .26), 'glass')
+    box('Screen glow', (-.45, .525, 1.0), (.34, .01, .18), 'light')
+    box('Ammo crate', (.35, -.2, .16), (.42, .3, .3), 'orange', .02)
+    box('Crate band', (.35, -.355, .16), (.42, .01, .05), 'dark')
+    cyl('Fuel cell', (.68, -.2, .22), .1, .44, 'vein', 12)
+    for z in [.04, .4]: cyl('Fuel cell cap', (.68, -.2, z), .11, .06, 'dark', 12)
+
 INTERIOR = {
+    'armory': [('Bench', armory), ('Lamp', lambda: status_lamp(.7, .62, 2.0))],
     'hydrorack': [('Rack', rack), ('Plants', rack_plants), ('Lamp', lambda: status_lamp(.78, -.42, 1.95))],
     'verticalfarm': [('Tower', tower), ('Plants', tower_plants), ('Lamp', lambda: status_lamp(.8, -1.8, 2.0))],
     'mushroomtray': [('Cabinet', cabinet), ('Plants', mushrooms), ('Lamp', lambda: status_lamp(-.72, .62, 1.9))],
@@ -219,6 +248,7 @@ def export(name, groups):
 
 try:
     for asset, parts in INTERIOR.items():
+        if os.environ.get('LUNAR_FARM_ONLY') and asset not in os.environ['LUNAR_FARM_ONLY'].split(','): continue
         nodes = []
         for piece, builder in parts:
             objects = []; builder(); nodes.append(join(objects, piece))

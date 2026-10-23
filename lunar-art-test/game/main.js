@@ -16,7 +16,8 @@ import {createWatcher,stepWatcher} from './watcher.js';
 import {shipAction,holdLaunch,releaseLaunch,loadSatellite,recallShip,selectResearch,machineAction,lockedReason} from './space.js';
 import {createOrbitView} from './orbit-view.js';
 import {createResearchView} from './research-view.js';
-import {createHunt,stepHunt,fire,reload,craftRounds,roll,wrench,pinned,grabbedBy,rouse} from './hunt.js';
+import {createHunt,stepHunt,fire,release,roll,wrench,pinned,grabbedBy,rouse} from './hunt.js';
+import {isWeapon,holdWeapon,reload,craft} from './arms.js';
 import {worldVectorToCave} from './cave-space.js';
 
 // ?sandbox=1 plays a throwaway colony that never touches the real save.
@@ -79,12 +80,12 @@ function nearbyUse(){
  }
  return best;
 }
-/** The grower or galley the player stands at, whose picker the HUD shows. */
+/** The grower, galley or armory the player stands at, whose picker the HUD shows. */
 function nearbyStation(){
  if(state.player.cave!=null)return null;
  let best=null,distance=3;
  for(const b of state.buildings){
-  if(!b.built||!(isGrower(b)||b.type==='galley'))continue;
+  if(!b.built||!(isGrower(b)||b.type==='galley'||b.type==='armory'))continue;
   const c=buildingCenter(b,DEFS),d=Math.hypot(c.x-state.player.x,c.z-state.player.z);
   if(d<distance){best=b;distance=d;}
  }
@@ -238,16 +239,22 @@ function completed(b){
  notify(`${DEFS[b.type].name} complete.`);
  if(b.type==='hopper'&&!state.miningAreas.length)setTimeout(()=>notify('Rover ready: press M and click nearby ground to mark a mining zone.'),2300);
 }
+/** On the surface a weapon is out while its slot is selected and no build tool is; underground it always is. */
+const drawn=()=>state.player.cave!=null||(!selectedType&&isWeapon(state.inventory[selectedSlot]?.item));
+/** Picking a slot that holds a weapon takes it up. */
+function pickSlot(i){selectedSlot=i;const item=state.inventory[i]?.item;if(isWeapon(item))holdWeapon(state,item);else release(hunt);ui.update(state,view());}
 function fixedUpdate(dt){
  const dx=(keys.has('d')?1:0)-(keys.has('a')?1:0),dz=(keys.has('s')?1:0)-(keys.has('w')?1:0);
  previousPose={...state.player};
  const p=state.player,caving=p.cave!=null;
  if(caving&&(hunt.rolling||pinned(hunt))){p.vx=0;p.vz=0;p.speed=0;}
  else movePlayer(state,dx,dz,dt,DEFS);
- if(caving&&aimClient&&!pinned(hunt)){const a=world.aim(aimClient.x,aimClient.y);if(a&&Math.hypot(a.x-p.x,a.z-p.z)>.3)p.facing=Math.atan2(a.x-p.x,a.z-p.z);}
+ hunt.drawn=drawn();if(!hunt.drawn)release(hunt);
+ if(hunt.drawn&&aimClient&&!pinned(hunt)){const a=world.aim(aimClient.x,aimClient.y);if(a&&Math.hypot(a.x-p.x,a.z-p.z)>.3)p.facing=Math.atan2(a.x-p.x,a.z-p.z);}
  stepHunt(hunt,state,dt);
  if(!caving&&state.brood?.length){
   const fires=(state.flares??[]).filter(f=>f.cave==null).map(f=>({f,n:flareNow(f,p)})).filter(({n})=>n.stage==='down'&&n.lit>0).map(({n})=>({x:n.x,z:n.z,r:FLARE.radius*n.lit}));
+  if(hunt.flame)fires.push(...hunt.flame.points);
   stepBrood(state,dt,fires);
  }
  updatePortals(dt);
@@ -276,7 +283,7 @@ function fixedUpdate(dt){
  state.player.animation=!state.player.grounded?'jump':state.player.speed>.1?'run':constructing?'build':'idle';
  tick(state,dt*speed);
 }
-/** Underground controls: Space rolls, Shift jumps, E breaks a grab, R reloads, C makes rounds. True when handled. */
+/** Underground controls: Space rolls, Shift jumps, E breaks a grab, R reloads. True when handled. */
 function caveKey(k){
  const p=state.player;
  if(k===' '){
@@ -287,14 +294,13 @@ function caveKey(k){
  if(k==='shift'){if(!(p.y>0)&&!hunt.rolling&&!pinned(hunt))jumpVelocity=1.8;return true;}
  if(k==='e'&&grabbedBy(hunt)){wrench(hunt,state);return true;}
  if(k==='r'){const r=reload(state);if(r.reason)notify(r.reason);return true;}
- if(k==='c'){notify(craftRounds(state).reason);return true;}
  return false;
 }
 async function start(){
  try{
   let restored=false;
   try{const raw=localStorage.getItem(KEY);if(raw){state=deserialize(raw);resetPlayer();restored=true;saveStatus='Restored local save';}}catch(e){saveStatus='New colony · save unreadable';}
-  ui=createUI(document.querySelector('#ui'),{onSelect:select,onAssign:(robot,area)=>{const r=assignRover(state,robot,area);if(!r.ok)notify(r.reason);},onRemoveZone:id=>notify(removeMiningArea(state,id).reason),onSlot:i=>{if(selectedSlot===i)eatSelected();selectedSlot=i;ui.update(state,view());},onRotate:()=>{rotation=(rotation+1)%4;refreshGhost();},onSave:save,onLoad:load,onReset:()=>{state=createState(Math.floor(Math.random()*999999));selectedType=null;resetPlayer();targetId=null;keys.clear();world?.clearGhost();save();notify('New lunar landing created.');},onStation:({id,crop,recipe})=>{const b=state.buildings.find(o=>o.id===id);if(!b)return;notify((crop?setCrop(state,b,crop):setRecipe(state,b,recipe)).reason);canvas.focus({preventScroll:true});},onCancel:()=>select(null),onOrbit:()=>{research?.close();orbit?.toggle();},onResearch:()=>{orbit?.close();research?.toggle();},onTimeToggle:()=>{speed=speed===1?12:1;notify(speed===1?'Normal day/night speed.':'Day/night simulation ×12. Movement stays normal.');}});
+  ui=createUI(document.querySelector('#ui'),{onSelect:select,onAssign:(robot,area)=>{const r=assignRover(state,robot,area);if(!r.ok)notify(r.reason);},onRemoveZone:id=>notify(removeMiningArea(state,id).reason),onSlot:i=>{if(selectedSlot===i)eatSelected();pickSlot(i);},onRotate:()=>{rotation=(rotation+1)%4;refreshGhost();},onSave:save,onLoad:load,onReset:()=>{state=createState(Math.floor(Math.random()*999999));selectedType=null;resetPlayer();targetId=null;keys.clear();world?.clearGhost();save();notify('New lunar landing created.');},onStation:({id,crop,recipe,make})=>{const b=state.buildings.find(o=>o.id===id);if(!b)return;notify((make?craft(state,make):crop?setCrop(state,b,crop):setRecipe(state,b,recipe)).reason);canvas.focus({preventScroll:true});},onCancel:()=>select(null),onOrbit:()=>{research?.close();orbit?.toggle();},onResearch:()=>{orbit?.close();research?.toggle();},onTimeToggle:()=>{speed=speed===1?12:1;notify(speed===1?'Normal day/night speed.':'Day/night simulation ×12. Movement stays normal.');}});
   world=await createWorld(canvas,state);
   orbit=createOrbitView({onReturn:()=>{notify(recallShip(state).reason);orbit.close();},onClose:()=>{keys.clear();canvas.focus({preventScroll:true});}});
   research=createResearchView({onResearch:id=>notify(selectResearch(state,id).reason),onClose:()=>{keys.clear();canvas.focus({preventScroll:true});}});
@@ -305,7 +311,7 @@ async function start(){
    if(e.button===2){select(null);return;}
    if(e.button!==0)return;
    aimClient={x:e.clientX,y:e.clientY};
-   if(state.player.cave!=null){const r=fire(hunt,state);if(r.reason)notify(r.reason);return;}
+   if(drawn()){const r=fire(hunt,state);if(r.reason)notify(r.reason);try{canvas.setPointerCapture(e.pointerId);}catch{}return;}
    point(e);
    if(selectedType==='conveyor'&&hover){beltPath=[{x:hover.x,z:hover.z}];try{canvas.setPointerCapture(e.pointerId);}catch{}refreshGhost();}
    else if(DEFS[selectedType]?.paint&&hover){paintPath=[{x:hover.x,z:hover.z}];try{canvas.setPointerCapture(e.pointerId);}catch{}refreshGhost();}
@@ -314,6 +320,7 @@ async function start(){
   });
   canvas.addEventListener('pointerup',e=>{
    if(e.button!==0)return;
+   release(hunt);
    if(beltPath&&selectedType==='conveyor'){point(e);placeBelts();}
    else if(paintPath&&DEFS[selectedType]?.paint){point(e);placePaint();}
    else if(erasing)finishErase();
@@ -333,7 +340,7 @@ async function start(){
    if(k==='escape')select(null);
    if(k==='b')ui.toggleMenu();
    if(k==='g')ui.toggleRobots();
-   if(k==='r'){rotation=(rotation+1)%4;refreshGhost();}
+   if(k==='r'){if(drawn()){const r=reload(state);if(r.reason)notify(r.reason);}else{rotation=(rotation+1)%4;refreshGhost();}}
    const mission=k==='e'?missionAction(state):null;
    const ship=k==='e'&&!mission?shipAction(state):null;
    if(mission&&!mission.hold)notify(installCore(state).reason);
@@ -343,7 +350,7 @@ async function start(){
    if(k==='q'){const r=throwFlare(state,aimClient&&world.aim(aimClient.x,aimClient.y)).reason;if(r)notify(r);}
    if(k==='x')notify(craftFlares(state).reason);
    if(k==='delete'||k==='backspace')cancel();
-   if(/^[0-9]$/.test(k)){selectedSlot=(Number(k)+9)%10;ui.update(state,view());}
+   if(/^[0-9]$/.test(k))pickSlot((Number(k)+9)%10);
    if(SHORTCUTS[k])select(selectedType===SHORTCUTS[k]?null:SHORTCUTS[k]);
   });
   window.addEventListener('keyup',e=>keys.delete(e.key.toLowerCase()));

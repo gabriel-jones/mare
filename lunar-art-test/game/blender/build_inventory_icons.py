@@ -49,6 +49,9 @@ def materials(p):
             'sauce': mat('tomato sauce', (.6,.08,.02), 0,.45),
             'cheese': mat('melted cheese', (.98,.82,.42), 0,.5),
             'goo': mat('black goo', (.008,.008,.01), .25,.05),
+            'olive': mat('rifle olive ceramic', (.13,.15,.11), .15,.55),
+            'brass': mat('cartridge brass', (.72,.48,.16), .85,.3),
+            'gunmetal': mat('blued gunmetal', (.035,.042,.05), .7,.38),
         })
     return p
 
@@ -392,12 +395,86 @@ def goo(p):
         sphere('Goo / lit pustule',(x,-.27,z),(.05,.04,.05),p['red'],segments=10)
 
 
+
+def along_x(name,x0,x1,z,radius,material,vertices=16):
+    return cylinder(name,((x0+x1)/2,0,z),radius,x1-x0,material,vertices,(0,math.pi/2,0))
+
+
+def pistol(p):
+    materials(p)
+    beam('Pistol / grip',(-.22,0,.5),(-.4,0,.02),.24,p['dark'])
+    box('Pistol / backstrap',(-.36,0,.28),(.05,.18,.32),p['orange'],.01)
+    box('Pistol / frame',(.06,0,.5),(.86,.22,.16),p['gunmetal'],.03)
+    box('Pistol / slide',(.12,0,.7),(1.0,.27,.25),p['gunmetal'],.04)
+    box('Pistol / rib',(.12,0,.84),(.8,.08,.03),p['ivory'],.01)
+    for y in [-.137,.137]: box('Pistol / power cell',(.12,y,.5),(.44,.01,.05),p['cyan'],0)
+    box('Pistol / ejection port',(.05,-.137,.72),(.22,.01,.1),p['dark'],0)
+    along_x('Pistol / muzzle',.62,.72,.7,.075,p['dark'])
+    box('Pistol / guard',(-.02,0,.36),(.3,.12,.04),p['gunmetal'],.01)
+    box('Pistol / front sight',(.54,0,.86),(.05,.04,.06),p['orange'],.01)
+
+
+def rifle(p):
+    materials(p)
+    box('Rifle / body',(0,0,.5),(.9,.2,.24),p['olive'],.04)
+    box('Rifle / butt',(-.52,0,.47),(.16,.21,.34),p['dark'],.03)
+    box('Rifle / butt plate',(-.61,0,.47),(.03,.17,.3),p['orange'],.01)
+    beam('Rifle / grip',(.0,0,.4),(-.1,0,.06),.17,p['dark'])
+    beam('Rifle / magazine',(-.26,0,.4),(-.3,0,.12),.18,p['gunmetal'])
+    box('Rifle / handguard',(.56,0,.52),(.42,.21,.2),p['ivory'],.03)
+    for y in [-.107,.107]: box('Rifle / vent',(.56,y,.52),(.3,.01,.04),p['dark'],0)
+    beam('Rifle / fore-grip',(.48,0,.42),(.45,0,.22),.11,p['dark'])
+    along_x('Rifle / barrel',.77,1.05,.52,.04,p['silver'])
+    along_x('Rifle / muzzle brake',1.0,1.12,.52,.065,p['dark'])
+    box('Rifle / rail',(.12,0,.64),(.7,.08,.04),p['gunmetal'],.01)
+    along_x('Rifle / scope',-.05,.38,.75,.075,p['dark'])
+    along_x('Rifle / scope lens',.37,.4,.75,.06,p['cyan'])
+    for x in [.04,.28]: box('Rifle / scope mount',(x,0,.68),(.06,.06,.08),p['dark'],.01)
+    for y in [-.105,.105]: box('Rifle / power cell',(.0,y,.55),(.42,.01,.04),p['cyan'],0)
+
+
+def flamethrower(p):
+    materials(p)
+    along_x('Flamethrower / body',-.42,.55,.55,.17,p['dark'],20)
+    along_x('Flamethrower / cap',-.52,-.4,.55,.19,p['orange'],20)
+    along_x('Flamethrower / nozzle',.55,.92,.55,.08,p['silver'])
+    along_x('Flamethrower / nozzle bell',.9,1.0,.55,.11,p['dark'])
+    box('Flamethrower / heat shield',(.2,0,.76),(.72,.3,.05),p['ivory'],.02)
+    for x in [.0,.12,.24,.36]: box('Flamethrower / shield slot',(x,0,.79),(.04,.22,.02),p['dark'],0)
+    beam('Flamethrower / grip',(-.2,0,.42),(-.3,0,.02),.18,p['dark'])
+    beam('Flamethrower / handle',(.38,0,.42),(.34,0,.08),.13,p['dark'])
+    box('Flamethrower / fuel cell',(.06,0,.32),(.3,.24,.2),p['orange'],.03)
+    along_x('Flamethrower / gauge',-.06,-.02,.76,.07,p['cyan'])
+    box('Flamethrower / pilot',(.86,0,.43),(.1,.06,.05),p['ember'],.01)
+
+
+def rounds(p):
+    materials(p)
+    box('Rounds / clip',(0,0,.06),(.92,.4,.12),p['dark'],.03)
+    box('Rounds / clip stripe',(0,-.205,.07),(.92,.01,.04),p['orange'],0)
+    for i in range(5):
+        for j,y in enumerate([-.09,.09]):
+            x=-.32+i*.16+j*.04
+            cylinder('Rounds / brass case',(x,y,.38),.065,.52,p['brass'],12)
+            tapered('Rounds / tip',(x,y,.7),.065,.02,.14,p['silver'],12)
+
+
+def fuel(p):
+    materials(p)
+    cylinder('Fuel cell / canister',(0,0,.5),.3,.8,p['orange'],24)
+    for z in [.08,.94]: cylinder('Fuel cell / cap',(0,0,z),.32,.12,p['dark'],24)
+    box('Fuel cell / window',(0,-.29,.5),(.2,.04,.42),p['goo'],.02)
+    for z in [.36,.5,.64]: sphere('Fuel cell / glow',(0,-.31,z),(.05,.03,.05),p['red'],segments=10)
+    box('Fuel cell / valve',(0,0,1.04),(.12,.12,.1),p['silver'],.02)
+    for z in [.24,.76]: cylinder('Fuel cell / band',(0,0,z),.31,.05,p['dark'],24)
+
+
 BUILDERS = [('metal',study['metal']),('silicon',silicon),('crop',study['potatoes']),('greens',greens),
             ('soy',soy),('tomato',tomato),('algae',algae),('wheat',wheat),('mushroom',mushroom),
             ('flour',flour),('protein',protein),('meal',meal),('salad',salad),('bread',bread),('stew',stew),
             ('broth',broth),('algaecake',algaecake),('pizza',pizza),('medkit',medkit),('core',core),
             ('frame',frame),('wing',wing),('chip',study['chip']),('satellite',satellite),('titanium',titanium),
-            ('rareearth',rareearth),('artifact',study['artifact']),('heart',heart),('goo',goo),('flare',flare)]
+            ('rareearth',rareearth),('artifact',study['artifact']),('heart',heart),('goo',goo),('flare',flare),('rounds',rounds),('fuel',fuel),('pistol',pistol),('rifle',rifle),('flamethrower',flamethrower)]
 
 
 def build_inventory():

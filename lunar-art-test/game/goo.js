@@ -54,10 +54,10 @@ export function useVat(state, b) {
   return { ok: true, reason: 'Vat seeded. Keep it powered: if it goes dark it breaches.' };
 }
 
-/** The live, unscraped nest whose mouth the player stands at, if goo containment is known. */
+/** The live, unscraped nest whose mouth the player stands at, if goo containment or the flamethrower is known. */
 function nestHere(state) {
   const p = state.player;
-  if (p.cave == null || !techDone(state, 'containment')) return null;
+  if (p.cave == null || !(techDone(state, 'containment') || techDone(state, 'flamethrower'))) return null;
   const scraped = state.scraped?.[zoneKey(p.cave, p.zone ?? 0)] ?? {};
   return liveNests(state, p.cave, p.zone ?? 0).find(n => { const m = nestMouth(n); return !(scraped[n.key] > 0) && Math.hypot(m.x - p.x, m.z - p.z) < GOO.sampleReach; }) ?? null;
 }

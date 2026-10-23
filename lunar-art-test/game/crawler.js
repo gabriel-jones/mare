@@ -200,6 +200,13 @@ export function struggle(c,amount=CRAWLER.escapePerPress,facing=null){
  enter(c,'recoil',Math.random);c.thrown=facing==null?null:{facing};return true;
 }
 
+/** Burning: health lost without the flinch of a shot, so a crawler in the flames keeps running. */
+export function scorchCrawler(c,damage,rng=Math.random){
+ if(c.state==='dead')return {killed:false};
+ c.hp=Math.max(0,c.hp-damage);
+ if(c.hp<=0){enter(c,'dead',rng);c.anim='death';return {killed:true};}
+ return {killed:false};
+}
 /** Damage from a shot. Doubled while it rears or recovers from a missed lunge; a hit during the shriek breaks the attack. */
 export function hurtCrawler(c,damage,rng=Math.random){
  if(c.state==='dead')return {killed:false,dealt:0};
@@ -229,23 +236,27 @@ export function craftAmmo(g,items){
  if((items.metal??0)<PISTOL.cost.metal)return false;
  items.metal-=PISTOL.cost.metal;g.reserve+=PISTOL.makes;return true;
 }
-/** The first live crawler along the aim line, within range and not behind rock. Returns {crawler, distance} or null. */
-export function shotTarget(cave,from,aim,crawlers){
+/**
+ * The first live crawler along the aim line, within the weapon's range and not behind rock. `cave` is null on the open
+ * surface, where nothing stands in the way. Returns {crawler, distance} or null.
+ */
+export function shotTarget(cave,from,aim,crawlers,gun=PISTOL){
  const len=Math.hypot(aim.x,aim.z)||1,ax=aim.x/len,az=aim.z/len;let best=null;
  for(const c of crawlers){
   if(c.state==='dead')continue;
-  const ox=c.x-from.x,oz=c.z-from.z,along=ox*ax+oz*az;if(along<0||along>PISTOL.range)continue;
-  const off=Math.abs(ox*az-oz*ax);if(off>CRAWLER.radius+PISTOL.tolerance)continue;
-  if(!lineVisible(cave,cellOf(from.x),cellOf(from.z),cellOf(c.x),cellOf(c.z)))continue;
+  const ox=c.x-from.x,oz=c.z-from.z,along=ox*ax+oz*az;if(along<0||along>gun.range)continue;
+  const off=Math.abs(ox*az-oz*ax);if(off>CRAWLER.radius+gun.tolerance)continue;
+  if(cave&&!lineVisible(cave,cellOf(from.x),cellOf(from.z),cellOf(c.x),cellOf(c.z)))continue;
   if(!best||along<best.distance)best={crawler:c,distance:along};
  }
  return best;
 }
 /** Where the shot stops: the target, or the first rock along the line. */
-export function shotEnd(cave,from,aim,crawlers){
- const hit=shotTarget(cave,from,aim,crawlers),len=Math.hypot(aim.x,aim.z)||1,ax=aim.x/len,az=aim.z/len;
+export function shotEnd(cave,from,aim,crawlers,gun=PISTOL){
+ const hit=shotTarget(cave,from,aim,crawlers,gun),len=Math.hypot(aim.x,aim.z)||1,ax=aim.x/len,az=aim.z/len;
  if(hit)return {x:from.x+ax*hit.distance,z:from.z+az*hit.distance,hit};
- let d=0;while(d<PISTOL.range&&cave.open.has(caveKey(cellOf(from.x+ax*d),cellOf(from.z+az*d))))d+=.25;
+ if(!cave)return {x:from.x+ax*gun.range,z:from.z+az*gun.range,hit:null};
+ let d=0;while(d<gun.range&&cave.open.has(caveKey(cellOf(from.x+ax*d),cellOf(from.z+az*d))))d+=.25;
  return {x:from.x+ax*d,z:from.z+az*d,hit:null};
 }
 

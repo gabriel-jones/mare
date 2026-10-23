@@ -163,7 +163,7 @@ test('in a real cave zone it finds its way round the rock to the player and keep
 
 // ---- The hunt in the game's caves ----
 import {createState,serialize,deserialize} from './sim.js';
-import {NEST,createHunt,stepHunt,fire,wrench,roll,gunOf,craftRounds,grabbedBy,pinned} from './hunt.js';
+import {NEST,createHunt,stepHunt,fire,wrench,roll,grabbedBy,pinned} from './hunt.js';
 import * as inv from './inventory.js';
 function underground(zone=0){
  const s=createState(1847),start=caveLayout(s.seed,0,zone).start;
@@ -203,10 +203,4 @@ test('a grab hurts the suit, pins the player, and mashing breaks free',()=>{
  let free=false;for(let i=0;i<40&&!free;i++)free=wrench(h,s);
  assert.ok(free);assert.ok(pinned(h),'still tearing it off');assert.equal(c.thrown.facing,s.player.facing);
  stepHunt(h,s,1,rng);assert.ok(!pinned(h));
-});
-test('the pistol is issued once, crafted from pack metal, and survives a save',()=>{
- const s=underground(0),g=gunOf(s);g.mag=2;g.reserve=3;
- inv.remove(s.inventory,'metal',inv.count(s.inventory,'metal'));inv.add(s.inventory,'metal',1);assert.equal(craftRounds(s).ok,true);assert.equal(g.reserve,3+PISTOL.makes);
- assert.equal(craftRounds(s).ok,false,'out of metal');
- const back=deserialize(serialize(s));assert.deepEqual(back.player.gun,{mag:2,reserve:3+PISTOL.makes,cooldown:0,reloading:0});
 });

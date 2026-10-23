@@ -42,6 +42,7 @@ TECHS = [('hydroponics', building('hydrorack')), ('soy', item('soy')), ('tomato'
          ('medicine', item('medkit')), ('vertical', building('verticalfarm')), ('wheat', item('wheat')),
          ('roverbay', building('roverbay')), ('reactor', building('reactor'))]
 TECHS.append(('containment', building('goovat')))
+TECHS += [('pistol', item('pistol')), ('rifle', item('rifle')), ('flamethrower', item('flamethrower'))]
 
 
 if __name__ == '__main__':

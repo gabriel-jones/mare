@@ -1,3 +1,4 @@
+import { restoreArms } from './arms.js';
 import { caveWalkable, caveLayout, CAVE_ZONES } from './caves.js';
 import { surfaceHeightAt, terrainReason } from './terrain.js';
 import { CELL_SIZE, DEFS, DIRS, ITEMS, ITEM_INFO, dims, footprint } from './defs.js';
@@ -23,7 +24,7 @@ const key = (x, z) => `${x},${z}`;
 
 export function createState(seed = 1847) {
   if (!Number.isSafeInteger(seed)) throw new Error('Seed must be an integer.');
-  return { version: SAVE_VERSION, seed, time: 0, inventory: inv.createInventory({ metal: 240, silicon: 100, meal: STARTING.meals }), reserves: { oxygen: STARTING.oxygen, water: STARTING.water }, player: { x: 0, z: 8, y: 0, satiety: 100 }, buildings: [], nextId: 1, robots: [createRover()], miningAreas: [], nextAreaId: 1, mined: {}, mission: createMission(), ship: createShip(), satellites: 0, research: createResearch(), power: { generation: 0, demand: 0, stored: 0, capacity: 0, supplied: 0, powered: true } };
+  return { version: SAVE_VERSION, seed, time: 0, inventory: inv.createInventory({ metal: 240, silicon: 100, meal: STARTING.meals, pistol: 1, rounds: 24 }), reserves: { oxygen: STARTING.oxygen, water: STARTING.water }, player: { x: 0, z: 8, y: 0, satiety: 100, arms: { held: 'pistol', loaded: { pistol: 6, rifle: 0, flamethrower: 0 }, cooldown: 0, reloading: 0 } }, buildings: [], nextId: 1, robots: [createRover()], miningAreas: [], nextAreaId: 1, mined: {}, mission: createMission(), ship: createShip(), satellites: 0, research: createResearch(), power: { generation: 0, demand: 0, stored: 0, capacity: 0, supplied: 0, powered: true } };
 }
 const validRotation = r => Number.isInteger(r) && r >= 0 && r <= 3;
 const finite = n => typeof n === 'number' && Number.isFinite(n);
@@ -385,11 +386,7 @@ export function deserialize(text) {
     state.player[axis] = raw.player[axis];
   }
   if (raw.player.satiety != null) { if (!count(raw.player.satiety, 100)) throw new Error('Invalid player.'); state.player.satiety = raw.player.satiety; }
-  if (raw.player.gun != null) {
-    const { mag, reserve } = raw.player.gun;
-    if (!Number.isInteger(mag) || !count(mag, 6) || !Number.isInteger(reserve) || !count(reserve, 9999)) throw new Error('Invalid pistol.');
-    state.player.gun = { mag, reserve, cooldown: 0, reloading: 0 };
-  }
+  restoreArms(state, raw.player);
   if (raw.player.cave != null) {
     const zone = raw.player.zone ?? 0;
     if (!Number.isInteger(raw.player.cave) || raw.player.cave < 0 || raw.player.cave > 2 || !Number.isInteger(zone) || zone < 0 || zone >= CAVE_ZONES) throw new Error('Invalid cave position.');

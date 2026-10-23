@@ -9,7 +9,7 @@ export const LAUNCH = Object.freeze({ fuel: 80, payload: 3, hold: 2, ascent: 9, 
 export const ELECTROLYSIS = Object.freeze({ time: 2, power: 3, waterFloor: 20 });
 export const RESEARCH_PER_SATELLITE = 4; // points per minute
 /** Research branches, in display order. */
-export const BRANCHES = Object.freeze({ farming: 'Farming', industry: 'Industry', deep: 'Deep' });
+export const BRANCHES = Object.freeze({ farming: 'Farming', industry: 'Industry', deep: 'Deep', arms: 'Arms' });
 /** The research tree. `requires` must all be done before a tech can be chosen; `schematic` techs also need their find. */
 export const TECHS = Object.freeze({
   hydroponics: { name: 'Hydroponics', branch: 'farming', cost: 14, description: 'A hydroponic rack for greenhouses.' },
@@ -21,6 +21,9 @@ export const TECHS = Object.freeze({
   medicine: { name: 'Field medicine', branch: 'farming', cost: 12, requires: ['tomato'], description: 'The galley learns to make medkits that mend the suit.' },
   vertical: { name: 'Vertical farming', branch: 'farming', cost: 20, requires: ['processing'], description: 'A tall greenhouse tower of trays.' },
   wheat: { name: 'Wheat', branch: 'farming', cost: 12, requires: ['vertical'], description: 'Wheat for the vertical farm, milled into flour.' },
+  pistol: { name: 'Pistol', branch: 'arms', cost: 1, innate: true, description: 'The sidearm you landed with. An armory can make another.' },
+  rifle: { name: 'Semi-auto rifle', branch: 'arms', cost: 18, requires: ['pistol'], description: 'Twelve rounds, harder hits and a longer reach. Crafted at an armory.' },
+  flamethrower: { name: 'Flamethrower', branch: 'arms', cost: 28, requires: ['rifle'], description: 'Burns crawlers, silk, nests and goo up close, on fuel refined from black goo. Lets you scrape nests (E).' },
   roverbay: { name: 'Rover bay', branch: 'industry', cost: 24, description: 'A bay that builds extra mining rovers.' },
   reactor: { name: 'Resonance reactor', branch: 'deep', cost: 40, schematic: true, hint: 'Needs a schematic from deep in the caves', description: 'Steady power from a rare-earth lattice, day and night.' },
   containment: { name: 'Goo containment', branch: 'deep', cost: 30, schematic: true, hint: 'Study the Heart of the Deep at a xeno lab', description: 'A sealed vat that cultures black goo. Scrape a sample from a live nest (E).' },
@@ -35,7 +38,7 @@ export const ROBOT_LIMIT = Object.freeze({ hauler: 3, miner: 4 });
 
 export const createShip = () => ({ status: 'pad', t: 0, fuel: 0, payload: 0, hold: 0 });
 export const createResearch = () => ({ bank: 0, selected: 'roverbay', progress: {}, done: [] });
-export const techDone = (state, id) => state.research.done.includes(id);
+export const techDone = (state, id) => !!TECHS[id]?.innate || state.research.done.includes(id);
 export const hasSchematic = (state, id) => !TECHS[id]?.schematic || (state.blueprints ?? []).includes(id);
 /** Why a research-gated building can't be placed yet, or null. */
 export function lockedReason(state, type) {

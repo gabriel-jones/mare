@@ -21,24 +21,26 @@ const THROW=[
 
 /**
  * Blender-authored in-place animation; controller owns world motion and gravity.
- * `pose`: {animation, speed, gun, backward, rate, twist}. `gun` shows the pistol (astronaut-v3); `backward` plays a walk or run
+ * `pose`: {animation, speed, weapon, backward, rate, twist}. `weapon` ('pistol', 'rifle' or 'flamethrower'; `gun: true` means the
+ * pistol) shows that weapon and swaps in its own aim, walk, run and turn clips where it has them; `backward` plays a walk or run
  * in reverse for backpedalling; `rate` scales one-shots and loops such as the struggle; `twist` turns the torso about
  * the vertical (radians, positive to the left) so the upper body can aim ahead of the feet. `fire()` layers the recoil
- * additively over whatever is playing; `restart()` replays the current one-shot; `marker(name)` finds the pistol's
- * muzzle and ejection-port bones (and the left hand, which holds a flare); `throwFlare()` strikes and throws one.
+ * additively over whatever is playing (each gun has its own kick); `restart()` replays the current one-shot; `marker(name)`
+ * finds the weapons' muzzle, ejection-port and nozzle bones (and the left hand, which holds a flare); `throwFlare()`
+ * strikes and throws one.
  */
 export function createAstronaut(gltf) {
  const root=gltf.scene;
  const mixer=new THREE.AnimationMixer(root),actions=new Map(),durations=new Map();
  root.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;o.frustumCulled=false;}});
- let recoil=null;
+ const recoils=new Map();
  for(const clip of gltf.animations){
   const key=clip.name.toLowerCase().split('.')[0];
-  if(actions.has(key)||(key==='fire'&&recoil))continue;
+  if(actions.has(key)||recoils.has(key))continue;
   durations.set(key,clip.duration);
-  if(key==='fire'){
-   const additive=THREE.AnimationUtils.makeClipAdditive(clip.clone());
-   recoil=mixer.clipAction(additive);recoil.setLoop(THREE.LoopOnce,1);recoil.clampWhenFinished=false;continue;
+  if(key==='fire'||key==='riflefire'){
+   const additive=THREE.AnimationUtils.makeClipAdditive(clip.clone()),recoil=mixer.clipAction(additive);
+   recoil.setLoop(THREE.LoopOnce,1);recoil.clampWhenFinished=false;recoils.set(key,recoil);continue;
   }
   const action=mixer.clipAction(clip);
   if(ONCE.has(key)){action.setLoop(THREE.LoopOnce,1);action.clampWhenFinished=true;}
@@ -46,7 +48,10 @@ export function createAstronaut(gltf) {
  }
  let current='',active=null;
  const spine=root.getObjectByName('Spine'),parentQ=new THREE.Quaternion(),twistQ=new THREE.Quaternion(),UP=new THREE.Vector3(0,1,0),untwisted=new THREE.Quaternion();let twisted=false;
- const tools=[],guns=[];root.traverse(o=>{if(o.name.startsWith('ConstructionTool'))tools.push(o);if(o.name==='Pistol')guns.push(o);});
+ const tools=[],weapons={pistol:[],rifle:[],flamethrower:[]},MESH={Pistol:'pistol',Rifle:'rifle',Flamethrower:'flamethrower'};
+ root.traverse(o=>{if(o.name.startsWith('ConstructionTool'))tools.push(o);if(MESH[o.name])weapons[MESH[o.name]].push(o);});
+ // Clip names carry the weapon: 'rifleaimidle', 'flameturnl'. The pistol uses the plain set.
+ const PREFIX={rifle:'rifle',flamethrower:'flame'};let held=null;
  // GLTFLoader drops the dots from node names: Blender's 'Hand.L' arrives as 'HandL'.
  const arm={upper:root.getObjectByName('UpperArmL'),fore:root.getObjectByName('ForearmL'),hand:root.getObjectByName('HandL')};
  let throwT=-1;const restore=[],_a=new THREE.Vector3(),_b=new THREE.Vector3(),_d=new THREE.Vector3(),_q=new THREE.Quaternion(),_pq=new THREE.Quaternion();
@@ -67,7 +72,9 @@ export function createAstronaut(gltf) {
  }
  function update(pose,dt){
   for(const [bone,q] of restore.splice(0))bone.quaternion.copy(q);
-  const wanted=actions.has(pose.animation)?pose.animation:pose.animation?.startsWith('aim')&&actions.has(pose.animation.slice(3))?pose.animation.slice(3):'idle';
+  held=pose.weapon??(pose.gun?'pistol':null);
+  const own=PREFIX[held]&&pose.animation?PREFIX[held]+pose.animation:null;
+  const wanted=own&&actions.has(own)?own:actions.has(pose.animation)?pose.animation:pose.animation?.startsWith('aim')&&actions.has(pose.animation.slice(3))?pose.animation.slice(3):'idle';
   if(wanted!==current){
    const next=actions.get(wanted),fade=FADE[wanted]??.14;
    if(next){next.reset().setEffectiveWeight(1).fadeIn(fade).play();if(active)active.fadeOut(fade);active=next;}
@@ -78,7 +85,7 @@ export function createAstronaut(gltf) {
    active.timeScale=(walking?Math.max(.25,speed/2.7):running?Math.max(.4,speed/4.8):1)*rate*(pose.backward&&(walking||running)?-1:1);
   }
   tools.forEach(o=>o.visible=current==='build');
-  guns.forEach(o=>o.visible=!!pose.gun&&current!=='build');
+  for(const [w,list] of Object.entries(weapons))list.forEach(o=>o.visible=w===held&&current!=='build');
   // The mixer skips bones whose animated value has not changed, so last frame's twist must be undone first.
   if(twisted){spine.quaternion.copy(untwisted);twisted=false;}
   mixer.update(Math.min(dt,.1));
@@ -97,9 +104,9 @@ export function createAstronaut(gltf) {
    aimBone(arm.fore,arm.hand,throwing.fore,side,throwing.w);
   }
  }
- function fire(){if(recoil)recoil.reset().setEffectiveWeight(1).play();}
+ function fire(){const recoil=recoils.get(held==='rifle'?'riflefire':'fire');if(recoil)recoil.reset().setEffectiveWeight(1).play();}
  function restart(){if(active)active.reset().play();}
- const markers=new Map([['Hand.L',arm.hand],['Forearm.L',arm.fore]]);root.traverse(o=>{if(['Muzzle','MuzzleAhead','Port','PortOut'].includes(o.name))markers.set(o.name,o);});
+ const markers=new Map([['Hand.L',arm.hand],['Forearm.L',arm.fore]]);root.traverse(o=>{if(['Muzzle','MuzzleAhead','Port','PortOut','RifleMuzzle','RifleMuzzleAhead','RiflePort','RiflePortOut','Nozzle','NozzleAhead','Pilot'].includes(o.name))markers.set(o.name,o);});
  update({animation:'idle'},0);
  return {root,update,fire,restart,marker:name=>markers.get(name),duration:name=>durations.get(name)??0,clips:[...actions.keys()],
   /** Strikes and throws a flare with the free (left) hand over whatever is playing; `throwing` is the time into it. */

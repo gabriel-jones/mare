@@ -1,19 +1,21 @@
-import {caveLayout,cavePassable,CAVE_CELL} from './caves.js';
+import {caveLayout,cavePassable,caveKey,CAVE_CELL} from './caves.js';
 import {FLARE,flareNow} from './peril.js';
-import * as inv from './inventory.js';
-import {liveNests,silkBlocks} from './infest.js';
-import {CRAWLER,PISTOL,PLAYER_RADIUS,createCrawler,stepCrawler,struggle,hurtCrawler,createGun,stepGun,fireGun,reloadGun,shotEnd,createDodge,startDodge,stepDodge} from './crawler.js';
+import {liveNests,silkBlocks,stepInfest} from './infest.js';
+import {burnGoo} from './goo.js';
+import {WEAPONS,stepArms,pullTrigger,burnTank} from './arms.js';
+import {CRAWLER,PLAYER_RADIUS,createCrawler,stepCrawler,struggle,hurtCrawler,scorchCrawler,shotEnd,createDodge,startDodge,stepDodge} from './crawler.js';
 
 /**
- * Crawlers in the caves, and the player's answer to them: the pistol, the dodge roll and breaking free of a grab.
- * The crawlers are not saved: whoever hunts a zone is rolled fresh each time the player enters it. The gun is
- * (state.player.gun). Damage lands on the suit's health, so a mauling ends in the usual blackout.
+ * Crawlers in the caves, and the player's answer to them: the weapons (arms.js), the dodge roll and breaking free of
+ * a grab. The crawlers are not saved: whoever hunts a zone is rolled fresh each time the player enters it. On the
+ * surface the weapons still fire, at the hatchlings of a breach (state.brood). Damage lands on the suit's health, so
+ * a mauling ends in the usual blackout.
  */
 /**
  * `count`: crawlers per zone with every nest alive. Each nest burnt out takes its share of them and slows the rest
  * coming back; with every nest burnt one still prowls, slowest of all to return.
  */
-export const NEST=Object.freeze({count:[1,2,3],farFrom:16,respawn:[60,110],bullet:90,startReserve:12});
+export const NEST=Object.freeze({count:[1,2,3],farFrom:16,respawn:[60,110],bullet:90});
 function brood(state,cave){
  const p=state.player,total=cave.nests.length,live=liveNests(state,p.cave,p.zone??0);
  if(!total)return {live,cap:NEST.count[cave.zone]??1,slow:1};
@@ -24,13 +26,6 @@ export function createHunt(){
  return {key:null,crawlers:[],respawns:[],shots:[],dodge:createDodge(),lampShort:0,events:[],clock:0};
 }
 
-/** The player's pistol, issued on first need. */
-export function gunOf(state){
- const p=state.player;
- if(!p.gun)p.gun=createGun(NEST.startReserve);
- p.gun.cooldown??=0;p.gun.reloading??=0;
- return p.gun;
-}
 
 const grabber=hunt=>hunt.crawlers.find(c=>c.state==='grab')??null;
 export const grabbedBy=grabber;
@@ -68,14 +63,20 @@ function spawn(hunt,cave,state,rng,nests=[]){
  */
 export function stepHunt(hunt,state,dt,rng=Math.random){
  const p=state.player;
- if(p.cave==null){if(hunt.key!==null)Object.assign(hunt,createHunt(),{events:hunt.events});return;}
+ stepArms(state,dt);
+ if(p.cave==null){
+  if(hunt.key!==null)Object.assign(hunt,createHunt(),{events:hunt.events,trigger:hunt.trigger});
+  const brood=state.brood??[];
+  hunt.clock+=dt;stepFlame(hunt,state,null,brood,dt,rng);land(hunt,brood,dt,rng);
+  return;
+ }
  const zone=p.zone??0,key=`${p.cave}:${zone}`,cave=caveLayout(state.seed,p.cave,zone);
  if(hunt.key!==key){
-  Object.assign(hunt,createHunt(),{events:hunt.events,key});
+  Object.assign(hunt,createHunt(),{events:hunt.events,key,trigger:hunt.trigger});
   const b=brood(state,cave);for(let i=0;i<b.cap;i++)spawn(hunt,cave,state,rng,b.live);
  }
  hunt.clock+=dt;
- const gun=gunOf(state);stepGun(gun,dt);
+ stepFlame(hunt,state,cave,hunt.crawlers,dt,rng);
  hunt.lampShort=Math.max(0,hunt.lampShort-dt);hunt.wrenching=Math.max(0,(hunt.wrenching??0)-dt);
  const dash=stepDodge(hunt.dodge,dt);
  if(dash.rolling){
@@ -85,7 +86,9 @@ export function stepHunt(hunt,state,dt,rng=Math.random){
  }
  hunt.rolling=dash.rolling;
  const held=grabber(hunt);
- const flares=(state.flares??[]).filter(f=>f.cave===p.cave&&(f.zone??0)===zone).map(f=>{const n=flareNow(f,p);return {x:n.x,z:n.z,r:FLARE.radius*n.lit};}).filter(f=>f.r>0);
+ const flares=(state.flares??[]).filter(f=>f.cave===p.cave&&(f.zone??0)===zone).map(f=>{const n=flareNow(f,p);return {x:n.x,z:n.z,r:FLARE.radius*n.lit};}).filter(f=>f.r>0)
+ // Crawlers shy from the flamethrower's jet as from a flare.
+ if(hunt.flame)flares.push(...hunt.flame.points);
  const hurt=amount=>{p.health=Math.max(0,(p.health??100)-amount);p.calm=0;};
  for(const c of hunt.crawlers){
   // One at a time: while something has hold of the player the others cannot land a blow.
@@ -98,17 +101,7 @@ export function stepHunt(hunt,state,dt,rng=Math.random){
    hunt.events.push({...e,crawler:c});
   }
  }
- // Rounds in flight land after their travel time.
- for(const s of hunt.shots){
-  s.t-=dt;if(s.t>0)continue;
-  if(s.target&&hunt.crawlers.includes(s.target)&&s.target.state!=='dead'){
-   const r=hurtCrawler(s.target,PISTOL.damage,rng);
-   hunt.events.push({type:'impact',crawler:s.target,x:s.x,z:s.z,dir:s.dir,killed:r.killed});
-   if(r.killed)hunt.events.push({type:'killed',crawler:s.target});
-   if(r.released)hunt.events.push({type:'release',crawler:s.target});
-  }else hunt.events.push({type:'impact',x:s.x,z:s.z,dir:s.dir,rock:true});
- }
- hunt.shots=hunt.shots.filter(s=>s.t>0);
+ land(hunt,hunt.crawlers,dt,rng);
  // The dead melt away; another crawls out of a nest a while later, if the nests left can still breed one.
  const b=brood(state,cave);
  for(const c of hunt.crawlers)if(c.state==='dead'&&c.t>6.5){hunt.respawns.push((NEST.respawn[0]+(NEST.respawn[1]-NEST.respawn[0])*rng())*b.slow);}
@@ -119,6 +112,49 @@ export function stepHunt(hunt,state,dt,rng=Math.random){
  if(hunt.events.length>200)hunt.events.splice(0,hunt.events.length-200);
 }
 
+/** Rounds in flight land after their travel time, on whichever of `targets` they were aimed at. */
+function land(hunt,targets,dt,rng){
+ for(const s of hunt.shots){
+  s.t-=dt;if(s.t>0)continue;
+  if(s.target&&targets.includes(s.target)&&s.target.state!=='dead'){
+   const r=hurtCrawler(s.target,s.damage,rng);
+   hunt.events.push({type:'impact',crawler:s.target,x:s.x,z:s.z,dir:s.dir,killed:r.killed,weapon:s.weapon});
+   if(r.killed)hunt.events.push({type:'killed',crawler:s.target});
+   if(r.released)hunt.events.push({type:'release',crawler:s.target});
+  }else hunt.events.push({type:'impact',x:s.x,z:s.z,dir:s.dir,rock:true,weapon:s.weapon});
+ }
+ hunt.shots=hunt.shots.filter(s=>s.t>0);
+}
+const cellOf=v=>Math.round(v/CAVE_CELL);
+/** The jet's reach this step: points along the aim, every .7 m out to its range or the first rock. */
+export function flamePoints(cave,p){
+ const spec=WEAPONS.flamethrower,ax=Math.sin(p.facing??0),az=Math.cos(p.facing??0),points=[];
+ for(let d=.9;d<=spec.range;d+=.7){
+  const x=p.x+ax*d,z=p.z+az*d;
+  if(cave&&!cave.open.has(caveKey(cellOf(x),cellOf(z))))break;
+  points.push({x,z,r:1.1});
+ }
+ return points;
+}
+/**
+ * While the trigger is held on a flamethrower with fuel: everything in the cone burns. Crawlers take steady damage
+ * without flinching; nests and silk catch underground, goo burns away on the surface.
+ */
+function stepFlame(hunt,state,cave,targets,dt,rng){
+ const p=state.player,on=!!hunt.trigger&&burnTank(state,dt);
+ hunt.flame=on?{points:flamePoints(cave,p)}:null;
+ if(!on)return;
+ const spec=WEAPONS.flamethrower,points=hunt.flame.points,ax=Math.sin(p.facing??0),az=Math.cos(p.facing??0);
+ for(const c of targets){
+  if(c.state==='dead')continue;
+  // The jet stops at rock, so whatever lies by its points (or right at the nozzle) is in the fire.
+  const ox=c.x-p.x,oz=c.z-p.z,close=Math.hypot(ox,oz)<1.2&&ox*ax+oz*az>0;
+  if(!close&&!points.some(f=>Math.hypot(c.x-f.x,c.z-f.z)<CRAWLER.radius+.55))continue;
+  const r=scorchCrawler(c,spec.damage*dt,rng);c.scorched=.4;
+  if(r.killed)hunt.events.push({type:'killed',crawler:c,burnt:true});
+ }
+ if(cave)stepInfest(state,0,hunt.flame.points);else burnGoo(state,hunt.flame.points);
+}
 /** A nest scraped for goo: one more crawls out of it, cap or no, and the rest lose patience and close in. */
 export function rouse(hunt,state,nestKey,rng=Math.random){
  const p=state.player;if(p.cave==null||hunt.key==null)return;
@@ -126,26 +162,24 @@ export function rouse(hunt,state,nestKey,rng=Math.random){
  if(n){const c=createCrawler(n.x*CAVE_CELL,n.z*CAVE_CELL,rng);c.facing=Math.atan2(p.x-c.x,p.z-c.z);c.nest=n.key;c.state='stalk';c.patience=0;hunt.crawlers.push(c);hunt.events.push({type:'spawned',crawler:c,nest:n.key});}
  for(const c of hunt.crawlers)if(c.state==='lurk'||c.state==='stalk'){c.state='stalk';c.patience=0;}
 }
-/** Pull the trigger, aimed along the player's facing. The round is in flight for distance / bullet speed. */
+/**
+ * Pull the trigger, aimed along the player's facing. A round is in flight for distance / bullet speed; the
+ * flamethrower sprays until `release`. Underground rock stops a round; on the surface it flies its full range.
+ */
 export function fire(hunt,state){
- const p=state.player;if(p.cave==null||hunt.key==null)return {ok:false};
- const gun=gunOf(state);
- if(!fireGun(gun))return {ok:false,reason:gun.reloading?'Reloading…':gun.reserve?'':'Out of rounds. Press C to make 4 from 1 metal.'};
- const cave=caveLayout(state.seed,p.cave,p.zone??0),dir={x:Math.sin(p.facing),z:Math.cos(p.facing)};
- const from={x:p.x+dir.x*.5,z:p.z+dir.z*.5},end=shotEnd(cave,from,dir,hunt.crawlers.filter(c=>c.state!=='dead'));
+ const p=state.player,below=p.cave!=null;if(below&&hunt.key==null)return {ok:false};
+ const r=pullTrigger(state);
+ if(r.weapon&&WEAPONS[r.weapon].stream){hunt.trigger=true;return {ok:true,weapon:r.weapon};}
+ if(!r.ok)return r;
+ const cave=below?caveLayout(state.seed,p.cave,p.zone??0):null,targets=below?hunt.crawlers:(state.brood??[]),dir={x:Math.sin(p.facing),z:Math.cos(p.facing)};
+ const from={x:p.x+dir.x*.5,z:p.z+dir.z*.5},end=shotEnd(cave,from,dir,targets.filter(c=>c.state!=='dead'),r.spec);
  const distance=Math.hypot(end.x-from.x,end.z-from.z);
- const shot={t:distance/NEST.bullet,target:end.hit?.crawler??null,x:end.x,z:end.z,dir};
- hunt.shots.push(shot);hunt.events.push({type:'shot',x:end.x,z:end.z,dir,hit:!!shot.target,target:shot.target});
- return {ok:true};
+ const shot={t:distance/NEST.bullet,target:end.hit?.crawler??null,x:end.x,z:end.z,dir,damage:r.spec.damage,weapon:r.weapon};
+ hunt.shots.push(shot);hunt.events.push({type:'shot',x:end.x,z:end.z,dir,hit:!!shot.target,target:shot.target,weapon:r.weapon});
+ return {ok:true,weapon:r.weapon};
 }
-export function reload(state){const g=gunOf(state);return reloadGun(g)?{ok:true,reason:'Reloading…'}:{ok:false,reason:g.reserve?'':'No rounds left. Press C to make some from metal.'};}
-/** One metal into four rounds, from the pack. */
-export function craftRounds(state){
- const g=gunOf(state);
- if(inv.count(state.inventory,'metal')<PISTOL.cost.metal)return {ok:false,reason:'Rounds need 1 metal.'};
- inv.remove(state.inventory,'metal',PISTOL.cost.metal);g.reserve+=PISTOL.makes;
- return {ok:true,reason:`+${PISTOL.makes} rounds · ${g.mag}/${g.reserve}`};
-}
+/** Let go of the trigger: the flamethrower stops. */
+export function release(hunt){hunt.trigger=false;}
 /** Roll toward (dx, dz) in cave space. Not while held. */
 export function roll(hunt,state,dx,dz){
  if(state.player.cave==null||pinned(hunt))return false;

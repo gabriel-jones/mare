@@ -31,6 +31,11 @@
     "artifact": "Alien artifact",
     "heart": "Heart of the Deep",
     "goo": "Black goo",
-    "flare": "Flare"
+    "flare": "Flare",
+    "rounds": "Rounds",
+    "fuel": "Fuel cell",
+    "pistol": "Pistol",
+    "rifle": "Semi-auto rifle",
+    "flamethrower": "Flamethrower"
   }
 }
