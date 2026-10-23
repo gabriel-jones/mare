@@ -34,13 +34,34 @@ test('a crawler that senses the player stalks it from the dark, prefers its back
  assert.equal(c.anim,'stalk');
 });
 
-test('turning the lamp on it at close range makes it recoil and flee', () => {
- const cave=hall(10),c=createCrawler(0,5);c.state='stalk';
+test('caught in the beam it darts sideways out of the light rather than fleeing', () => {
+ const cave=hall(10),c=createCrawler(0,8);c.state='stalk';
+ const env={cave,player:{x:0,z:0,facing:0,lamp:true}};
+ const events=run(c,env,.1);
+ assert.ok(!events.some(e=>e.type==='recoil'),'a glance does not drive it off');
+ assert.equal(c.state,'evade');assert.equal(c.anim,'skitter');
+ run(c,env,CRAWLER.evadeTime);
+ assert.ok(Math.abs(c.x)>2,`off the beam's line, at x ${c.x.toFixed(1)}`);
+});
+
+test('only a long burn in the beam makes it recoil and flee', () => {
+ const cave=hall(10),c=createCrawler(0,8);Object.assign(c,{state:'stalk',burn:.99,evadeCool:9});
  const env={cave,player:{x:0,z:0,facing:0,lamp:true}};
  const events=run(c,env,.1);
  assert.ok(events.some(e=>e.type==='recoil'));assert.equal(c.state,'recoil');assert.equal(c.anim,'recoil');
  run(c,env,CRAWLER.recoilTime+.6);assert.equal(c.state,'flee');assert.equal(c.anim,'skitter');
- assert.ok(Math.hypot(c.x,c.z)>5.5,'runs away from the light');
+ assert.ok(Math.hypot(c.x,c.z)>8.5,'runs away from the light');
+});
+
+test('pinned in the beam up close, or shot, it turns on the player', () => {
+ const cave=hall(10),env={cave,player:{x:0,z:0,facing:0,lamp:true}};
+ const c=createCrawler(0,4);Object.assign(c,{state:'stalk',burn:.5});
+ const events=run(c,env,.05);
+ assert.ok(events.some(e=>e.type==='shriek'&&e.quick));assert.equal(c.state,'shriek');assert.equal(c.tell,CRAWLER.quickShriek);
+ const shot=createCrawler(0,-5);shot.state='stalk';shot.patience=9;
+ hurtCrawler(shot,PISTOL.damage);assert.equal(shot.state,'hit');
+ run(shot,env,CRAWLER.hitTime+.05);
+ assert.ok(shot.state==='shriek'||(shot.state==='evade'&&shot.patience===0),`answers the shot: ${shot.state}`);
 });
 
 test('when patience runs out it rears and shrieks, then lunges where the player stood', () => {

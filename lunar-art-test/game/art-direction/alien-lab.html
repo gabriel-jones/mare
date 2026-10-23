@@ -155,7 +155,7 @@ const aimMarker=new THREE.Mesh(new THREE.RingGeometry(.18,.24,24).rotateX(-Math.
 
 const rand=Math.random;
 let wispClock=0;
-let crawler,gun,dodge,health,hurtPause,lampShort,metal,flareStock,blackout=0,watch=!params.has('play'),hurtFlash=0,flicker=0,shakeT=0,tracerT=0;
+let crawler,gun,dodge,health,hurtPause,lampShort,metal,flareStock,stutter=0,blackout=0,watch=!params.has('play'),hurtFlash=0,flicker=0,shakeT=0,tracerT=0;
 const aim={x:0,z:1};let mouse={x:innerWidth/2,y:innerHeight/2};const keys=new Set();
 function spawnAt(x,z){crawler=createCrawler(x,z,rand);crawler.facing=Math.atan2(state.player.x-x,state.player.z-z);beast.reset();}
 function farRoom(){const p=state.player;let best=cave.rooms[0];for(const r of cave.rooms){const d=Math.hypot(r.x*2-p.x,r.z*2-p.z);if(d>16&&d<26&&walkable(cave,r.x*2,r.z*2))return r;if(Math.hypot(best.x*2-p.x,best.z*2-p.z)<d)best=r;}return best;}
@@ -306,10 +306,17 @@ function updateHunt(dt){
  view.update(state,dt);
  flicker=Math.max(0,flicker-dt);
  if(!lampOn){view.sight.uFlicker.value=lampShort<.8&&Math.random()<.4?.6:.02;}
- else if(flicker>0)view.sight.uFlicker.value=Math.random()<.4?.1+Math.random()*.3:1;
- // The lamp falters as it closes; the dark pool around it swallows the rock.
- view.sight.uVoid.value.set(crawler.x,crawler.z,.85*alive);
- view.sight.uFlicker.value*=1-.5*alive*Math.max(0,Math.min(1,1-(near-2)/6));
+ else if(flicker>0)view.sight.uFlicker.value=Math.random()<.4?.35+Math.random()*.3:1;
+ // The lamp stutters harder the closer it gets but never quite dies, so you can still see it on you; its dark pool
+ // thins up close for the same reason.
+ const closeness=alive*Math.max(0,Math.min(1,1-(near-1.5)/7)),onYou=s==='grab'?1:0;
+ if(lampOn){
+  if(Math.random()<dt*(26*closeness*closeness+12*onYou))stutter=.03+Math.random()*.08;
+  stutter-=dt;
+  const level=stutter>0?.4+Math.random()*.25:1-.25*closeness;
+  view.sight.uFlicker.value=Math.max(.4,Math.min(view.sight.uFlicker.value,level));
+ }
+ view.sight.uVoid.value.set(crawler.x,crawler.z,alive*(.85-.55*Math.max(closeness,onYou)));
  headlamp.intensity=lampOn?145*view.sight.uFlicker.value:0;suitFill.intensity=lampOn?9:2;
  tracerT=Math.max(0,tracerT-dt);tracer.material.opacity=tracerT/.08;flash.material.opacity=Math.max(0,flash.material.opacity-dt*14);
  aimMarker.visible=!watch;

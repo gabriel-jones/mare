@@ -9,7 +9,7 @@ import {SIGHT_PARS} from './cave-view.js';
  */
 const LEGS=8,FEMUR=1.15,TIBIA=1,META=.55;
 const SIDE_ANGLES=[.5,1.2,1.95,2.6];
-const REST_HEIGHT={idle:1.05,lurk:1.05,stalk:.78,close:.7,skitter:1,flee:1.05,recover:.9,slash:1.2,recoil:1.4,hit:1,shriek:2.15,lunge:.62,grab:1.84,dead:.3};
+const REST_HEIGHT={idle:1.05,lurk:1.05,stalk:.78,close:.7,skitter:1,evade:.72,flee:1.05,recover:.9,slash:1.2,recoil:1.4,hit:1,shriek:2.15,lunge:.62,grab:1.84,dead:.3};
 const OPEN={shriek:1,lunge:.85,grab:1,slash:.5};
 
 const legInfo=[...Array(LEGS)].map((_,i)=>{
@@ -151,7 +151,7 @@ export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=n
  const splat=(x,z,r,life=8)=>{const s=splatState[nextSplat];nextSplat=(nextSplat+1)%SPLATS;Object.assign(s,{x,z,r,age:0,life});};
  const drip=(p,size=.02+Math.random()*.02)=>{const d=dropState[nextDrop];nextDrop=(nextDrop+1)%DROPS;d.p.copy(p);d.v.set((Math.random()-.5)*.2,-.2,(Math.random()-.5)*.2);d.alive=true;d.size=size;};
 
- const pos=new THREE.Vector3(),vel=new THREE.Vector3(),last=new THREE.Vector3(),pose={height:1.05,pitch:0,roll:0,open:0,yaw:0};let started=false,clock=0,stretch=0,go=true,goT=0,aftershock=0;
+ const pos=new THREE.Vector3(),vel=new THREE.Vector3(),last=new THREE.Vector3(),pose={height:1.05,pitch:0,roll:0,open:0,yaw:0};let started=false,clock=0,stretch=0,lastState='idle',go=true,goT=0,aftershock=0;
  const jerk={t:0,want:{yaw:0,pitch:0,roll:0,y:0,open:0},now:{yaw:0,pitch:0,roll:0,y:0,open:0}};
  const m4=new THREE.Matrix4(),q=new THREE.Quaternion(),up=new THREE.Vector3(0,1,0),tmp=new THREE.Vector3(),tmp2=new THREE.Vector3(),dummy=new THREE.Object3D();
  const toParent=(local,out)=>out.copy(local).applyMatrix4(body.matrix);
@@ -198,8 +198,12 @@ export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=n
   let tx=c.x,tz=c.z;
   if(state==='grab'){const gnaw=.03*Math.sin(clock*11);tx=player.x+toCrawler.x*(.3+gnaw);tz=player.z+toCrawler.y*(.3+gnaw);}
   if(!started){started=true;pos.set(tx,0,tz);last.copy(pos);pose.yaw=c.facing;body.position.set(tx,REST_HEIGHT.idle,tz);body.updateMatrix();legs.forEach(l=>{home(l,l.foot);});}
+  // A shot knocks it back hard: the body is thrown away from the player and wrenched off balance.
+  if(state==='hit'&&lastState!=='hit'){pos.x+=toCrawler.x*.45;pos.z+=toCrawler.y*.45;jerk.t=.12;Object.assign(jerk.want,{yaw:(Math.random()-.5)*.9,pitch:-.6,roll:(Math.random()-.5)*1.1,y:.18,open:.8});jerk.now.y=.12;
+   for(let i=0;i<6;i++)drip(body.position.clone().add(new THREE.Vector3((Math.random()-.5)*.3,0,(Math.random()-.5)*.3)),.015+Math.random()*.02);}
+  lastState=state;
   // Stop-start: it freezes, then darts to catch up, like a spider crossing a floor.
-  const fast=state==='skitter'||state==='flee';
+  const fast=state==='skitter'||state==='flee'||state==='evade';
   goT-=dt;if(goT<=0){go=!go;goT=go?(fast?.05+Math.random()*.09:.07+Math.random()*.14):(fast?.03+Math.random()*.07:.08+Math.random()*.32);}
   const glide=state==='lunge'?30:state==='grab'?14:dead?6:go?24:.6;
   const k=1-Math.exp(-dt*glide);pos.x+=(tx-pos.x)*k;pos.z+=(tz-pos.z)*k;
@@ -244,8 +248,9 @@ export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=n
    if(state==='lunge'&&front&&c.t<.4)return local(new THREE.Vector3(s*(j?.9:.45),-.2,1.5));
    if(state==='grab'&&c.t>.04*(j*2+(s>0?1:0))){
     // Wrapped round the torso: front legs reach round to the chest, rear legs clamp the thighs; needles curl along the body and squeeze.
-    const back=Math.atan2(toCrawler.x,toCrawler.y),around=back-s*(2.5-j*.5),h=1.5-j*.28;
-    const squeeze=.36+.025*Math.sin(clock*9+i*1.7);
+    // Front legs lock round the back of the helmet until their tips nearly meet; the rest clamp the neck and chest.
+    const back=Math.atan2(toCrawler.x,toCrawler.y),around=back-s*[2.95,2.45,2.55,1.9][j],h=[1.92,1.68,1.42,1.12][j];
+    const squeeze=[.31,.33,.37,.39][j]+.02*Math.sin(clock*9+i*1.7);
     const foot=new THREE.Vector3(player.x+Math.sin(around)*squeeze,h,player.z+Math.cos(around)*squeeze);
     const behind=around+s*.95;leg.wrapAnkle=new THREE.Vector3(player.x+Math.sin(behind)*(squeeze+.12),h+.1,player.z+Math.cos(behind)*(squeeze+.12));
     leg.wrapPole=new THREE.Vector3(Math.sin(behind),.5,Math.cos(behind));
