@@ -2,14 +2,17 @@ import * as THREE from 'three';
 import { surfaceHeightAt as heightAt, missionSite, iceAt } from './terrain.js';
 import { REGOLITH_PER_CELL } from './production.js';
 import { objective } from './mission.js';
+import { encounterTrail } from './encounter.js';
+import { createInfestationMaterials } from './infestation.js';
 
-// Presentation for the crater mission: the derelict lander, the tracks around it, the crater's
-// ice, the objective waypoint and the watcher on the rim.
+// Presentation for the crater mission: the derelict lander (clawed open and webbed in silk), the trail the
+// crawler left from it to the caves, the crater's ice and the objective waypoint.
 export function createExpeditionView(scene, models, itemModels = null) {
   const root = new THREE.Group(); scene.add(root);
   const geometries = [], materials = [];
   const own = (list, item) => { list.push(item); return item; };
   const site = missionSite(), dummy = new THREE.Object3D();
+  const kit = createInfestationMaterials();
   let seed = null;
 
   // Lander, tilted where it came down. The core node hides once salvaged.
@@ -17,25 +20,46 @@ export function createExpeditionView(scene, models, itemModels = null) {
   const template = models.get('lander');
   if (template) {
     lander = template.clone(true);
-    lander.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } if (o.name.replace(/\.?\d{3}$/, '') === 'Core') core = o; });
+    lander.traverse(o => {
+      if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
+      if (o.name.replace(/\.?\d{3}$/, '') === 'Core') core = o;
+      // The webbing is the caves' own silk and torn gauze.
+      if (o.isMesh && /silk|gauze/i.test(o.material?.name ?? '')) { o.material = /gauze/i.test(o.material.name) ? kit.byRole.Gauze : kit.byRole.Silk; o.castShadow = false; o.renderOrder = 2; }
+    });
     if (core && itemModels) core = itemModels.replace(lander, core, 'core', .56);
     lander.rotation.y = site.lander.angle; root.add(lander);
   }
   const coreLight = new THREE.PointLight('#7fdcff', 0, 6, 2); root.add(coreLight);
 
-  // Three-toed prints, not boots: a trail from the lander up and over the east rim.
-  const toeGeo = own(geometries, new THREE.PlaneGeometry(.07, .5)); toeGeo.rotateX(-Math.PI / 2); toeGeo.translate(0, 0, -.25);
-  const printMat = own(materials, new THREE.MeshBasicMaterial({ color: '#1d1b20', transparent: true, opacity: .55, depthWrite: false }));
-  const route = [[site.lander.x + 2, site.lander.z + 1.2], [site.lander.x + 4.5, site.lander.z - 1.5], [site.x + 5, site.z - 4], [site.x + 9, site.z - 2], [site.x + site.radius + 4, site.z + 2]];
-  const prints = [];
-  for (let i = 0; i < route.length - 1; i++) {
-    const [ax, az] = route[i], [bx, bz] = route[i + 1], length = Math.hypot(bx - ax, bz - az), heading = Math.atan2(bx - ax, bz - az);
-    for (let d = 0; d < length; d += 1.15) {
-      const t = d / length, side = prints.length % 2 ? .28 : -.28;
-      prints.push({ x: ax + (bx - ax) * t + Math.cos(heading) * side, z: az + (bz - az) * t - Math.sin(heading) * side, heading });
+  // The crawler's trail from the lander to the caves: leg-tip pocks either side of its line, and a thread of silk
+  // dragged along behind it. Laid out per seed in place().
+  const pockGeo = own(geometries, new THREE.CircleGeometry(.07, 6)); pockGeo.rotateX(-Math.PI / 2);
+  const pockMat = own(materials, new THREE.MeshBasicMaterial({ color: '#141216', transparent: true, opacity: .6, depthWrite: false }));
+  const POCKS = 900, pocks = new THREE.InstancedMesh(pockGeo, pockMat, POCKS); pocks.renderOrder = 2; pocks.count = 0; root.add(pocks);
+  let thread = null;
+  function layTrail() {
+    const trail = encounterTrail(seed), rand = (i, k) => Math.abs(Math.sin(i * 12.9898 + k * 78.233) * 43758.5453) % 1;
+    let n = 0;
+    const along = [];
+    for (let i = 0; i < trail.length - 1; i++) {
+      const [ax, az] = trail[i], [bx, bz] = trail[i + 1], len = Math.hypot(bx - ax, bz - az), ux = (bx - ax) / len, uz = (bz - az) / len;
+      for (let d = 0; d < len; d += .34) along.push([ax + ux * d, az + uz * d, ux, uz]);
     }
+    along.forEach(([x, z, ux, uz], i) => {
+      // Eight legs: the tips land in a loose band either side, the outer pairs widest.
+      for (const side of [-1, 1]) {
+        if (n >= POCKS || rand(i, side) < .25) continue;
+        const spread = side * (.45 + rand(i, side + 3) * .5), fwd = (rand(i, side + 5) - .5) * .3;
+        const px = x - uz * spread + ux * fwd, pz = z + ux * spread + uz * fwd, size = .7 + rand(i, side + 7) * .6;
+        dummy.position.set(px, heightAt(seed, px, pz) + .03, pz); dummy.rotation.set(0, rand(i, 9) * 6.28, 0); dummy.scale.set(size, 1, size * (1.2 + rand(i, 11) * .6));
+        dummy.updateMatrix(); pocks.setMatrixAt(n++, dummy.matrix);
+      }
+    });
+    pocks.count = n; pocks.instanceMatrix.needsUpdate = true;
+    if (thread) { root.remove(thread); thread.geometry.dispose(); }
+    const pts = along.filter((_, i) => i % 3 === 0).map(([x, z, ux, uz], i) => { const w = Math.sin(i * .9) * .18; return new THREE.Vector3(x - uz * w, heightAt(seed, x - uz * w, z + ux * w) + .04, z + ux * w); });
+    thread = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), pts.length * 3, .022, 4), kit.byRole.Silk); thread.renderOrder = 2; root.add(thread);
   }
-  const toes = new THREE.InstancedMesh(toeGeo, printMat, prints.length * 3); toes.renderOrder = 2; root.add(toes);
 
   // Ice: pale patches on the shadowed floor that shrink as the rover digs them out.
   const iceMat = own(materials, new THREE.MeshStandardMaterial({ color: '#8ea9ba', roughness: .42, metalness: .1, emissive: '#2b5a75', emissiveIntensity: .16, polygonOffset: true, polygonOffsetFactor: -3 }));
@@ -55,30 +79,11 @@ export function createExpeditionView(scene, models, itemModels = null) {
   const chevron = new THREE.Mesh(chevronGeo, own(materials, new THREE.MeshBasicMaterial({ color: '#7fe3ff', transparent: true, opacity: .85, depthWrite: false, depthTest: false, side: THREE.DoubleSide })));
   chevron.renderOrder = 4; root.add(chevron);
 
-  // The watcher: tall, thin and dark, with long arms. Fades in and out; never moves.
-  const shade = own(materials, new THREE.MeshStandardMaterial({ color: '#060708', roughness: .95, transparent: true, opacity: 0 }));
-  const glint = own(materials, new THREE.MeshBasicMaterial({ color: '#d9e4cf', transparent: true, opacity: 0 }));
-  const figure = new THREE.Group(); figure.visible = false; root.add(figure);
-  const limb = (r, length, x, y, z, rx = 0, rz = 0, mat = shade) => { const m = new THREE.Mesh(own(geometries, new THREE.CapsuleGeometry(r, length, 3, 6)), mat); m.position.set(x, y, z); m.rotation.set(rx, 0, rz); figure.add(m); return m; };
-  limb(.17, .95, 0, 1.75, -.05, .18);
-  const head = limb(.13, .22, 0, 2.5, .12, .5); head.scale.set(.9, 1, 1.25);
-  limb(.05, 1.25, -.3, 1.35, .05, -.12, .09); limb(.05, 1.25, .3, 1.35, .05, -.12, -.09);
-  limb(.045, .35, -.34, .58, .14, .5, .1); limb(.045, .35, .34, .58, .14, .5, -.1);
-  limb(.07, .62, -.12, .78, -.02, -.25); limb(.07, .62, .12, .78, -.02, -.25);
-  limb(.06, .55, -.12, .26, .05, .35); limb(.06, .55, .12, .26, .05, .35);
-  for (const x of [-.05, .05]) { const eye = new THREE.Mesh(own(geometries, new THREE.SphereGeometry(.018, 6, 4)), glint); eye.position.set(x, 2.52, .27); figure.add(eye); }
-
   function place(state) {
     seed = state.seed;
     if (lander) lander.position.set(site.lander.x, heightAt(seed, site.lander.x, site.lander.z) - .05, site.lander.z);
     coreLight.position.set(site.lander.x + Math.sin(site.lander.angle) * .2, heightAt(seed, site.lander.x, site.lander.z) + 1.4, site.lander.z + 1.2);
-    prints.forEach((p, i) => {
-      for (let k = 0; k < 3; k++) {
-        dummy.position.set(p.x, heightAt(seed, p.x, p.z) + .03, p.z); dummy.rotation.set(0, p.heading + (k - 1) * .42, 0); dummy.scale.set(1, 1, k === 1 ? 1.15 : .85);
-        dummy.updateMatrix(); toes.setMatrixAt(i * 3 + k, dummy.matrix);
-      }
-    });
-    toes.instanceMatrix.needsUpdate = true;
+    layTrail();
   }
   function updateIce(state) {
     const key = iceCells.map(c => Math.round(state.mined?.[c.key] ?? 0)).join(',');
@@ -92,7 +97,7 @@ export function createExpeditionView(scene, models, itemModels = null) {
     ice.instanceMatrix.needsUpdate = true;
   }
   let time = 0;
-  function update(state, dt, watcher) {
+  function update(state, dt) {
     time += dt;
     if (seed !== state.seed) { place(state); iceKey = ''; }
     updateIce(state);
@@ -112,16 +117,9 @@ export function createExpeditionView(scene, models, itemModels = null) {
       const heading = Math.atan2(dx, dz), x = state.player.x + Math.sin(heading) * 1.9, z = state.player.z + Math.cos(heading) * 1.9;
       chevron.position.set(x, heightAt(seed, x, z) + .15, z); chevron.rotation.y = heading;
     }
-    const f = surface ? watcher?.figure : null;
-    figure.visible = !!f && f.fade > 0;
-    if (figure.visible) {
-      figure.position.set(f.x, heightAt(seed, f.x, f.z), f.z); figure.rotation.y = f.facing;
-      shade.opacity = .95 * f.fade; glint.opacity = .85 * f.fade;
-      shade.transparent = f.fade < 1;
-    }
   }
   return {
     update,
-    dispose() { scene.remove(root); geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); },
+    dispose() { scene.remove(root); thread?.geometry.dispose(); kit.dispose(); geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); },
   };
 }

@@ -79,7 +79,7 @@ test('modular habitat kit exports every piece at the origin and the corner belt 
  assert.ok(triangles(glb('conveyor-corner').json)<=500,'conveyor corner triangles');
 });
 test('expedition assets keep the salvageable core and the melter heater as separate nodes',()=>{
- for(const [name,parts,budget] of [['lander',['Lander','Core'],1200],['melter',['Melter','Heater'],1300]]){
+ for(const [name,parts,budget] of [['lander',['Lander','Core','Silk'],3600],['melter',['Melter','Heater'],1300]]){
   const {json:d}=glb(name),names=d.nodes.map(n=>n.name.replace(/\.\d+$/,''));
   for(const part of parts)assert.ok(names.includes(part),`${name}: ${part} node`);
   assert.ok(!d.nodes.some(n=>/Camera|Light|Plane/.test(n.name||'')),'no preview objects');

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>First encounter · crash site</title>
+<!-- The real game world on a throwaway colony held in memory: it never reads or writes the save. -->
+<base href="../">
+<link rel="stylesheet" href="./game.css">
+<style>body{margin:0;overflow:hidden;background:#000}#game{position:fixed;inset:0;width:100vw;height:100vh;display:block}
+.note{position:fixed;left:12px;top:10px;z-index:9;font:12px ui-monospace,Menlo,monospace;color:#cfd6e0;background:rgba(0,0,0,.6);padding:7px 10px;border-radius:5px;white-space:pre}
+.note button{font:inherit;color:#d8d2c8;background:#1a1820;border:1px solid #3a3238;border-radius:4px;padding:3px 8px;margin:4px 4px 0 0;cursor:pointer}</style>
+<script type="importmap">{"imports":{"three":"../node_modules/three/build/three.module.js","three/addons/":"../node_modules/three/examples/jsm/"}}</script>
+</head><body><canvas id="game" tabindex="0"></canvas>
+<div class="note"><span id="note">loading…</span><br><button id="replay">Replay</button><button id="night">Night</button><button id="day">Day</button></div>
+<script type="module">
+import {createWorld} from './world.js';
+import {createState,DEFS} from './sim.js';
+import {movePlayer,resetLocomotion,interpolatePose} from './controller.js';
+import {missionSite} from './terrain.js';
+import {createEncounter,stepEncounter,ENCOUNTER_SAY} from './encounter.js';
+
+const site=missionSite(),state=createState(1847);state.mission.step=3;state.time=40;
+const START={x:site.lander.x-24,z:site.lander.z+3};
+function reset(){Object.assign(state.player,{x:START.x,z:START.z,facing:Math.PI/2,cave:null});state.mission.met=false;state.mission.visited=false;resetLocomotion(state.player);Object.assign(encounter,createEncounter());}
+const canvas=document.getElementById('game'),world=await createWorld(canvas,state),keys=new Set(),encounter=createEncounter();
+reset();
+let previous={...state.player},accumulator=0,last=performance.now(),said='';
+addEventListener('keydown',e=>keys.add(e.key.toLowerCase()));addEventListener('keyup',e=>keys.delete(e.key.toLowerCase()));
+function fixed(dt){
+ const p=state.player,dx=(keys.has('d')?1:0)-(keys.has('a')?1:0),dz=(keys.has('s')?1:0)-(keys.has('w')?1:0);
+ previous={...p};movePlayer(state,dx,dz,dt,DEFS);p.animation=p.speed>.1?'run':'idle';
+}
+function render(dt){
+ if(stepEncounter(encounter,state,dt)==='fled')said=ENCOUNTER_SAY;
+ world.update(state,dt,interpolatePose(previous,state.player,accumulator/(1/30)),encounter,null);
+ const c=encounter.crawler,d=c?Math.hypot(c.x-state.player.x,c.z-state.player.z):0;
+ document.getElementById('note').textContent=`phase ${encounter.phase??'—'}${c?` · ${c.state} · ${d.toFixed(1)} m`:''} · met ${state.mission.met}\nWASD to walk toward the lander (east)${said?`\nShip AI: ${said}`:''}`;
+}
+function frame(now){const dt=window.harness.paused?0:Math.min((now-last)/1000,.1);last=now;accumulator+=dt;while(accumulator>=1/30){fixed(1/30);accumulator-=1/30;}render(dt);requestAnimationFrame(frame);}
+document.getElementById('replay').onclick=()=>{reset();said='';};
+document.getElementById('night').onclick=()=>{state.time=160;};document.getElementById('day').onclick=()=>{state.time=40;};
+window.harness={state,world,encounter,keys,paused:false,reset,
+ walk(x,z){Object.assign(state.player,{x,z});resetLocomotion(state.player);previous={...state.player};},
+ zoom(z){world.camera.zoom=z;world.camera.updateProjectionMatrix();},
+ advance(seconds){for(let t=0;t<seconds-1e-6;t+=1/30){fixed(1/30);previous={...state.player};render(1/30);}}};
+requestAnimationFrame(frame);
+</script></body></html>

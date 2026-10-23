@@ -21,6 +21,7 @@ import { createAstronaut } from './actor.js';
 import { createCombatView } from './combat-view.js';
 import { createHeadlamp } from './headlamp.js';
 import { createCrawlerView } from './crawler-view.js';
+import { landerBay } from './encounter.js';
 import { createFlareView } from './flare-view.js';
 import { createGooView } from './goo-view.js';
 import { FLARE } from './peril.js';
@@ -317,7 +318,17 @@ export async function createWorld(canvas, initialState) {
   function resize(){const r=canvas.getBoundingClientRect(),width=Math.max(1,r.width),height=Math.max(1,r.height);renderer.setSize(width,height,false);const aspect=width/height;camera.left=-viewHeight*aspect/2;camera.right=viewHeight*aspect/2;camera.top=viewHeight/2;camera.bottom=-viewHeight/2;camera.updateProjectionMatrix();}
   function zoom(e){e.preventDefault();viewHeight=THREE.MathUtils.clamp(viewHeight*Math.exp(e.deltaY*.001),20,180);resize();}
   canvas.addEventListener('wheel',zoom,{passive:false});
-  const expedition=createExpeditionView(scene,models,itemModels);let watcherState=null;
+  const expedition=createExpeditionView(scene,models,itemModels);let encounterState=null;
+  // The crawler at the crash site: full size, on the crater floor under it. It claws at the lander's bay while prying.
+  const meetHolder=new THREE.Group();scene.add(meetHolder);let meetView=null,meetCrawler=null;
+  const bay=landerBay(),pryAt={x:bay.x,z:bay.z};
+  function updateEncounter(dt,underground){
+    const c=underground?null:encounterState?.crawler??null;
+    if(c!==meetCrawler){meetView?.dispose();meetView=c&&crawlerGLTF?createCrawlerView(crawlerGLTF,meetHolder,{mode:'studio'}):null;meetCrawler=c;}
+    if(!meetView)return;
+    meetHolder.position.y=heightAt(state.seed,c.x,c.z);
+    meetView.update(c,dt,{player:encounterState.phase==='pry'?pryAt:state.player});
+  }
   const aimPlane=new THREE.Plane(new THREE.Vector3(0,1,0),0);
   /** The cave-local floor point under the cursor, or null on the surface. */
   function aim(clientX,clientY){
@@ -328,8 +339,8 @@ export async function createWorld(canvas, initialState) {
     aimPlane.constant=-caveView.root.position.y;if(!raycaster.ray.intersectPlane(aimPlane,hit))return null;
     const local=caveView.root.worldToLocal(hit.clone());combat?.setAim(local);return {x:local.x,z:local.z};
   }
-  function update(next,dt,renderPose=next.player,watcher=null,hunt=null){
-    state=next;watcherState=watcher;
+  function update(next,dt,renderPose=next.player,encounter=null,hunt=null){
+    state=next;encounterState=encounter;
     if(lastSeed!==state.seed){terrainView.dispose();terrainView=createTerrainView(state.seed,terrainRoot,models);lastSeed=state.seed;drapeGrid();caveViews.forEach(v=>v.dispose());caveViews.clear();caveView=null;activeCave=null;}
     terrainView.update(state.buildings,footprint,state.player);
     const underground=state.player.cave!=null;
@@ -406,13 +417,14 @@ export async function createWorld(canvas, initialState) {
       if(o.emits){const powered=b.built&&state.power.powered!==false;o.ownedMaterials.forEach(m=>{m.emissiveIntensity=b.built?(m.userData.baseEmission||0)*(powered?1:0):.85;});}
       if(o.heater&&b.built){const glow=melterReady(state,b)&&state.power.powered!==false?1:0;o.heater.traverse(n=>{if(n.isMesh)n.material.emissiveIntensity=(n.material.userData.baseEmission||0)*glow;});}
     }
-    expedition.update(state,dt,watcherState);
+    expedition.update(state,dt);updateEncounter(dt,underground);
     lampClock+=dt;lamps.update(lampClock,daylight);
     updateLights(daylight);
     productionView.update(state,dt,daylight);
     updateShip(dt);
     follow.set(player.position.x,player.position.y+1.05,player.position.z);
     if(hunting&&combat.shake){follow.x+=(Math.random()-.5)*combat.shake;follow.z+=(Math.random()-.5)*combat.shake;}
+    if(encounterState?.phase==='shriek'){const k=.12*Math.max(0,1-encounterState.t);follow.x+=(Math.random()-.5)*k;follow.z+=(Math.random()-.5)*k;}
     const cameraDistance=4;camera.position.set(follow.x+26*cameraDistance,follow.y+34*cameraDistance,follow.z+26*cameraDistance);camera.lookAt(follow);camera.updateMatrixWorld();
     updateSurfaceHunt(dt,underground);
     if(underground){caveView.update(state,dt);if(hunting)combat.light(state,hunt,dt);}else updateStatuses();
@@ -427,7 +439,7 @@ export async function createWorld(canvas, initialState) {
     renderer.compileAsync(view.root,camera,scene).catch(()=>{});view.root.visible=false;
     caveViews.set(key,view);return view;
   }
-  function dispose(){disposed=true;headlamp.dispose();gooView.dispose();broodViews.forEach(v=>v.dispose());surfaceFx.removeFromParent();lamps.dispose();caveViews.forEach(v=>v.dispose());vignette.remove();expedition.dispose();productionView.dispose();habitatView.dispose();statusLayer.remove();terrainView.dispose();grid.geometry.dispose();grid.material.dispose();combat?.dispose();actor?.dispose();reflection.dispose();canvas.removeEventListener('wheel',zoom);for(const o of structures.values()){o.ownedMaterials?.forEach(m=>m.dispose());scene.remove(o.ports);}geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());itemModels?.dispose();renderer.dispose();}
+  function dispose(){disposed=true;headlamp.dispose();meetView?.dispose();gooView.dispose();broodViews.forEach(v=>v.dispose());surfaceFx.removeFromParent();lamps.dispose();caveViews.forEach(v=>v.dispose());vignette.remove();expedition.dispose();productionView.dispose();habitatView.dispose();statusLayer.remove();terrainView.dispose();grid.geometry.dispose();grid.material.dispose();combat?.dispose();actor?.dispose();reflection.dispose();canvas.removeEventListener('wheel',zoom);for(const o of structures.values()){o.ownedMaterials?.forEach(m=>m.dispose());scene.remove(o.ports);}geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());itemModels?.dispose();renderer.dispose();}
   resize();update(initialState,1);
   return {renderer,scene,camera,actor,update,pick,aim,setGhost,clearGhost,resize,dispose};
 }

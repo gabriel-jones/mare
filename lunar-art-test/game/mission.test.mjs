@@ -4,7 +4,7 @@ import { createState, placeBlueprint, validatePlacement, tick, serialize, deseri
 import { ensureBuildingState, miningCells } from './production.js';
 import { count, createInventory, add } from './inventory.js';
 import { STEPS, SHIP, objective, missionAction, salvage, installCore, processorUnlocked } from './mission.js';
-import { createWatcher, stepWatcher } from './watcher.js';
+import { createEncounter, stepEncounter, encounterTrail, ENCOUNTER } from './encounter.js';
 import { missionSite, iceAt, terrainBlocked } from './terrain.js';
 import { ports } from './defs.js';
 
@@ -95,22 +95,22 @@ test('ice sits in the shadowed middle of the crater and the lander blocks walkin
   assert.match(validatePlacement(createState(), 'storage', Math.round(site.lander.x / 2), Math.round(site.lander.z / 2)).reason, /lander|steep|uneven/);
 });
 
-test('the watcher only shows on the rim once the crater mission starts, and slips away when approached', () => {
-  const s = createState(), w = createWatcher();
-  // Standing on the west rim, looking away from the crater.
-  s.player = { ...s.player, x: site.x - site.radius - 2, z: site.z, facing: -Math.PI / 2, speed: 0 };
-  for (let i = 0; i < 400; i++) stepWatcher(w, s, 0.1, () => 0.5);
-  assert.equal(w.figure, null, 'nothing before the crater mission');
-  s.mission.step = 3; w.cooldown = 0;
-  let r = 0; const random = () => (r = (r * 9301 + 49297) % 233280) / 233280;
-  for (let i = 0; i < 60 && !w.figure; i++) stepWatcher(w, s, 0.1, random);
-  assert.ok(w.figure, 'appears');
-  const f = w.figure, d = Math.hypot(f.x - s.player.x, f.z - s.player.z);
-  assert.ok(d >= 15 && d <= 26, `at a distance (${d.toFixed(1)} m)`);
-  s.player.x = f.x - 5; s.player.z = f.z;
-  assert.equal(stepWatcher(w, s, 0.1, random), 'vanished');
-  for (let i = 0; i < 10; i++) stepWatcher(w, s, 0.1, random);
-  assert.equal(w.figure, null);
+test('a crawler at the lander shrieks when the player comes close, flees to a cave once, and is remembered', () => {
+  const s = createState(), e = createEncounter(), trail = encounterTrail(s.seed);
+  s.player = { ...s.player, x: 0, z: 8 };
+  for (let i = 0; i < 50; i++) assert.equal(stepEncounter(e, s, .1), null);
+  assert.equal(e.phase, 'pry', 'still prying while the player is far away');
+  const c = e.crawler;
+  s.player.x = c.x - ENCOUNTER.notice + 2; s.player.z = c.z;
+  const events = [];
+  for (let i = 0; i < 400 && !s.mission.met; i++) { const r = stepEncounter(e, s, .05); if (r) events.push(r); }
+  assert.deepEqual(events, ['shriek', 'fled']);
+  assert.ok(Math.hypot(c.x - trail.at(-1)[0], c.z - trail.at(-1)[1]) < ENCOUNTER.gone + .5, 'gone into the cave mouth');
+  assert.equal(e.crawler, null);
+  stepEncounter(e, s, .1); assert.equal(e.crawler, null, 'only once');
+  const back = deserialize(serialize(s)); assert.equal(back.mission.met, true);
+  const old = JSON.parse(serialize(createState())); delete old.mission.met; old.mission.sighted = false; old.mission.visited = true;
+  assert.equal(deserialize(JSON.stringify(old)).mission.met, true, 'old saves that reached the lander skip it');
 });
 
 test('colonies saved before the crater mission keep building processors', () => {

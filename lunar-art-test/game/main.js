@@ -11,8 +11,8 @@ import {eat,lifeAction,setCrop,setRecipe} from './life.js';
 import {isGrower} from './farm.js';
 import {createWorld} from './world.js';
 import {createUI} from './ui.js';
-import {objective,missionAction,salvage,installCore,processorUnlocked,noteSighting} from './mission.js';
-import {createWatcher,stepWatcher} from './watcher.js';
+import {objective,missionAction,salvage,installCore,processorUnlocked} from './mission.js';
+import {createEncounter,stepEncounter,ENCOUNTER_SAY} from './encounter.js';
 import {shipAction,holdLaunch,releaseLaunch,loadSatellite,recallShip,selectResearch,machineAction,lockedReason} from './space.js';
 import {createOrbitView} from './orbit-view.js';
 import {createResearchView} from './research-view.js';
@@ -29,7 +29,7 @@ let state=createState(),selectedType=null,rotation=0,world,ui,selectedSlot=0;
 let placementReason='',constructionReason='',hover=null,targetId=null,constructing=false,speed=1,saveStatus='Not saved',beltPath=null,paintPath=null,erasing=null;
 let orbit=null,research=null,shipStatus='pad';
 let jumpVelocity=0,accumulator=0,last=performance.now(),uiClock=0,autoClock=0,salvageReason='';
-const watcher=createWatcher();
+const encounter=createEncounter();
 const keys=new Set();
 // Underground the astronaut aims at the cursor; the hunt itself is never saved.
 const hunt=createHunt();let aimClient=null,breaches=0;
@@ -368,8 +368,8 @@ async function start(){
    if(now-fpsSince>=500){const rate=fpsFrames*1000/(now-fpsSince);fps.textContent=`${Math.round(rate)} fps · ${fpsWorst.toFixed(0)} ms worst`;fps.dataset.level=rate>=50?'good':rate>=30?'ok':'bad';fpsFrames=0;fpsSince=now;fpsWorst=0;}
    const dt=Math.min((now-last)/1000,.1);last=now;accumulator+=dt;
    while(accumulator>=1/30){fixedUpdate(1/30);accumulator-=1/30;}
-   if(stepWatcher(watcher,state,dt)==='vanished'){const remark=noteSighting(state);if(remark)setTimeout(()=>ui.say(remark),1500);}
-   world.update(state,dt,interpolatePose(previousPose,state.player,accumulator/(1/30)),watcher,hunt);uiClock+=dt;autoClock+=dt;
+   if(stepEncounter(encounter,state,dt)==='fled')setTimeout(()=>ui.say(ENCOUNTER_SAY),600);
+   world.update(state,dt,interpolatePose(previousPose,state.player,accumulator/(1/30)),encounter,hunt);uiClock+=dt;autoClock+=dt;
    if(state.ship.status!==shipStatus){if(state.ship.status==='orbit'&&shipStatus==='ascent'){notify(`Satellites deployed. ${state.satellites} in orbit.`);orbit.show();}if(state.ship.status==='pad'&&shipStatus==='descent')notify('The Starship is back on the pad.');shipStatus=state.ship.status;}
    if((state.goo?.breaches??0)>breaches){breaches=state.goo.breaches;notify('Containment breach! The goo vat lost power.');ui.say('The vat has breached. Goo is spreading through the base and something hatched. Flares burn both: press X for flares, Q to throw.');}
    orbit.update(state,dt);research.update(state);

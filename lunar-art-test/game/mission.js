@@ -17,11 +17,11 @@ export const STEPS = Object.freeze([
   { id: 'shelter', objective: 'Paint a habitat and attach an airlock', message: "Power's flowing. You'll need somewhere to breathe and eat: paint a habitat (H) and fit an airlock to it.", done: s => has(s, 'habitat') && has(s, 'airlock') },
   { id: 'mining', objective: 'Build a hopper and mark a mining zone', message: 'Good. Now give the rover a job. Build a regolith hopper, then mark a mining zone (M).', done: s => has(s, 'hopper') && s.miningAreas.length > 0 },
   { id: 'crater', objective: 'Investigate the crater to the east', message: "Bad news. The landing cracked our processor core, so we can't refine anything. There's an old robotic lander in the crater about 60 metres east. Its core should fit. Go and take a look.", legacy: "Our processor has been running on a bypass since landing, and it won't hold. There's an old robotic lander in the crater about 60 metres east with a compatible core. Go and take a look.", target: 'lander', done: s => s.mission.visited },
-  { id: 'salvage', objective: 'Hold E at the lander to pull its core', message: "That's it. Its panels have been pried open, and not by us. The core is still seated. Hold E beside it.", target: 'lander', done: s => s.mission.salvage >= 1 },
+  { id: 'salvage', objective: 'Hold E at the lander to pull its core', message: "That's the lander. Its panels have been clawed open, and whatever did it was after the core. It's still seated. Hold E beside it.", target: 'lander', done: s => s.mission.salvage >= 1 },
   { id: 'repair', objective: 'Take the core to the Starship and press E', message: "Got it. Bring it back to the ship and I'll talk you through the install.", target: 'ship', done: s => s.mission.installed },
   { id: 'refine', objective: 'Build a regolith processor', message: 'Core installed. Refining is back online: build a regolith processor and belt the hopper into it.', done: s => has(s, 'processor') },
   { id: 'ice', objective: 'Mine crater ice and melt it into water', message: "That crater floor never sees the Sun, and it's full of water ice. Build an ice melter, then mark a mining zone on the ice. The rover carries ice straight into the melter.", target: 'ice', done: s => s.mission.melted >= 5 },
-  { id: 'fabricate', objective: 'Build a fabricator', message: "Water's flowing. One more thing: the tracks around that lander weren't from any rover I know. I'll keep watching the rim, but we need eyes in orbit. Build a fabricator from the Space menu and belt it metal and silicon. It makes satellite parts.", done: s => has(s, 'fabricator') || launched(s) },
+  { id: 'fabricate', objective: 'Build a fabricator', message: "Water's flowing. One more thing: that creature at the lander left a trail of silk all the way to the caves. I can't see it on any sensor, so we need eyes in orbit. Build a fabricator from the Space menu and belt it metal and silicon. It makes satellite parts.", done: s => has(s, 'fabricator') || launched(s) },
   { id: 'hauler', objective: 'Build a robot dock and a hauler', message: 'Belts get tangled fast. Build a robot dock and press E at it for a hauler. Haulers carry materials, parts and satellites to whatever needs them.', done: s => s.robots.some(r => r.kind === 'hauler') || launched(s) },
   { id: 'assemble', objective: 'Assemble a satellite', message: 'Now build a satellite assembler. It takes one frame, two solar wings and two compute chips per satellite.', done: satelliteMade },
   { id: 'fuel', objective: 'Fuel the Starship', message: "Our tanks are dry. Build an electrolyser to split water into hydrogen and oxygen, and a propellant tank beside the landing pad. The tank fills the ship.", target: 'ship', done: s => s.ship.fuel >= LAUNCH.fuel || launched(s) },
@@ -34,10 +34,9 @@ export const STEPS = Object.freeze([
   { id: 'reactor', objective: 'Research and build the resonance reactor', message: "Research the reactor (T); artifacts studied at the xeno lab count too. It'll want titanium and rare-earth crystals from the Hollows.", done: s => has(s, 'reactor') },
 ]);
 export const FINALE = "Reactor online: ten kilowatts straight through the lunar night. The Deep is still down there, and so is whatever carved those walls.";
-export const SIGHTING = 'Movement on the crater rim? My sensors show nothing out there. Probably nothing.';
 
 export function createMission(legacy = false) {
-  return { step: 0, visited: false, salvage: 0, installed: false, legacy, melted: 0, sighted: false };
+  return { step: 0, visited: false, salvage: 0, installed: false, legacy, melted: 0, met: false };
 }
 /** Colonies from before the crater mission keep their processors; new ones must repair the ship first. */
 export const processorUnlocked = state => !!(state.mission?.installed || state.mission?.legacy);
@@ -87,17 +86,13 @@ export function installCore(state) {
   m.installed = true;
   return { ok: true, reason: 'Processor core installed. Regolith processors can be built.' };
 }
-/** Returns the ship AI's remark the first time the player glimpses the watcher. */
-export function noteSighting(state) {
-  if (state.mission.sighted) return null;
-  state.mission.sighted = true;
-  return SIGHTING;
-}
 export function restoreMission(raw) {
   const m = createMission();
   const bool = v => typeof v === 'boolean';
-  if (!raw || !Number.isInteger(raw.step) || raw.step < 0 || raw.step > STEPS.length || !bool(raw.visited) || !bool(raw.installed) || !bool(raw.legacy) || !bool(raw.sighted)
-    || typeof raw.salvage !== 'number' || !(raw.salvage >= 0 && raw.salvage <= 1) || typeof raw.melted !== 'number' || !(raw.melted >= 0 && raw.melted < 1e9)) throw new Error('Invalid mission.');
-  for (const k of Object.keys(m)) m[k] = raw[k];
+  if (!raw || !Number.isInteger(raw.step) || raw.step < 0 || raw.step > STEPS.length || !bool(raw.visited) || !bool(raw.installed) || !bool(raw.legacy)
+    || typeof raw.salvage !== 'number' || !(raw.salvage >= 0 && raw.salvage <= 1) || typeof raw.melted !== 'number' || !(raw.melted >= 0 && raw.melted < 1e9) || (raw.met != null && !bool(raw.met))) throw new Error('Invalid mission.');
+  for (const k of Object.keys(m)) if (k !== 'met') m[k] = raw[k];
+  // Saves from before the encounter: anyone who has already been to the lander has missed it.
+  m.met = raw.met ?? (raw.visited || raw.salvage > 0);
   return m;
 }
