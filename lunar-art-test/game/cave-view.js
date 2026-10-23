@@ -9,17 +9,20 @@ const LIGHTS=8;
  * Sight underground, shared by every lit surface: a dim cold circle around the player that fades to black,
  * a warmer headlamp beam ahead, and up to LIGHTS nearby glows (crystals, vents, the shaft of daylight).
  */
-const SIGHT_PARS=`varying vec2 vCaveLocal;varying float vSeen;uniform vec2 uPlayer;uniform vec2 uFacing;uniform float uFlicker;
-uniform vec3 uGlow[${LIGHTS}];uniform vec3 uGlowColor[${LIGHTS}];
+export const SIGHT_PARS=`varying vec2 vCaveLocal;varying float vSeen;uniform vec2 uPlayer;uniform vec2 uFacing;uniform float uFlicker;
+uniform vec3 uGlow[${LIGHTS}];uniform vec3 uGlowColor[${LIGHTS}];uniform vec3 uVoid;
 float caveHash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
 float caveNoise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);return mix(mix(caveHash(i),caveHash(i+vec2(1,0)),f.x),mix(caveHash(i+vec2(0,1)),caveHash(i+vec2(1,1)),f.x),f.y);}
 float caveGrit(vec2 p){return .72+.3*caveNoise(p*.9)+.16*caveNoise(p*4.3)+.08*caveNoise(p*13.0);}
-vec3 caveSight(vec2 p){
+vec3 caveSightRaw(vec2 p){
  vec2 d=p-uPlayer;float r=length(d);
  float aura=1.0-smoothstep(1.5,${SIGHT_RADIUS.toFixed(1)},r);
  float beam=smoothstep(.52,.9,dot(d/max(.01,r),uFacing))*pow(max(0.0,1.0-r/${BEAM_RANGE.toFixed(1)}),1.4);
  return (vec3(.012,.014,.02)+vec3(.5,.58,.74)*.42*aura*aura+vec3(1.0,.93,.8)*.78*beam)*uFlicker;
 }
+/** A pool of darkness carried by something that eats light: uVoid is (x, z, strength). */
+float caveVoid(vec2 p){return 1.0-uVoid.z*(1.0-smoothstep(1.0,4.5,length(p-uVoid.xy)));}
+vec3 caveSight(vec2 p){return caveSightRaw(p)*caveVoid(p);}
 vec3 caveGlow(vec2 p){
  vec3 g=vec3(0.0);
  for(int i=0;i<${LIGHTS};i++){float d=length(p-uGlow[i].xy);g+=uGlowColor[i]*uGlow[i].z*pow(max(0.0,1.0-d/6.0),2.0);}
@@ -35,7 +38,7 @@ export const caveMemoryKey=(id,zone=0)=>zone?`${id}:${zone}`:String(id);
 export function createCaveView(seed,id,parent,zone=0){
  const angle=terrainData(seed).caves[id].angle,viewX=Math.cos(angle)-Math.sin(angle),viewZ=Math.sin(angle)+Math.cos(angle);
  const cave=caveLayout(seed,id,zone),root=new THREE.Group(),memory=caveMemoryKey(id,zone);parent.add(root);
- const sight={uPlayer:{value:new THREE.Vector2()},uFacing:{value:new THREE.Vector2(0,1)},uFlicker:{value:1},
+ const sight={uPlayer:{value:new THREE.Vector2()},uFacing:{value:new THREE.Vector2(0,1)},uFlicker:{value:1},uVoid:{value:new THREE.Vector3()},
   uGlow:{value:Array.from({length:LIGHTS},()=>new THREE.Vector3())},uGlowColor:{value:Array.from({length:LIGHTS},()=>new THREE.Color(0,0,0))}};
  const disposables=[],keep=x=>(disposables.push(x),x);
  /** Instanced surfaces lit by sight. Every instance belongs to a cave cell whose visibility it follows. */
@@ -286,5 +289,5 @@ export function createCaveView(seed,id,parent,zone=0){
   place(p);
   document.body.dataset.caveVisible=String(visible.size);document.body.dataset.caveExplored=String(seen.size);document.body.style.setProperty('--cave-depth',depth.toFixed(3));
  }
- return {root,roofMap,cave,update,dispose(){parent.remove(root);disposables.forEach(d=>d.dispose());crystals.dispose();glyphs.dispose();relics.dispose();halos.dispose();flareSticks.dispose();flareHalos.dispose();packs.dispose();groups.forEach(g=>g.mesh.dispose());}};
+ return {root,roofMap,cave,sight,update,dispose(){parent.remove(root);disposables.forEach(d=>d.dispose());crystals.dispose();glyphs.dispose();relics.dispose();halos.dispose();flareSticks.dispose();flareHalos.dispose();packs.dispose();groups.forEach(g=>g.mesh.dispose());}};
 }

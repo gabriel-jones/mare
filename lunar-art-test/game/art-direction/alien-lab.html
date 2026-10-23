@@ -1,0 +1,393 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Crawler lab</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#06090f;font:13px/1.35 ui-sans-serif,system-ui,-apple-system,sans-serif;color:#d6dde8;user-select:none}
+canvas#lab{position:fixed;inset:0;width:100%;height:100%;outline:none;cursor:crosshair}
+.bar{position:fixed;top:12px;left:50%;transform:translateX(-50%);display:flex;gap:6px;align-items:center;background:#0d131dcc;border:1px solid #243041;border-radius:10px;padding:6px 8px;backdrop-filter:blur(6px)}
+.bar b{font-weight:600;letter-spacing:.04em;margin:0 8px 0 4px;color:#b9a7ff}
+button{font:inherit;color:#d6dde8;background:#172130;border:1px solid #2a384c;border-radius:7px;padding:5px 10px;cursor:pointer}
+button:hover{background:#1f2c40}button.on{background:#3a2a6e;border-color:#7a62e0;color:#fff}
+.panel{position:fixed;top:64px;left:12px;width:230px;background:#0d131dcc;border:1px solid #243041;border-radius:10px;padding:10px;backdrop-filter:blur(6px)}
+.panel h3{margin:2px 0 8px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#7f8ea3;font-weight:600}
+.clips{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;margin-bottom:10px}.clips button{padding:5px 4px}
+.row{display:flex;gap:6px;align-items:center;margin:6px 0}.row label{display:flex;gap:5px;align-items:center;cursor:pointer}
+input[type=range]{width:100%;accent-color:#8a70ff}
+.note{color:#8796ab;font-size:12px;margin:6px 0 0}
+.keys{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12px;color:#aab6c6}.keys kbd{font:11px ui-monospace,monospace;background:#1b2636;border:1px solid #2e3d52;border-radius:4px;padding:1px 5px;color:#e4e9f1;justify-self:start}
+.readout{font:11px/1.5 ui-monospace,monospace;color:#9fb0c4;white-space:pre;margin-top:8px;background:#0a0f17;border-radius:6px;padding:6px}
+.hud{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:14px;align-items:center;background:#0d131dcc;border:1px solid #243041;border-radius:10px;padding:8px 14px}
+.meter{width:150px;height:8px;background:#1a2230;border-radius:4px;overflow:hidden}.meter i{display:block;height:100%;background:linear-gradient(90deg,#d9473a,#f0a24a);width:100%;transition:width .15s}
+.hud span{font:12px ui-monospace,monospace;color:#c8d2df}
+.prompt{position:fixed;top:30%;left:50%;transform:translateX(-50%);font-size:22px;font-weight:700;letter-spacing:.08em;color:#ffdad2;text-shadow:0 0 18px #ff3b2a;display:none;text-align:center}
+.prompt .meter{width:260px;height:10px;margin:10px auto 0}.prompt .meter i{background:linear-gradient(90deg,#8a70ff,#d7c9ff)}
+.hurt{position:fixed;inset:0;pointer-events:none;box-shadow:inset 0 0 160px 40px #c0140c;opacity:0;transition:opacity .35s}
+[hidden]{display:none!important}
+</style>
+<script type="importmap">{"imports":{"three":"../../node_modules/three/build/three.module.js","three/addons/":"../../node_modules/three/examples/jsm/"}}</script></head>
+<body><canvas id="lab" tabindex="0"></canvas>
+<div class="bar"><b>CRAWLER LAB</b><button id="tab-specimen" class="on">Specimen</button><button id="tab-hunt">Hunt</button><button id="sound">Sound: off</button></div>
+<div class="panel" id="specimen-panel">
+ <h3>Clips</h3><div class="clips" id="clips"></div>
+ <h3>Timeline</h3>
+ <input type="range" id="scrub" min="0" max="1" step="0.001" value="0">
+ <div class="row"><button id="play">Pause</button><span id="frame" style="font:11px ui-monospace,monospace;color:#9fb0c4">frame 0</span></div>
+ <div class="row"><button data-speed="0.25">¼×</button><button data-speed="0.5">½×</button><button data-speed="1" class="on">1×</button></div>
+ <h3 style="margin-top:12px">View</h3>
+ <div class="row"><label><input type="checkbox" id="turntable" checked>Turntable</label><label><input type="checkbox" id="scale" checked>Astronaut</label></div>
+ <div class="row"><button id="light-studio" class="on">Studio</button><button id="light-lamp">Headlamp only</button></div>
+ <p class="note">Drag to orbit, scroll to zoom.</p>
+</div>
+<div class="panel" id="hunt-panel" hidden>
+ <h3>Hunt</h3>
+ <div class="row"><button id="mode-watch" class="on">Watch dummy</button><button id="mode-play">Play</button></div>
+ <div class="row"><button id="respawn">Reset</button><button id="behind">Spawn behind</button></div>
+ <div class="keys" id="keys">
+  <kbd>WASD</kbd><span>move</span><kbd>Mouse</kbd><span>aim lamp and pistol</span><kbd>Click</kbd><span>fire</span><kbd>Space</kbd><span>dodge roll</span>
+  <kbd>E</kbd><span>struggle when grabbed</span><kbd>Q</kbd><span>throw flare</span><kbd>R</kbd><span>reload</span><kbd>C</kbd><span>craft 4 rounds (1 metal)</span><kbd>X</kbd><span>craft 3 flares (2 metal)</span>
+ </div>
+ <div class="readout" id="readout"></div>
+</div>
+<div class="hud" id="hud" hidden><span>SUIT</span><div class="meter"><i id="health"></i></div><span id="ammo"></span><span id="flares"></span><span id="metal"></span></div>
+<div class="prompt" id="prompt"><div id="prompt-text"></div><div class="meter" id="escape-meter"><i id="escape"></i></div></div>
+<div class="hurt" id="hurt"></div>
+<script type="module">
+// Isolated alien review. Never reads or writes colony saves.
+// ?mode=hunt opens the cave test; &play=1 hands the astronaut to the keyboard; ?clip=shriek picks a clip on the turntable.
+import * as THREE from 'three';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+import {createAstronaut} from '../actor.js';
+import {createCaveView,SIGHT_PARS} from '../cave-view.js';
+import {caveLayout,caveKey} from '../caves.js';
+import {terrainData} from '../terrain.js';
+import {FLARE,HEALTH} from '../peril.js';
+import {CRAWLER,PISTOL,DODGE,PLAYER_RADIUS,createCrawler,stepCrawler,struggle,hurtCrawler,exposure,walkable,createGun,stepGun,fireGun,reloadGun,craftAmmo,shotEnd,createDodge,startDodge,stepDodge} from '../crawler.js';
+
+const params=new URLSearchParams(location.search),$=id=>document.getElementById(id);
+const canvas=$('lab'),renderer=new THREE.WebGLRenderer({canvas,antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio||1,1.75));renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.1;renderer.shadowMap.enabled=true;
+const loader=new GLTFLoader();
+const [crawlerGLTF,astronautGLTF]=await Promise.all([loader.loadAsync('../assets/crawler.glb'),loader.loadAsync('../assets/astronaut-v2.glb')]);
+const clipNames=crawlerGLTF.animations.map(a=>a.name.toLowerCase());
+const ORDER=['idle','stalk','skitter','shriek','lunge','grab','recoil','hit','death'];
+const ONCE=new Set(['shriek','lunge','recoil','hit','death']);
+/** Lub-dub: two quick swells per beat. */
+const heartbeat=t=>{const f=t%1,a=(f-.05)/.05,b=(f-.24)/.06;return Math.exp(-a*a)+.6*Math.exp(-b*b);};
+
+/** A crawler instance with its own mixer. `hold` clips stop on their last frame. */
+function makeCrawler(materialFor){
+ const root=SkeletonUtils.clone(crawlerGLTF.scene),mixer=new THREE.AnimationMixer(root),actions=new Map(),seams=[];
+ root.traverse(o=>{if(!o.isMesh)return;o.frustumCulled=false;o.castShadow=true;if(materialFor)o.material=materialFor(o.material,seams);else if(o.material.name.includes('seam'))seams.push(o.material);});
+ for(const clip of crawlerGLTF.animations)actions.set(clip.name.toLowerCase(),mixer.clipAction(clip));
+ let current=null,name='';
+ function play(next,{fade=.12,restart=false,at=0}={}){
+  if(next===name&&!restart)return current;const action=actions.get(next);if(!action)return current;
+  action.reset();action.setLoop(ONCE.has(next)?THREE.LoopOnce:THREE.LoopRepeat);action.clampWhenFinished=true;action.time=at;action.setEffectiveWeight(1).fadeIn(fade).play();
+  if(current&&current!==action)current.fadeOut(fade);current=action;name=next;return action;
+ }
+ return {root,mixer,actions,seams,play,get name(){return name;},get action(){return current;}};
+}
+
+// ---------------- Specimen ----------------
+const studio=new THREE.Scene();studio.background=new THREE.Color('#0b1018');
+{const pmrem=new THREE.PMREMGenerator(renderer),room=new RoomEnvironment();studio.environment=pmrem.fromScene(room,.02).texture;studio.environmentIntensity=.35;room.dispose();pmrem.dispose();}
+const studioCam=new THREE.PerspectiveCamera(34,1,.05,100);studioCam.position.set(4.2,2.4,-4.4);
+const orbit=new OrbitControls(studioCam,canvas);orbit.target.set(0,.8,0);orbit.enableDamping=true;orbit.autoRotate=true;orbit.autoRotateSpeed=1.2;orbit.minDistance=1.5;orbit.maxDistance=14;
+const hemi=new THREE.HemisphereLight('#b8c8e8','#1d1a22',1.1),key=new THREE.DirectionalLight('#fff1dc',2.6),rim=new THREE.DirectionalLight('#8a5cff',2.2);
+key.position.set(-3,6,4);key.castShadow=true;key.shadow.mapSize.set(1024,1024);Object.assign(key.shadow.camera,{left:-4,right:4,top:4,bottom:-4});rim.position.set(3,3,-4);rim.intensity=1.4;
+const lamp=new THREE.SpotLight('#cfe8ff',0,24,.42,.6,1.4);studioCam.add(lamp);lamp.position.set(.3,0,0);lamp.target.position.set(0,0,-1);studioCam.add(lamp.target);studio.add(studioCam);
+studio.add(hemi,key,rim);
+const floor=new THREE.Mesh(new THREE.CircleGeometry(5,64).rotateX(-Math.PI/2),new THREE.MeshStandardMaterial({color:'#2a2d33',roughness:.95}));floor.receiveShadow=true;studio.add(floor);
+for(let r=1;r<=4;r++){const ring=new THREE.Mesh(new THREE.RingGeometry(r-.008,r+.008,96).rotateX(-Math.PI/2),new THREE.MeshBasicMaterial({color:'#4a5466'}));ring.position.y=.002;studio.add(ring);}
+const specimen=makeCrawler(null);studio.add(specimen.root);
+const reference=createAstronaut({...astronautGLTF,scene:SkeletonUtils.clone(astronautGLTF.scene)});reference.root.position.set(-2,0,-.6);reference.root.rotation.y=.5;studio.add(reference.root);
+let clip=params.get('clip')??'idle',playing=true,speed=1;
+const clipButtons=new Map();
+for(const name of ORDER.filter(n=>clipNames.includes(n))){const b=document.createElement('button');b.textContent=name[0].toUpperCase()+name.slice(1);b.onclick=()=>selectClip(name);$('clips').append(b);clipButtons.set(name,b);}
+function selectClip(name){clip=name;clipButtons.forEach((b,n)=>b.classList.toggle('on',n===name));const a=specimen.play(name,{restart:true,fade:.08});a.setLoop(THREE.LoopRepeat);a.paused=!playing;}
+selectClip(clip);
+$('play').onclick=()=>{playing=!playing;specimen.action.paused=!playing;$('play').textContent=playing?'Pause':'Play';};
+$('scrub').oninput=e=>{const a=specimen.action;playing=false;a.paused=true;$('play').textContent='Play';a.time=Number(e.target.value)*a.getClip().duration;specimen.mixer.update(0);};
+document.querySelectorAll('[data-speed]').forEach(b=>b.onclick=()=>{speed=Number(b.dataset.speed);document.querySelectorAll('[data-speed]').forEach(x=>x.classList.toggle('on',x===b));});
+$('turntable').onchange=e=>orbit.autoRotate=e.target.checked;
+$('scale').onchange=e=>reference.root.visible=e.target.checked;
+function studioLight(dark){studio.environmentIntensity=dark?.02:.35;hemi.intensity=dark?.03:1.1;key.intensity=dark?0:2.6;rim.intensity=dark?.15:1.4;lamp.intensity=dark?60:0;studio.background.set(dark?'#020305':'#0b1018');$('light-studio').classList.toggle('on',!dark);$('light-lamp').classList.toggle('on',dark);}
+$('light-studio').onclick=()=>studioLight(false);$('light-lamp').onclick=()=>studioLight(true);
+function updateStudio(dt){
+ orbit.update();specimen.mixer.update(playing?dt*speed:0);reference.update({animation:'idle'},dt);
+ const a=specimen.action,d=a.getClip().duration;$('scrub').value=String((a.time%d)/d);$('frame').textContent=`frame ${Math.round(a.time*30)} / ${Math.round(d*30)}`;
+ const pulse=heartbeat(clock*1.1);specimen.seams.forEach(m=>m.emissiveIntensity=.6+pulse*4.5);
+ renderer.render(studio,studioCam);
+}
+
+// ---------------- Hunt ----------------
+const SEED=1,CAVE_ID=0,ZONE=1;
+const cave=caveLayout(SEED,CAVE_ID,ZONE),angle=terrainData(SEED).caves[CAVE_ID].angle;
+const hunt=new THREE.Scene();hunt.background=new THREE.Color('#020306');
+const huntCam=new THREE.OrthographicCamera(-10,10,10,-10,.1,400);
+const state={seed:SEED,player:{x:cave.start.x*2,z:cave.start.z*2+2,facing:0,cave:CAVE_ID,zone:ZONE,animation:'idle'},flares:[],drops:[],exploredCaves:{},caveLoot:{}};
+const view=createCaveView(SEED,CAVE_ID,hunt,ZONE);view.root.rotation.y=angle;view.root.updateMatrixWorld(true);
+const toCave={value:new THREE.Matrix4().copy(view.root.matrixWorld).invert()};
+hunt.add(new THREE.HemisphereLight('#3a4a66','#0a0a10',.25));
+// The astronaut is lit the way the game lights it underground.
+const player=new THREE.Group(),roll=new THREE.Group();roll.position.y=.85;player.add(roll);view.root.add(player);
+const actor=createAstronaut(astronautGLTF);actor.root.position.y=-.85;roll.add(actor.root);
+actor.root.traverse(o=>{if(o.isMesh){o.material=o.material.clone();o.material.color.multiplyScalar(.3);o.material.envMapIntensity=.05;}});
+const suitFill=new THREE.PointLight('#bddaff',9,6,2);suitFill.position.set(0,2,0);player.add(suitFill);
+const headlamp=new THREE.SpotLight('#cfe8ff',145,20,.52,.65,1.5);headlamp.position.set(0,1.55,.25);const lampTarget=new THREE.Object3D();lampTarget.position.set(0,.1,9);player.add(lampTarget,headlamp);headlamp.target=lampTarget;
+/** The crawler is drawn with the cave's own sight, so it is only as visible as the rock around it. Its seams glow regardless. */
+// Toward the isometric camera, in cave coordinates.
+const viewDir={value:new THREE.Vector3(104,136,104).normalize().applyAxisAngle(THREE.Object3D.DEFAULT_UP,-angle)};
+const mawGlow={value:0};
+function sightMaterial(src,seams){
+ if(src.name.includes('seam')){const m=new THREE.MeshBasicMaterial({color:new THREE.Color(.62,.32,1),fog:false});seams.push(m);return m;}
+ const m=new THREE.MeshBasicMaterial({color:src.color.clone(),fog:false}),maw=src.name.includes('maw'),black=src.name.includes('obsidian')||src.name.includes('carapace');
+ m.onBeforeCompile=shader=>{
+  Object.assign(shader.uniforms,view.sight,{uToCave:toCave,uViewDir:viewDir,uMaw:mawGlow});
+  shader.vertexShader=shader.vertexShader.replace('#include <common>','#include <common>\nuniform mat4 uToCave;varying vec3 vCave;varying vec3 vCaveN;')
+   .replace('#include <project_vertex>','#include <project_vertex>\nvCave=(uToCave*modelMatrix*vec4(transformed,1.0)).xyz;vCaveN=mat3(uToCave*modelMatrix)*objectNormal;');
+  shader.fragmentShader=shader.fragmentShader.replace('#include <common>','#include <common>\nuniform vec3 uViewDir;uniform float uMaw;varying vec3 vCave;varying vec3 vCaveN;\n'+SIGHT_PARS.replace('varying vec2 vCaveLocal;varying float vSeen;',''))
+   .replace('#include <opaque_fragment>',`
+    vec3 n=normalize(vCaveN);vec3 toLamp=normalize(vec3(uPlayer.x,1.5,uPlayer.y)-vCave);
+    float lambert=.3+.7*max(0.0,dot(n,toLamp));float sky=.55+.45*max(0.0,n.y);
+    vec3 lamp=caveSightRaw(vCave.xz);float lampLevel=dot(lamp,vec3(.33));
+    outgoingLight=diffuseColor.rgb*(caveSight(vCave.xz)*lambert*1.7+caveGlow(vCave.xz)*sky*1.3);
+    ${black?`// Wet obsidian: a hard rim where the surface turns from the eye, and a glint where it mirrors the lamp.
+    float rim=smoothstep(.62,.7,1.0-abs(dot(n,uViewDir)))*max(0.0,dot(n,toLamp)*.6+.4);
+    float glint=smoothstep(.9,.94,dot(reflect(-toLamp,n),uViewDir));
+    outgoingLight+=vec3(.55,.6,.78)*lampLevel*(rim*.55+glint*1.4)+vec3(.35,.2,.6)*caveGlow(vCave.xz)*rim*.6;`:''}
+    ${maw?'outgoingLight+=vec3(.9,.08,.3)*uMaw;':''}
+    #include <opaque_fragment>`);
+ };
+ return m;
+}
+const beast=makeCrawler(sightMaterial);view.root.add(beast.root);
+// Shot tracers and muzzle flash.
+const tracerGeo=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3(0,0,1)]);
+const tracer=new THREE.Line(tracerGeo,new THREE.LineBasicMaterial({color:'#ffe2a8',transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false}));tracer.frustumCulled=false;view.root.add(tracer);
+const flashTex=(()=>{const c=document.createElement('canvas');c.width=c.height=64;const g=c.getContext('2d'),f=g.createRadialGradient(32,32,0,32,32,32);f.addColorStop(0,'rgba(255,240,200,1)');f.addColorStop(.3,'rgba(255,170,80,.5)');f.addColorStop(1,'rgba(255,120,40,0)');g.fillStyle=f;g.fillRect(0,0,64,64);return new THREE.CanvasTexture(c);})();
+const flash=new THREE.Sprite(new THREE.SpriteMaterial({map:flashTex,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,opacity:0}));flash.scale.setScalar(1.4);view.root.add(flash);
+/** Soft particles. Additive ones glow (ichor, embers); the others are drawn as darkness over the scene (ink, ash). */
+function particles(count,{additive,color,size}){
+ const pos=new Float32Array(count*3),vel=new Float32Array(count*3),life=new Float32Array(count),max=new Float32Array(count).fill(1),alpha=new Float32Array(count);
+ const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.BufferAttribute(pos,3));geo.setAttribute('aAlpha',new THREE.BufferAttribute(alpha,1));
+ const mat=new THREE.ShaderMaterial({transparent:true,depthWrite:false,blending:additive?THREE.AdditiveBlending:THREE.NormalBlending,uniforms:{uColor:{value:new THREE.Color(color)},uSize:{value:size*Math.min(2,devicePixelRatio||1)}},
+  vertexShader:'uniform float uSize;attribute float aAlpha;varying float vAlpha;void main(){vAlpha=aAlpha;vec4 mv=modelViewMatrix*vec4(position,1.0);gl_Position=projectionMatrix*mv;gl_PointSize=uSize*(.6+.8*aAlpha);}',
+  fragmentShader:'uniform vec3 uColor;varying float vAlpha;void main(){float a=smoothstep(.5,.1,length(gl_PointCoord-.5))*vAlpha;if(a<.01)discard;gl_FragColor=vec4(uColor,a);}'});
+ const points=new THREE.Points(geo,mat);points.frustumCulled=false;view.root.add(points);let next=0;
+ return {
+  spawn(x,y,z,vx,vy,vz,seconds){const i=next;next=(next+1)%count;pos.set([x,y,z],i*3);vel.set([vx,vy,vz],i*3);life[i]=seconds;max[i]=seconds;},
+  update(dt,gravity=0,drag=0){for(let i=0;i<count;i++){if(life[i]<=0){alpha[i]=0;continue;}life[i]-=dt;const o=i*3,k=Math.exp(-drag*dt);vel[o]*=k;vel[o+2]*=k;vel[o+1]=vel[o+1]*k-gravity*dt;
+   pos[o]+=vel[o]*dt;pos[o+1]=Math.max(.02,pos[o+1]+vel[o+1]*dt);pos[o+2]+=vel[o+2]*dt;const t=life[i]/max[i];alpha[i]=Math.max(0,Math.sin(t*Math.PI))*(additive?1:.55);}
+   geo.attributes.position.needsUpdate=true;geo.attributes.aAlpha.needsUpdate=true;},
+ };
+}
+const ink=particles(160,{additive:false,color:'#040307',size:34}),ichor=particles(80,{additive:true,color:'#a15cff',size:9}),ash=particles(140,{additive:false,color:'#0b0a0d',size:20}),embers=particles(90,{additive:true,color:'#8a4dff',size:7});
+const aimMarker=new THREE.Mesh(new THREE.RingGeometry(.18,.24,24).rotateX(-Math.PI/2),new THREE.MeshBasicMaterial({color:'#ffcf9a',transparent:true,opacity:.6,depthWrite:false}));aimMarker.position.y=.05;view.root.add(aimMarker);
+
+const rand=Math.random;
+let seamLevel=.3,wispClock=0;
+let crawler,gun,dodge,health,hurtPause,lampShort,metal,flareStock,blackout=0,watch=!params.has('play'),hurtFlash=0,flicker=0,shakeT=0,tracerT=0;
+const aim={x:0,z:1};let mouse={x:innerWidth/2,y:innerHeight/2};const keys=new Set();
+function spawnAt(x,z){crawler=createCrawler(x,z,rand);crawler.facing=Math.atan2(state.player.x-x,state.player.z-z);beast.play('idle',{restart:true,fade:0});}
+function farRoom(){const p=state.player;let best=cave.rooms[0];for(const r of cave.rooms){const d=Math.hypot(r.x*2-p.x,r.z*2-p.z);if(d>16&&d<26&&walkable(cave,r.x*2,r.z*2))return r;if(Math.hypot(best.x*2-p.x,best.z*2-p.z)<d)best=r;}return best;}
+function reset(){
+ Object.assign(state.player,{x:cave.start.x*2,z:cave.start.z*2+2,facing:0});state.flares=[];
+ gun=createGun(12);dodge=createDodge();health=HEALTH.max;hurtPause=0;lampShort=0;metal=10;flareStock=3;blackout=0;patrol=0;
+ const r=farRoom();spawnAt(r.x*2,r.z*2);
+}
+function spawnBehind(){
+ const p=state.player,fx=Math.sin(p.facing),fz=Math.cos(p.facing);
+ for(const d of [8,7,9,6,10,5])for(const side of [0,1.5,-1.5,3,-3]){const x=p.x-fx*d+fz*side,z=p.z-fz*d-fx*side;if(walkable(cave,x,z)){spawnAt(x,z);crawler.state='stalk';crawler.patience=2;return;}}
+}
+let patrol=0;reset();
+$('respawn').onclick=reset;$('behind').onclick=spawnBehind;
+function setWatch(on){watch=on;$('mode-watch').classList.toggle('on',on);$('mode-play').classList.toggle('on',!on);$('keys').style.opacity=on?.45:1;canvas.focus();}
+$('mode-watch').onclick=()=>setWatch(true);$('mode-play').onclick=()=>setWatch(false);setWatch(watch);
+
+// Procedural sound, off until asked for.
+let audio=null;
+$('sound').onclick=()=>{if(audio){audio.close();audio=null;$('sound').textContent='Sound: off';return;}audio=new AudioContext();$('sound').textContent='Sound: on';};
+function noise(seconds){const b=audio.createBuffer(1,audio.sampleRate*seconds,audio.sampleRate),d=b.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;const s=audio.createBufferSource();s.buffer=b;return s;}
+function sound(kind,distance=4){
+ if(!audio)return;const t=audio.currentTime,out=audio.createGain();out.gain.value=Math.max(.08,1-distance/22);out.connect(audio.destination);
+ const env=(node,peak,attack,length)=>{const g=audio.createGain();g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(peak,t+attack);g.gain.exponentialRampToValueAtTime(.0001,t+length);node.connect(g);g.connect(out);return g;};
+ if(kind==='shriek'){for(const [f,detune] of [[620,0],[655,30],[1240,-20]]){const o=audio.createOscillator();o.type='sawtooth';o.frequency.setValueAtTime(f,t);o.frequency.exponentialRampToValueAtTime(f*2.6,t+.55);o.frequency.exponentialRampToValueAtTime(f*1.7,t+.9);o.detune.value=detune;
+   const trem=audio.createOscillator(),tg=audio.createGain();trem.frequency.value=38;tg.gain.value=300;trem.connect(tg);tg.connect(o.detune);trem.start(t);trem.stop(t+1);env(o,.09,.08,.95);o.start(t);o.stop(t+1);}
+  const n=noise(1),bp=audio.createBiquadFilter();bp.type='bandpass';bp.frequency.value=2600;bp.Q.value=2;n.connect(bp);env(bp,.25,.05,.9);n.start(t);}
+ if(kind==='lunge'){const n=noise(.5),lp=audio.createBiquadFilter();lp.type='lowpass';lp.frequency.setValueAtTime(400,t);lp.frequency.exponentialRampToValueAtTime(2400,t+.35);n.connect(lp);env(lp,.5,.05,.45);n.start(t);}
+ if(kind==='shot'){const n=noise(.3),lp=audio.createBiquadFilter();lp.type='lowpass';lp.frequency.value=1800;n.connect(lp);env(lp,.9,.002,.25);n.start(t);const o=audio.createOscillator();o.frequency.setValueAtTime(160,t);o.frequency.exponentialRampToValueAtTime(40,t+.15);env(o,.6,.002,.18);o.start(t);o.stop(t+.2);}
+ if(kind==='hit'||kind==='slash'){const o=audio.createOscillator();o.type='square';o.frequency.setValueAtTime(kind==='hit'?220:120,t);o.frequency.exponentialRampToValueAtTime(60,t+.2);env(o,.25,.005,.22);o.start(t);o.stop(t+.25);const n=noise(.2);env(n,.3,.002,.15);n.start(t);}
+ if(kind==='chitter'){for(let i=0;i<5;i++){const o=audio.createOscillator();o.type='square';o.frequency.value=1800+Math.random()*900;const g=audio.createGain();g.gain.setValueAtTime(0,t+i*.045);g.gain.linearRampToValueAtTime(.05,t+i*.045+.005);g.gain.linearRampToValueAtTime(0,t+i*.045+.025);o.connect(g);g.connect(out);o.start(t+i*.045);o.stop(t+i*.045+.03);}}
+ if(kind==='death'){const o=audio.createOscillator();o.type='sawtooth';o.frequency.setValueAtTime(900,t);o.frequency.exponentialRampToValueAtTime(90,t+1.2);env(o,.12,.02,1.3);o.start(t);o.stop(t+1.4);}
+}
+
+// Input. The pointer is projected onto the cave floor to aim lamp and pistol.
+const ray=new THREE.Raycaster(),groundPlane=new THREE.Plane(new THREE.Vector3(0,1,0),0),hitPoint=new THREE.Vector3(),ndc=new THREE.Vector2();
+canvas.addEventListener('pointermove',e=>{mouse={x:e.clientX,y:e.clientY};});
+canvas.addEventListener('pointerdown',e=>{if(mode!=='hunt'||watch||e.button!==0)return;canvas.focus();shoot();});
+addEventListener('keydown',e=>{
+ if(mode!=='hunt')return;const k=e.key.toLowerCase();if(k===' ')e.preventDefault();if(e.repeat)return;
+ if(k==='f'){setWatch(!watch);return;}
+ if(watch)return;keys.add(k);
+ if(k==='e'&&crawler.state==='grab'&&struggle(crawler))release();
+ if(k===' '&&crawler.state!=='grab'){const m=moveIntent(),still=!m.x&&!m.z;startDodge(dodge,still?Math.sin(state.player.facing):m.x,still?Math.cos(state.player.facing):m.z);}
+ if(k==='r')reloadGun(gun);
+ if(k==='c')craftAmmoNow();
+ if(k==='x'&&metal>=2){metal-=2;flareStock+=3;}
+ if(k==='q')throwFlare(aim.x,aim.z);
+});
+addEventListener('keyup',e=>keys.delete(e.key.toLowerCase()));
+function craftAmmoNow(){const items={metal};if(craftAmmo(gun,items))metal=items.metal;}
+const screenForward=new THREE.Vector3(),screenRight=new THREE.Vector3();
+function moveIntent(){
+ const x=(keys.has('d')?1:0)-(keys.has('a')?1:0),y=(keys.has('w')?1:0)-(keys.has('s')?1:0);if(!x&&!y)return {x:0,z:0};
+ screenForward.set(-1,0,-1).normalize().applyAxisAngle(THREE.Object3D.DEFAULT_UP,-angle);screenRight.set(1,0,-1).normalize().applyAxisAngle(THREE.Object3D.DEFAULT_UP,-angle);
+ const vx=screenForward.x*y+screenRight.x*x,vz=screenForward.z*y+screenRight.z*x,l=Math.hypot(vx,vz);return {x:vx/l,z:vz/l};
+}
+function updateAim(){
+ const r=canvas.getBoundingClientRect();ndc.set((mouse.x-r.left)/r.width*2-1,-(mouse.y-r.top)/r.height*2+1);ray.setFromCamera(ndc,huntCam);
+ if(ray.ray.intersectPlane(groundPlane,hitPoint)){view.root.worldToLocal(hitPoint);aim.x=hitPoint.x-state.player.x;aim.z=hitPoint.z-state.player.z;aimMarker.position.set(hitPoint.x,.05,hitPoint.z);}
+}
+function shoot(target){
+ if(!fireGun(gun))return;const p=state.player,from={x:p.x+Math.sin(p.facing)*.5,z:p.z+Math.cos(p.facing)*.5};
+ const dir=target??{x:Math.sin(p.facing),z:Math.cos(p.facing)},end=shotEnd(cave,from,dir,[crawler]);
+ tracerGeo.attributes.position.setXYZ(0,from.x,1.1,from.z);tracerGeo.attributes.position.setXYZ(1,end.x,.9,end.z);tracerGeo.attributes.position.needsUpdate=true;tracerT=.08;
+ flash.position.set(from.x,1.15,from.z);flash.material.opacity=1;flicker=Math.max(flicker,.05);sound('shot',0);
+ if(end.hit){const result=hurtCrawler(end.hit.crawler,PISTOL.damage,rand);
+  for(let i=0;i<16;i++){const a=Math.random()*Math.PI*2,s=1.5+Math.random()*3;ichor.spawn(end.x,.8,end.z,Math.cos(a)*s-dir.x*2,1+Math.random()*2.5,Math.sin(a)*s-dir.z*2,.35+Math.random()*.35);}sound(result.killed?'death':'hit',end.hit.distance);if(result.released)release();}
+}
+function throwFlare(dx,dz){
+ if(!flareStock||state.flares.length>=FLARE.limit)return;const p=state.player,l=Math.hypot(dx,dz)||1,reach=Math.min(FLARE.range,l);
+ let d=0;while(d<reach&&walkable(cave,p.x+dx/l*(d+.3),p.z+dz/l*(d+.3),.1))d+=.25;
+ state.flares.push({cave:CAVE_ID,zone:ZONE,x:p.x+dx/l*d,z:p.z+dz/l*d,t:0});flareStock--;
+}
+function release(){prompt(null);}
+function hurt(amount){health=Math.max(0,health-amount);hurtPause=HEALTH.regenDelay;hurtFlash=Math.min(1,hurtFlash+amount/14);}
+function prompt(text){$('prompt').style.display=text?'block':'none';if(text)$('prompt-text').textContent=text;}
+
+// The dummy: patrols between rooms with the lamp ahead, turns on what it hears, and sometimes rolls clear of a lunge.
+let dummyPlan={room:0,reaction:0,dodged:false,struggleT:0};
+function dummyIntent(dt){
+ const p=state.player,c=crawler,d=Math.hypot(c.x-p.x,c.z-p.z);
+ if(c.state==='shriek'){dummyPlan.reaction+=dt;if(!dummyPlan.dodged&&dummyPlan.reaction>CRAWLER.shriekTime-.15){dummyPlan.dodged=true;if(Math.random()<.5)startDodge(dodge,Math.cos(p.facing),-Math.sin(p.facing));}return {x:0,z:0,face:Math.atan2(c.x-p.x,c.z-p.z)};}
+ dummyPlan.reaction=0;dummyPlan.dodged=false;
+ if(c.state==='grab'){dummyPlan.struggleT-=dt;if(dummyPlan.struggleT<=0){dummyPlan.struggleT=.16+Math.random()*.12;if(struggle(c))release();}return {x:0,z:0};}
+ if(c.state!=='dead'&&d<6&&Math.random()<dt*.2)return {x:0,z:0,face:Math.atan2(c.x-p.x,c.z-p.z)};
+ const route=[cave.rooms[0],...cave.rooms.slice(1,6)];const r=route[patrol%route.length],tx=r.x*2,tz=r.z*2;
+ if(Math.hypot(tx-p.x,tz-p.z)<2.5)patrol++;
+ const field=new Map([[caveKey(r.x,r.z),0]]),q=[caveKey(r.x,r.z)];for(let i=0;i<q.length&&i<900;i++){const [x,z]=q[i].split(',').map(Number);for(const [a,b] of [[1,0],[-1,0],[0,1],[0,-1]]){const k=caveKey(x+a,z+b);if(cave.cells.has(k)&&!field.has(k)){field.set(k,field.get(q[i])+1);q.push(k);}}}
+ const cx=Math.round(p.x/2),cz=Math.round(p.z/2);let best=null,bd=field.get(caveKey(cx,cz))??1e9;
+ for(const [a,b] of [[1,0],[-1,0],[0,1],[0,-1]]){const v=field.get(caveKey(cx+a,cz+b));if(v!=null&&v<bd){bd=v;best=[cx+a,cz+b];}}
+ const gx=best?best[0]*2:tx,gz=best?best[1]*2:tz,vx=gx-p.x,vz=gz-p.z,l=Math.hypot(vx,vz)||1;return {x:vx/l*.6,z:vz/l*.6};
+}
+
+function updateHunt(dt){
+ const p=state.player;
+ if(!watch)updateAim();
+ // Lamp: shorted by a slash, stuttering back to life.
+ lampShort=Math.max(0,lampShort-dt);const lampOn=lampShort<=0;
+ const dash=stepDodge(dodge,dt);
+ if(blackout>0){blackout-=dt;if(blackout<=0)reset();}
+ let intent={x:0,z:0},grabbed=crawler.state==='grab';
+ if(blackout<=0&&!grabbed){
+  if(watch){intent=dummyIntent(dt);if(intent.face!=null)p.facing=intent.face;else if(intent.x||intent.z)p.facing=Math.atan2(intent.x,intent.z);}
+  else{intent=moveIntent();if(Math.hypot(aim.x,aim.z)>.3)p.facing=Math.atan2(aim.x,aim.z);}
+ }else if(grabbed&&watch)dummyIntent(dt);
+ const speed=6.5*(watch?.75:1);
+ const mx=dash.rolling?dash.x:intent.x*speed*dt,mz=dash.rolling?dash.z:intent.z*speed*dt;
+ if(walkable(cave,p.x+mx,p.z,PLAYER_RADIUS))p.x+=mx;if(walkable(cave,p.x,p.z+mz,PLAYER_RADIUS))p.z+=mz;
+ // Flares burn down.
+ state.flares.forEach(f=>f.t+=dt);state.flares=state.flares.filter(f=>f.t<FLARE.life);
+ const env={cave,player:{x:p.x,z:p.z,facing:p.facing,lamp:lampOn,invulnerable:dash.invulnerable},flares:state.flares.map(f=>({x:f.x,z:f.z,r:FLARE.radius}))};
+ const wasState=crawler.state;
+ for(const e of stepCrawler(crawler,env,dt,rand)){
+  const d=Math.hypot(crawler.x-p.x,crawler.z-p.z);
+  if(e.type==='shriek'){sound('shriek',d);flicker=Math.max(flicker,.9);}
+  if(e.type==='lunge')sound('lunge',d);
+  if(e.type==='grab'){hurt(e.damage);sound('slash',0);shakeT=.3;}
+  if(e.type==='slash'){hurt(e.damage);lampShort=e.short;sound('slash',0);shakeT=.35;}
+  if(e.type==='drag'){if(walkable(cave,p.x+e.dx,p.z+e.dz,PLAYER_RADIUS)){p.x+=e.dx;p.z+=e.dz;}}
+  if(e.type==='hurt')hurt(e.damage);
+  if(e.type==='release')release();
+ }
+ if(crawler.state==='dead'&&wasState!=='dead')sound('death',4);
+ if(crawler.state==='grab')prompt(watch?'GRABBED':'GRABBED — MASH E');else if($('prompt').style.display==='block'&&crawler.state!=='grab')prompt(null);
+ if(crawler.state==='dead'&&crawler.t>6){const r=farRoom();spawnAt(r.x*2,r.z*2);}
+ if((crawler.state==='stalk'||crawler.state==='close')&&Math.random()<dt*.18)sound('chitter',Math.hypot(crawler.x-p.x,crawler.z-p.z));
+ // Suit.
+ hurtPause=Math.max(0,hurtPause-dt);if(!hurtPause&&health>0)health=Math.min(HEALTH.max,health+HEALTH.regen*dt);
+ if(health<=0&&blackout<=0){blackout=2.5;prompt('BLACKED OUT');crawler.state='flee';crawler.t=0;}
+ stepGun(gun,dt);
+ if(watch&&crawler.state!=='dead'&&blackout<=0){const d=Math.hypot(crawler.x-p.x,crawler.z-p.z),ahead=(Math.sin(p.facing)*(crawler.x-p.x)+Math.cos(p.facing)*(crawler.z-p.z))/(d||1);
+  if(d<11&&ahead>.97&&exposure(env,crawler.x,crawler.z)>.1&&Math.random()<dt*.9)shoot();
+  if(!gun.mag&&!gun.reloading&&!gun.reserve&&metal>0)craftAmmoNow();}
+ // Pose the actors.
+ player.position.set(p.x,0,p.z);player.rotation.y=p.facing;
+ const moving=Math.hypot(mx,mz)/dt;
+ if(dash.rolling){const k=1-dodge.t/DODGE.time;roll.rotation.set(k*Math.PI*2,0,0);player.rotation.y=Math.atan2(dodge.dx,dodge.dz);}else roll.rotation.set(0,0,0);
+ actor.update({animation:dash.rolling?'jump':moving>.5?'run':'idle',speed:moving},dt);
+ beast.root.position.set(crawler.x,0,crawler.z);beast.root.rotation.y=crawler.facing;
+ const anim=crawler.anim;
+ if(anim!==beast.name){beast.play(anim,{fade:anim==='lunge'?.04:.14,at:anim==='lunge'?.3:0});}
+ const a=beast.action;if(a){a.timeScale=anim==='stalk'?Math.max(.3,crawler.speed/CRAWLER.speed.stalk):anim==='skitter'?Math.max(.6,crawler.speed/6):anim==='shriek'?1.2:1;}
+ beast.mixer.update(dt);
+ // Seams: a slow heartbeat from afar, dark when it is close and stalking, blazing when it commits.
+ const s=crawler.state,near=Math.hypot(crawler.x-p.x,crawler.z-p.z);
+ let want=.12+.75*heartbeat(clock*1.1);
+ if(s==='dead')want=Math.max(0,1-crawler.t/1.5)*.4;
+ else if(s==='shriek')want=1.5*(Math.sin(clock*40)>-.3?1:.4);
+ else if(s==='lunge'||s==='grab'||s==='slash')want=1.2;
+ else if(s==='recoil'||s==='flee'||s==='hit')want=Math.random()<.5?.9:.1;
+ else if((s==='stalk'||s==='close')&&near<9)want=.025;
+ seamLevel+=(want-seamLevel)*(1-Math.exp(-dt*(want>seamLevel?18:4)));
+ beast.seams.forEach(m=>m.color.setRGB(.62*seamLevel,.32*seamLevel,seamLevel));
+ mawGlow.value=s==='shriek'?.9:s==='lunge'||s==='grab'?.7:s==='slash'?.5:0;
+ // It carries the dark with it, and smokes ink as it moves.
+ const alive=s!=='dead'?1:Math.max(0,1-crawler.t/2);
+ const wispRate=(s==='flee'||s==='lunge'?60:s==='shriek'?40:14)*alive;
+ for(wispClock+=dt*wispRate;wispClock>1;wispClock--)ink.spawn(crawler.x+(Math.random()-.5)*.9,.35+Math.random()*.6,crawler.z+(Math.random()-.5)*1.2,(Math.random()-.5)*.3,.25+Math.random()*.35,(Math.random()-.5)*.3,1.2+Math.random()*1.2);
+ // Death: the husk slumps, then crumbles to ash and violet embers.
+ if(s==='dead'){const k=Math.max(0,Math.min(1,(crawler.t-1.2)/1.6));beast.root.position.y=-.7*k*k;beast.root.scale.set(1,1-.6*k,1);
+  if(k>0&&k<1)for(let i=0;i<3;i++){const x=crawler.x+(Math.random()-.5)*1.6,z=crawler.z+(Math.random()-.5)*2;ash.spawn(x,.3+Math.random()*.5,z,(Math.random()-.5)*.6,.4+Math.random()*.6,(Math.random()-.5)*.6,1.5+Math.random());if(Math.random()<.5)embers.spawn(x,.4,z,(Math.random()-.5)*.4,.8+Math.random()*1.2,(Math.random()-.5)*.4,1.4+Math.random()*1.4);}
+ }else beast.root.scale.set(1,1,1);
+ ink.update(dt,0,1.5);ichor.update(dt,9,.5);ash.update(dt,-.1,2);embers.update(dt,-.3,1);
+ // The cave's own sight follows the astronaut; our flicker rides on top of its own.
+ view.update(state,dt);
+ flicker=Math.max(0,flicker-dt);
+ if(!lampOn){view.sight.uFlicker.value=lampShort<.8&&Math.random()<.4?.6:.02;}
+ else if(flicker>0)view.sight.uFlicker.value=Math.random()<.4?.1+Math.random()*.3:1;
+ // The lamp falters as it closes; the dark pool around it swallows the rock.
+ view.sight.uVoid.value.set(crawler.x,crawler.z,.85*alive);
+ view.sight.uFlicker.value*=1-.5*alive*Math.max(0,Math.min(1,1-(near-2)/6));
+ headlamp.intensity=lampOn?145*view.sight.uFlicker.value:0;suitFill.intensity=lampOn?9:2;
+ tracerT=Math.max(0,tracerT-dt);tracer.material.opacity=tracerT/.08;flash.material.opacity=Math.max(0,flash.material.opacity-dt*14);
+ aimMarker.visible=!watch;
+ hurtFlash=Math.max(0,hurtFlash-dt*1.5);$('hurt').style.opacity=String(Math.min(.85,hurtFlash));
+ // Camera: the game's isometric view, shaken by hits.
+ shakeT=Math.max(0,shakeT-dt);const world=player.getWorldPosition(new THREE.Vector3()),shake=shakeT*.5;
+ world.x+=(Math.random()-.5)*shake;world.z+=(Math.random()-.5)*shake;world.y+=1.05;
+ huntCam.position.set(world.x+104,world.y+136,world.z+104);huntCam.lookAt(world);
+ // HUD.
+ $('health').style.width=`${health}%`;$('ammo').textContent=`AMMO ${gun.mag}/${gun.reserve}${gun.reloading?' ↻':''}`;$('flares').textContent=`FLARES ${flareStock}`;$('metal').textContent=`METAL ${metal}`;
+ $('escape').style.width=`${Math.min(1,crawler.escape)*100}%`;$('escape-meter').style.display=crawler.state==='grab'?'block':'none';
+ $('readout').textContent=`state    ${crawler.state}\nanim     ${crawler.anim}\nhp       ${crawler.hp}/${CRAWLER.hp}\npatience ${Math.max(0,crawler.patience).toFixed(1)}s\ndistance ${Math.hypot(crawler.x-p.x,crawler.z-p.z).toFixed(1)} m\nlit      ${exposure(env,crawler.x,crawler.z).toFixed(2)}\nlamp     ${lampOn?'on':'SHORTED '+lampShort.toFixed(1)}`;
+ renderer.render(hunt,huntCam);
+}
+
+// ---------------- Shell ----------------
+let mode=params.get('mode')==='hunt'?'hunt':'specimen',clock=0;
+function setMode(m){mode=m;$('tab-specimen').classList.toggle('on',m==='specimen');$('tab-hunt').classList.toggle('on',m==='hunt');$('specimen-panel').hidden=m!=='specimen';$('hunt-panel').hidden=m!=='hunt';$('hud').hidden=m!=='hunt';orbit.enabled=m==='specimen';if(m!=='hunt')prompt(null);resize();canvas.focus();}
+$('tab-specimen').onclick=()=>setMode('specimen');$('tab-hunt').onclick=()=>setMode('hunt');
+function resize(){
+ const w=innerWidth,h=innerHeight;renderer.setSize(w,h,false);studioCam.aspect=w/h;studioCam.updateProjectionMatrix();
+ if(!resize.framed){resize.framed=true;const reach=7.5/Math.min(1,w/h*1.1);studioCam.position.set(.55*reach,.34*reach,.76*reach);}
+ const viewHeight=24,aspect=w/h;Object.assign(huntCam,{left:-viewHeight*aspect/2,right:viewHeight*aspect/2,top:viewHeight/2,bottom:-viewHeight/2});huntCam.updateProjectionMatrix();
+}
+addEventListener('resize',resize);setMode(mode);
+window.lab={studioCam,orbit,state,get crawler(){return crawler;},cave,renderer,setMode,spawnBehind,reset,setWatch,beast,specimen,selectClip};
+let last=performance.now();
+function frame(now){const dt=window.lab.paused?0:Math.min((now-last)/1000,.1);last=now;clock+=dt;if(mode==='hunt')updateHunt(dt);else updateStudio(dt);requestAnimationFrame(frame);}
+requestAnimationFrame(frame);
+</script></body></html>
