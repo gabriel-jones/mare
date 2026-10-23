@@ -8,13 +8,21 @@ import {createFlareView} from './flare-view.js';
 import {createSmoke} from './smoke-view.js';
 import {createHiveView} from './hive-view.js';
 import {buffed} from './farm.js';
+import {createFlameJet} from './flame-view.js';
+import {WEAPONS,armsOf,heldWeapon,reserveOf} from './arms.js';
 
 /**
- * The hunt drawn underground: crawlers, their smoke, the aimed pistol and everything it throws (rounds, brass,
- * sparks, ichor), the astronaut's twist and step-turns toward the cursor, and the headlamp's fear of the dark.
- * Effects live in the active cave's own space (its root), where the sight uniforms and the hunt's coordinates are.
+ * The hunt drawn: crawlers, their smoke, the weapon in hand and everything it throws (rounds, brass, sparks, ichor,
+ * the flamethrower's jet), the astronaut's twist and step-turns toward the cursor, and the headlamp's fear of the dark.
+ * Effects live in the active space's root, where the hunt's coordinates are: a cave view underground, or on the
+ * surface `{root, surface: true}`, where the hatchlings are drawn by the caller and found through `lookup`.
  */
 const UP=THREE.Object3D.DEFAULT_UP,TWIST=1,BULLET_SPEED=90,CASES=40,LAND=.3;
+// What each gun's shot looks like, and which marker bones it fires from.
+const GUNS={
+ pistol:{muzzle:'Muzzle',ahead:'MuzzleAhead',port:'Port',out:'PortOut',flash:1,light:40,tracer:1,brass:1,shake:.07,sparks:4},
+ rifle:{muzzle:'RifleMuzzle',ahead:'RifleMuzzleAhead',port:'RiflePort',out:'RiflePortOut',flash:1.5,light:60,tracer:1.7,brass:1.35,shake:.11,sparks:8},
+};
 const wrapAngle=a=>Math.atan2(Math.sin(a),Math.cos(a));
 
 function particles(parent,count,{additive,color,size}){
@@ -34,6 +42,7 @@ function particles(parent,count,{additive,color,size}){
  };
 }
 
+const LABEL={pistol:'PISTOL',rifle:'RIFLE'};
 function createHud(){
  const root=document.createElement('div');root.className='hunt-hud';root.hidden=true;
  root.innerHTML=`<div class="hunt-hurt"></div><div class="hunt-prompt"><span>GRABBED — MASH E</span><i><b></b></i></div><div class="hunt-ammo"></div>`;
@@ -48,26 +57,28 @@ function createHud(){
  const hurt=root.querySelector('.hunt-hurt'),prompt=root.querySelector('.hunt-prompt'),meter=root.querySelector('.hunt-prompt b'),ammo=root.querySelector('.hunt-ammo');
  let lastAmmo='';
  return {
-  update(on,{hurtFlash,grabbed,escape,gun}){
+  update(on,{hurtFlash,grabbed,escape,weapon,loaded,reserve,reloading}){
    root.hidden=!on;if(!on)return;
    hurt.style.opacity=String(Math.min(.85,hurtFlash));
    prompt.style.display=grabbed?'block':'none';if(grabbed)meter.style.width=`${Math.min(1,escape)*100}%`;
-   const text=`AMMO ${gun.mag}/${gun.reserve}${gun.reloading?' · RELOADING':''}`;if(text!==lastAmmo){ammo.textContent=text;lastAmmo=text;}
+   const text=!weapon?'NO WEAPON':WEAPONS[weapon].ammo==='fuel'?`FUEL ${Math.ceil(loaded)}% · ${reserve} CELL${reserve===1?'':'S'}${reloading?' · REFUELLING':''}`:`${LABEL[weapon]} ${loaded}/${reserve}${reloading?' · RELOADING':''}`;
+   if(text!==lastAmmo){ammo.textContent=text;lastAmmo=text;}
   },
   dispose(){root.remove();},
  };
 }
 
-export function createCombatView({actor,player,headlamp,crawlerGLTF}){
+export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}){
  const fx=new THREE.Group();fx.name='hunt-effects';
  const toCave={value:new THREE.Matrix4()},viewDir={value:new THREE.Vector3()};
  let caveView=null,cave=null,seed=null,hive=null;
+ const jet=createFlameJet(fx),viewFor=c=>c?views.get(c)?.view??lookup?.(c)??null:null;
  const views=new Map(),hud=createHud();
 
  const muzzleLight=new THREE.PointLight('#ffc27a',0,7,2);fx.add(muzzleLight);
  const bulletGeo=new THREE.CylinderGeometry(.03,.012,1,6).rotateX(Math.PI/2),bulletMat=new THREE.MeshBasicMaterial({color:'#ffdcaa',transparent:true,blending:THREE.AdditiveBlending,depthWrite:false});
  const bullets=Array.from({length:8},()=>{const mesh=new THREE.Mesh(bulletGeo,bulletMat);mesh.visible=false;mesh.frustumCulled=false;fx.add(mesh);return {mesh,from:new THREE.Vector3(),dir:new THREE.Vector3(),travelled:0,length:0,live:false};});
- const caseMesh=new THREE.InstancedMesh(new THREE.CylinderGeometry(.03,.03,.1,8),new THREE.MeshBasicMaterial(),CASES);caseMesh.frustumCulled=false;caseMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);fx.add(caseMesh);
+ const caseMesh=new THREE.InstancedMesh(new THREE.CylinderGeometry(.03,.03,.1,8),new THREE.MeshBasicMaterial(),CASES);const caseSize=new Float32Array(CASES).fill(1);caseMesh.frustumCulled=false;caseMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);fx.add(caseMesh);
  const cases=Array.from({length:CASES},()=>({p:new THREE.Vector3(),v:new THREE.Vector3(),q:new THREE.Quaternion(),lie:new THREE.Quaternion(),spin:new THREE.Vector3(),age:99,bounces:0}));
  const brass=new THREE.Color('#4a3a1c'),hotBrass=new THREE.Color('#ffd08a'),caseColor=new THREE.Color(),caseMatrix=new THREE.Matrix4(),spinQ=new THREE.Quaternion(),one=new THREE.Vector3(1,1,1),euler=new THREE.Euler();
  const hideCases=()=>{for(let i=0;i<CASES;i++){cases[i].age=99;caseMesh.setColorAt(i,brass);caseMesh.setMatrixAt(i,caseMatrix.makeScale(0,0,0));}caseMesh.instanceMatrix.needsUpdate=true;caseMesh.instanceColor.needsUpdate=true;};
@@ -85,17 +96,17 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF}){
 
  function play(clip,rate=1){if(act?.clip===clip)actor.restart();act={clip,t:0,len:actor.duration(clip)/rate,rate};}
  function clearViews(){views.forEach(v=>v.view.dispose());views.clear();wisps.clear();}
- function clearEffects(){bullets.forEach(b=>{b.live=false;b.mesh.visible=false;});hideCases();ichor.clear();sparks.clear();dust.clear();smoke.clear();flares.clear();flash.material.opacity=0;impactFlash.material.opacity=0;muzzleLight.intensity=0;pending=[];}
+ function clearEffects(){bullets.forEach(b=>{b.live=false;b.mesh.visible=false;});hideCases();ichor.clear();sparks.clear();dust.clear();smoke.clear();flares.clear();flash.material.opacity=0;impactFlash.material.opacity=0;muzzleLight.intensity=0;jet.clear();pending=[];}
 
  /** The cave the player is now in. Effects move into its space; crawlers of the last cave are dropped. */
  function enter(view,state){
   if(view===caveView)return;
   clearViews();clearEffects();act=null;bodyYaw=null;
-  caveView=view;seed=state.seed;cave=caveLayout(state.seed,state.player.cave,state.player.zone??0);
+  caveView=view;seed=state.seed;cave=view.surface?null:caveLayout(state.seed,state.player.cave,state.player.zone??0);
   view.root.add(fx);view.root.updateMatrixWorld(true);
   toCave.value.copy(view.root.matrixWorld).invert();
   viewDir.value.set(26,34,26).normalize().applyAxisAngle(UP,-view.root.rotation.y);
-  hive?.dispose();hive=createHiveView(view,cave,{zone:state.player.zone??0,toCave,viewDir,smoke});
+  hive?.dispose();hive=cave?createHiveView(view,cave,{zone:state.player.zone??0,toCave,viewDir,smoke}):null;
  }
  function leave(){
   if(!caveView)return;
@@ -158,27 +169,28 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF}){
   }
   // The player group already turns with the aim; the body is set relative to it.
   actor.root.rotation.y=wrapAngle(bodyYaw-facing);
-  return {...renderPose,animation:anim,speed:moving,gun:true,backward,rate,twist};
+  return {...renderPose,animation:anim,speed:moving,weapon:heldWeapon(state),backward,rate,twist};
  }
 
  function fireShot(e){
+  const g=GUNS[e.weapon]??GUNS.pistol;
   actor.fire();actor.root.updateMatrixWorld(true);
-  const muzzle=localOf(actor.marker('Muzzle')),ahead=localOf(actor.marker('MuzzleAhead')).sub(muzzle).normalize();
-  flash.position.copy(muzzle).addScaledVector(ahead,.12);flash.scale.setScalar(.8+Math.random()*.5);flash.material.rotation=Math.random()*6.28;flash.material.opacity=1;
-  muzzleLight.position.copy(flash.position);muzzleLight.intensity=40;
-  for(let i=0;i<4;i++)sparks.spawn(flash.position.x,flash.position.y,flash.position.z,ahead.x*4+(Math.random()-.5)*2,ahead.y*4+Math.random(),ahead.z*4+(Math.random()-.5)*2,.08+Math.random()*.08);
-  flicker=Math.max(flicker,.05);shake=Math.max(shake,.07);
-  const b=bullets.find(b=>!b.live)??bullets[0],targetY=e.target&&views.get(e.target)?views.get(e.target).view.position.y:.95;
+  const muzzle=localOf(actor.marker(g.muzzle)),ahead=localOf(actor.marker(g.ahead)).sub(muzzle).normalize();
+  flash.position.copy(muzzle).addScaledVector(ahead,.12*g.flash);flash.scale.setScalar((.8+Math.random()*.5)*g.flash);flash.material.rotation=Math.random()*6.28;flash.material.opacity=1;
+  muzzleLight.position.copy(flash.position);muzzleLight.intensity=g.light;
+  for(let i=0;i<g.sparks;i++)sparks.spawn(flash.position.x,flash.position.y,flash.position.z,ahead.x*4+(Math.random()-.5)*2,ahead.y*4+Math.random(),ahead.z*4+(Math.random()-.5)*2,.08+Math.random()*.08);
+  flicker=Math.max(flicker,.05);shake=Math.max(shake,g.shake);
+  const b=bullets.find(b=>!b.live)??bullets[0],target=viewFor(e.target),targetY=target?target.position.y:.95;
   b.from.copy(muzzle);b.dir.set(e.x,targetY,e.z).sub(b.from);b.length=b.dir.length();b.dir.normalize();
-  b.travelled=0;b.live=true;b.mesh.visible=true;
+  b.travelled=0;b.live=true;b.mesh.visible=true;b.thick=g.tracer;
   // Brass out of the port.
-  const port=localOf(actor.marker('Port')),out=localOf(actor.marker('PortOut')).sub(port).normalize(),c=cases[nextCase];nextCase=(nextCase+1)%CASES;
+  const port=localOf(actor.marker(g.port)),out=localOf(actor.marker(g.out)).sub(port).normalize(),k=nextCase,c=cases[k];nextCase=(nextCase+1)%CASES;caseSize[k]=g.brass;
   c.p.copy(port);c.v.copy(out).multiplyScalar(2.2+Math.random()*1.2);c.v.x+=(Math.random()-.5)*.6;c.v.y+=2.2+Math.random()*1.2;c.v.z+=(Math.random()-.5)*.6;
   c.q.setFromEuler(euler.set(Math.random()*6,Math.random()*6,0));c.lie.setFromEuler(euler.set(Math.PI/2,0,Math.random()*6.28,'YXZ'));euler.order='XYZ';
   c.spin.set((Math.random()-.5)*50,(Math.random()-.5)*20,(Math.random()-.5)*50);c.age=0;c.bounces=0;
  }
  function impact(e){
-  const dir=new THREE.Vector3(e.dir.x,0,e.dir.z),v=e.crawler&&views.get(e.crawler)?.view;
+  const dir=new THREE.Vector3(e.dir.x,0,e.dir.z),v=viewFor(e.crawler);
   if(v){
    const at=new THREE.Vector3(e.x,v.position.y,e.z);
    v.hit(at,dir);impactFlash.position.copy(at).addScaledVector(dir,-.2);impactFlash.material.opacity=1;
@@ -196,16 +208,16 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF}){
  function after(state,hunt,dt){
   for(const e of pending)(e.type==='shot'?fireShot:impact)(e);pending=[];
   for(const b of bullets){if(!b.live)continue;b.travelled+=BULLET_SPEED*dt;if(b.travelled>=b.length){b.live=false;b.mesh.visible=false;continue;}
-   const streak=Math.min(1.1,b.travelled);b.mesh.scale.set(1,1,streak);b.mesh.position.copy(b.from).addScaledVector(b.dir,b.travelled-streak/2);b.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),b.dir);}
+   const streak=Math.min(1.1*(b.thick??1),b.travelled);b.mesh.scale.set(b.thick??1,b.thick??1,streak);b.mesh.position.copy(b.from).addScaledVector(b.dir,b.travelled-streak/2);b.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),b.dir);}
   for(let i=0;i<CASES;i++){const c=cases[i];if(c.age>9)continue;c.age+=dt;
    c.v.y-=9*dt;const nx=c.p.x+c.v.x*dt,nz=c.p.z+c.v.z*dt;
-   if(walkable(cave,nx,nz,.05)){c.p.x=nx;c.p.z=nz;}else{c.v.x*=-.4;c.v.z*=-.4;}
+   if(!cave||walkable(cave,nx,nz,.05)){c.p.x=nx;c.p.z=nz;}else{c.v.x*=-.4;c.v.z*=-.4;}
    c.p.y+=c.v.y*dt;
    if(c.p.y<.03&&c.v.y<0){c.p.y=.03;c.bounces++;c.v.y*=-.35;c.v.x*=.55;c.v.z*=.55;c.spin.multiplyScalar(.45);c.q.slerp(c.lie,.6);}
    if(c.bounces&&c.v.lengthSq()<.05){c.v.set(0,0,0);c.q.slerp(c.lie,.3);}
    else{spinQ.setFromEuler(euler.set(c.spin.x*dt,c.spin.y*dt,c.spin.z*dt));c.q.multiply(spinQ);}
    const fade=c.age>8?Math.max(0,9-c.age):1;
-   caseMatrix.compose(c.p,c.q,one.set(fade,fade,fade));caseMesh.setMatrixAt(i,caseMatrix);
+   const size=fade*caseSize[i];caseMatrix.compose(c.p,c.q,one.set(size,size*1.15,size));caseMesh.setMatrixAt(i,caseMatrix);
    caseMesh.setColorAt(i,caseColor.copy(brass).lerp(hotBrass,Math.max(0,1-c.age/1.4)));
   }
   caseMesh.instanceMatrix.needsUpdate=true;caseMesh.instanceColor.needsUpdate=true;
@@ -225,7 +237,21 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF}){
   }
   hive?.update(state,dt);
   smoke.update(dt,viewDir.value);
-  flares.update(state,dt,{root:caveView.root,actor});
+  if(cave)flares.update(state,dt,{root:caveView.root,actor});
+  // The flamethrower: the jet from the nozzle out to where the sim says it stops, and fire on whatever is burning.
+  const weapon=heldWeapon(state);
+  if(hunt.flame&&weapon==='flamethrower'){
+   const nozzle=localOf(actor.marker('Nozzle')),ahead=localOf(actor.marker('NozzleAhead')).sub(nozzle).normalize();
+   const pts=hunt.flame.points,reach=pts.length?Math.hypot(pts.at(-1).x-p.x,pts.at(-1).z-p.z)+.5:.4;
+   jet.emit(nozzle,ahead,reach,dt);shake=Math.max(shake,.025);flicker=Math.max(flicker,.02);
+  }
+  for(const c of [...hunt.crawlers,...(cave?[]:state.brood??[])]){
+   const burning=c.scorched>0;if(burning)c.burntAt=c.t;
+   if(!burning&&!(c.state==='dead'&&c.burntAt!=null&&c.t<1.4))continue;
+   const v=viewFor(c);if(v)jet.ignite(v.position,burning?1:.5,dt);
+  }
+  jet.update(dt,{pilotAt:weapon==='flamethrower'?localOf(actor.marker('Pilot')):null});
+  hudUpdate(state,hunt,dt);
   shake=Math.max(0,shake-dt);
  }
 
@@ -252,10 +278,12 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF}){
   // Night eyes steady the lamp.
   if(buffed(p,'sight'))sight.uFlicker.value=1-(1-sight.uFlicker.value)*.35;
   headlamp.intensity=145*sight.uFlicker.value;
-  const health=p.health??100;if(lastHealth!=null&&health<lastHealth)hurtFlash=Math.min(1,hurtFlash+(lastHealth-health)/14);lastHealth=health;
+ }
+ function hudUpdate(state,hunt,dt){
+  const p=state.player,health=p.health??100;if(lastHealth!=null&&health<lastHealth)hurtFlash=Math.min(1,hurtFlash+(lastHealth-health)/14);lastHealth=health;
   hurtFlash=Math.max(0,hurtFlash-dt*1.5);
-  const held=grabbedBy(hunt);
-  hud.update(true,{hurtFlash,grabbed:!!held,escape:held?.escape??0,gun:p.gun??{mag:0,reserve:0}});
+  const held=grabbedBy(hunt),w=heldWeapon(state),a=armsOf(state);
+  hud.update(true,{hurtFlash,grabbed:!!held,escape:held?.escape??0,weapon:w,loaded:w?a.loaded[w]:0,reserve:w?reserveOf(state,w):0,reloading:a.reloading>0});
  }
 
  return {
@@ -264,6 +292,6 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF}){
   setAim(point){aimMarker.visible=!!point&&!!caveView;if(point)aimMarker.position.set(point.x,.05,point.z);},
   get shake(){return shake*.5;},
   get active(){return !!caveView;},
-  dispose(){leave();hud.dispose();bulletGeo.dispose();bulletMat.dispose();caseMesh.geometry.dispose();caseMesh.material.dispose();caseMesh.dispose();flashTex.dispose();flash.material.dispose();impactFlash.material.dispose();ichor.dispose();sparks.dispose();dust.dispose();smoke.dispose();flares.dispose();aimMarker.geometry.dispose();aimMarker.material.dispose();},
+  dispose(){leave();hud.dispose();bulletGeo.dispose();bulletMat.dispose();caseMesh.geometry.dispose();caseMesh.material.dispose();caseMesh.dispose();flashTex.dispose();flash.material.dispose();impactFlash.material.dispose();ichor.dispose();sparks.dispose();dust.dispose();smoke.dispose();flares.dispose();jet.dispose();aimMarker.geometry.dispose();aimMarker.material.dispose();},
  };
 }

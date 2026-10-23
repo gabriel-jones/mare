@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Weapons lab</title>
+<!-- The real game world on a throwaway colony held in memory: it never reads or writes the save. -->
+<base href="../">
+<link rel="stylesheet" href="./game.css">
+<style>
+body{margin:0;overflow:hidden;background:#000}#game{position:fixed;inset:0;width:100vw;height:100vh;display:block}
+.lab{position:fixed;left:12px;top:10px;z-index:9;display:flex;flex-direction:column;gap:6px;background:rgba(6,6,8,.6);padding:8px;border-radius:7px;font:12px/1.3 ui-monospace,Menlo,monospace;color:#d8d2c8}
+.row{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+.row b{min-width:64px;letter-spacing:.12em;color:#ff9a6a;font-size:11px}
+.lab button{font:inherit;color:#d8d2c8;background:rgba(18,16,20,.85);border:1px solid #3a3238;border-radius:5px;padding:4px 8px;cursor:pointer}
+.lab button.on{border-color:#ff5a3a;color:#ffd2c2;background:rgba(60,22,14,.85)}
+.note{white-space:pre;background:rgba(0,0,0,.55);padding:6px 9px;border-radius:5px;color:#cfd6e0;max-width:560px}
+.clips{position:fixed;right:12px;top:10px;z-index:9;display:flex;flex-direction:column;gap:3px;font:11px ui-monospace,Menlo,monospace;max-height:calc(100vh - 20px);overflow:auto}
+.clips button{font:inherit;text-align:left;color:#cfc8bc;background:rgba(18,16,20,.85);border:1px solid #33303a;border-radius:4px;padding:3px 8px;cursor:pointer}
+.clips button.on{border-color:#ff5a3a;color:#ffd2c2}
+.clips .head{color:#ff9a6a;letter-spacing:.12em;padding:2px 4px}
+</style>
+<script type="importmap">{"imports":{"three":"../node_modules/three/build/three.module.js","three/addons/":"../node_modules/three/examples/jsm/"}}</script>
+</head><body><canvas id="game" tabindex="0"></canvas>
+<div class="lab">
+ <div class="row"><b>WEAPON</b><button data-weapon="pistol">Pistol</button><button data-weapon="rifle">Semi-auto rifle</button><button data-weapon="flamethrower">Flamethrower</button></div>
+ <div class="row"><b>RANGE</b><button data-place="cave">Cave (nests + silk)</button><button data-place="surface">Surface (goo + hatchlings)</button></div>
+ <div class="row"><b>TARGETS</b><button id="crawler">+ Crawler at cursor</button><button id="hatch">+ 3 hatchlings</button><button id="goo">+ Goo patch</button><button id="regrow">Regrow nests + silk</button><button id="clear">Clear</button></div>
+ <div class="row"><b>TIME</b><button data-speed="1">1×</button><button data-speed=".5">½×</button><button data-speed=".25">¼×</button><button data-speed=".1">⅒×</button><button id="pause">Pause</button><button id="step">Step ⅒ s</button></div>
+ <div class="row"><b>CHEATS</b><button id="ammo" class="on">Endless ammo</button><button id="god" class="on">No damage</button><button id="calm">Passive targets</button></div>
+ <div class="note" id="note">loading…</div>
+</div>
+<div class="clips" id="clips"></div>
+<script type="module">
+import * as THREE from 'three';
+import {createWorld} from './world.js';
+import {createState,DEFS} from './sim.js';
+import {caveLayout,cavePassable} from './caves.js';
+import {CELL_SIZE} from './defs.js';
+import {movePlayer,resetLocomotion,interpolatePose} from './controller.js';
+import {stepPeril,throwFlare,flareNow,FLARE} from './peril.js';
+import {add,count,createInventory} from './inventory.js';
+import {createHunt,stepHunt,fire,release,roll,wrench,pinned,grabbedBy} from './hunt.js';
+import {WEAPONS,armsOf,holdWeapon,reload,heldWeapon} from './arms.js';
+import {createCrawler} from './crawler.js';
+import {GOO,stepBrood} from './goo.js';
+import {worldVectorToCave} from './cave-space.js';
+
+const $=id=>document.getElementById(id),params=new URLSearchParams(location.search),ZONE=1;
+const state=createState(1847);
+state.inventory=createInventory({pistol:1,rifle:1,flamethrower:1,rounds:60,fuel:10,flare:6});
+for(const [w,def] of Object.entries(WEAPONS))armsOf(state).loaded[w]=def.magazine;
+const canvas=$('game'),world=await createWorld(canvas,state),keys=new Set();
+let hunt=createHunt(),previous={...state.player},jumpVelocity=0,accumulator=0,last=performance.now(),aimClient=null;
+let speed=1,paused=false,endless=true,god=true,calm=false,clip=null,place=null;
+
+function setPlace(where){
+ place=where;const p=state.player;hunt=createHunt();state.brood=[];state.goo=null;state.flares=[];
+ if(where==='cave'){const s=caveLayout(state.seed,0,ZONE).start;Object.assign(p,{cave:0,zone:ZONE,x:s.x*2,z:s.z*2+2,facing:0});}
+ else{Object.assign(p,{cave:null,zone:0,x:0,z:8,facing:Math.PI});gooPatch(0,16);hatchlings(3);}
+ resetLocomotion(p);previous={...p};mark('[data-place]',x=>x.dataset.place===where);
+}
+function gooPatch(cx,cz){
+ state.goo??={cells:[],clock:1e6,breaches:1};const at=[Math.round(cx/CELL_SIZE),Math.round(cz/CELL_SIZE)];
+ for(let dx=-1;dx<=1;dx++)for(let dz=-1;dz<=1;dz++)if(Math.abs(dx)+Math.abs(dz)<2||Math.random()<.5){const c=[at[0]+dx,at[1]+dz];if(!state.goo.cells.some(g=>g[0]===c[0]&&g[1]===c[1]))state.goo.cells.push(c);}
+}
+function hatchlings(n){
+ const p=state.player;state.brood??=[];
+ for(let i=0;i<n;i++){const a=Math.PI+(i-(n-1)/2)*.5,c=createCrawler(p.x+Math.sin(a)*9,p.z+Math.cos(a)*9);c.hp=GOO.hatchlingHp;c.facing=a+Math.PI;state.brood.push(c);}
+}
+function crawlerAt(x,z){
+ const p=state.player;if(p.cave==null){state.brood.push(Object.assign(createCrawler(x,z),{hp:GOO.hatchlingHp}));return;}
+ if(!cavePassable(caveLayout(state.seed,p.cave,p.zone),x,z,.4))return note('No floor there.');
+ const c=createCrawler(x,z);c.facing=Math.atan2(p.x-x,p.z-z);c.state='stalk';c.patience=0;hunt.crawlers.push(c);
+}
+function setWeapon(w){holdWeapon(state,w);clip=null;renderClips();mark('[data-weapon]',x=>x.dataset.weapon===w);}
+function mark(sel,on){document.querySelectorAll(sel).forEach(b=>b.classList.toggle('on',on(b)));}
+let flash='',flashT=0;function note(t){flash=t;flashT=2;}
+
+// The clip browser: every clip on the astronaut, the held weapon's own first. Picking one plays it looped in place.
+function renderClips(){
+ const all=world.actor?.clips??[],w=heldWeapon(state),own=w==='rifle'?'rifle':w==='flamethrower'?'flame':null;
+ const mine=own?all.filter(c=>c.startsWith(own)):all.filter(c=>/^(aim|fire|turn)/.test(c)),rest=all.filter(c=>!mine.includes(c));
+ const el=$('clips');el.innerHTML='';
+ const head=t=>{const d=document.createElement('div');d.className='head';d.textContent=t;el.append(d);};
+ const btn=(label,c)=>{const b=document.createElement('button');b.textContent=label;b.classList.toggle('on',clip===c);b.onclick=()=>{clip=c;renderClips();};el.append(b);};
+ head('CLIPS');btn('● Live (combat)',null);head((w??'').toUpperCase());mine.forEach(c=>btn(c,c));head('ALL');rest.forEach(c=>btn(c,c));
+}
+
+canvas.addEventListener('pointermove',e=>{aimClient={x:e.clientX,y:e.clientY};});
+canvas.addEventListener('pointerdown',e=>{aimClient={x:e.clientX,y:e.clientY};canvas.focus();
+ if(e.button===2||e.shiftKey){const a=world.aim(e.clientX,e.clientY);if(a)crawlerAt(a.x,a.z);return;}
+ clip=null;renderClips();const r=fire(hunt,state);if(r.reason)note(r.reason);try{canvas.setPointerCapture(e.pointerId);}catch{}});
+canvas.addEventListener('pointerup',()=>release(hunt));
+canvas.addEventListener('contextmenu',e=>e.preventDefault());
+addEventListener('keydown',e=>{const k=e.key.toLowerCase();keys.add(k);if(e.repeat)return;const p=state.player;
+ if(k===' '){e.preventDefault();const dx=(keys.has('d')?1:0)-(keys.has('a')?1:0),dz=(keys.has('s')?1:0)-(keys.has('w')?1:0);
+  const v=dx||dz?{x:(dx+dz)*Math.SQRT1_2,z:(-dx+dz)*Math.SQRT1_2}:{x:Math.sin(p.facing),z:Math.cos(p.facing)},w=p.cave!=null&&(dx||dz)?worldVectorToCave(state.seed,p.cave,v.x,v.z):v;roll(hunt,state,w.x,w.z);}
+ if(k==='q')throwFlare(state,aimClient&&world.aim(aimClient.x,aimClient.y));
+ if(k==='e')wrench(hunt,state);if(k==='r'){const r=reload(state);if(r.reason)note(r.reason);}
+ if(k==='1')setWeapon('pistol');if(k==='2')setWeapon('rifle');if(k==='3')setWeapon('flamethrower');});
+addEventListener('keyup',e=>keys.delete(e.key.toLowerCase()));
+
+function fixed(dt){
+ const p=state.player,dx=(keys.has('d')?1:0)-(keys.has('a')?1:0),dz=(keys.has('s')?1:0)-(keys.has('w')?1:0);
+ previous={...p};hunt.drawn=true;
+ if(hunt.rolling||pinned(hunt)){p.vx=0;p.vz=0;p.speed=0;}else movePlayer(state,dx,dz,dt,DEFS);
+ if(aimClient&&!pinned(hunt)){const a=world.aim(aimClient.x,aimClient.y);if(a&&Math.hypot(a.x-p.x,a.z-p.z)>.3)p.facing=Math.atan2(a.x-p.x,a.z-p.z);}
+ // Endless ammo keeps the reserve full; magazines still run dry, so reloads play.
+ if(endless){if(count(state.inventory,'rounds')<30)add(state.inventory,'rounds',30);if(count(state.inventory,'fuel')<4)add(state.inventory,'fuel',4);}
+ // Passive targets stand and take it: they are kept wandering, never stalking.
+ if(calm)for(const c of [...hunt.crawlers,...(state.brood??[])])if(c.state!=='dead'&&c.state!=='flinch'){c.state='idle';c.t=0;c.patience=99;}
+ stepHunt(hunt,state,dt);
+ if(p.cave==null&&state.brood?.length){
+  const fires=(state.flares??[]).filter(f=>f.cave==null).map(f=>flareNow(f,p)).filter(n=>n.stage==='down'&&n.lit>0).map(n=>({x:n.x,z:n.z,r:FLARE.radius*n.lit}));
+  if(hunt.flame)fires.push(...hunt.flame.points);
+  stepBrood(state,dt,fires);
+ }
+ stepPeril(state,dt);
+ if(god)p.health=100;
+ if(p.cave==null&&place==='cave')setPlace('cave');
+ if((p.y??0)>0||jumpVelocity>0){jumpVelocity-=1.62*dt;p.y=Math.max(0,(p.y??0)+jumpVelocity*dt);if(p.y===0)jumpVelocity=0;}
+ p.animation=(p.y>0||jumpVelocity>0)?'jump':p.speed>.1?'run':'idle';
+}
+function render(dt){
+ const pose=interpolatePose(previous,state.player,accumulator/(1/30));
+ if(clip)world.update(state,dt,{...pose,animation:clip,weapon:heldWeapon(state),speed:0,twist:0},null,null);
+ else world.update(state,dt,pose,null,hunt);
+ const a=armsOf(state),w=heldWeapon(state),targets=[...hunt.crawlers,...(state.brood??[])];
+ flashT-=dt;
+ $('note').textContent=`${w} · loaded ${w==='flamethrower'?Math.ceil(a.loaded[w])+'%':a.loaded[w]} · ${hunt.trigger?'TRIGGER':'—'}${a.reloading>0?' · reloading':''}${hunt.flame?` · flame ${hunt.flame.points.length} pts`:''}
+targets ${targets.map(c=>`${c.state}${c.scorched>0?'🔥':''}(${Math.ceil(c.hp??0)})`).join(' ')||'none'}${state.goo?` · goo ${state.goo.cells.length}`:''}${grabbedBy(hunt)?' · GRABBED':''}
+${clip?`clip: ${clip}`:'click: fire (hold for flame) · shift/right-click: crawler · R reload · 1/2/3 weapon · space roll · Q flare'}${flashT>0?`\n${flash}`:''}`;
+}
+function frame(now){
+ const real=Math.min((now-last)/1000,.1);last=now;const dt=paused?0:real*speed;accumulator+=dt;
+ while(accumulator>=1/30){fixed(1/30);accumulator-=1/30;}
+ render(dt);requestAnimationFrame(frame);
+}
+
+document.querySelectorAll('[data-weapon]').forEach(b=>b.onclick=()=>setWeapon(b.dataset.weapon));
+document.querySelectorAll('[data-place]').forEach(b=>b.onclick=()=>setPlace(b.dataset.place));
+document.querySelectorAll('[data-speed]').forEach(b=>b.onclick=()=>{speed=Number(b.dataset.speed);mark('[data-speed]',x=>x===b);});
+$('pause').onclick=()=>{paused=!paused;$('pause').classList.toggle('on',paused);};
+$('step').onclick=()=>{for(let t=0;t<.1;t+=1/30){fixed(1/30);render(1/30);}};
+$('crawler').onclick=()=>{const p=state.player,a=aimClient&&world.aim(aimClient.x,aimClient.y);const at=a??{x:p.x+Math.sin(p.facing)*6,z:p.z+Math.cos(p.facing)*6};crawlerAt(at.x,at.z);};
+$('hatch').onclick=()=>{if(state.player.cave!=null)return note('Hatchlings live on the surface.');hatchlings(3);};
+$('goo').onclick=()=>{const p=state.player;if(p.cave!=null)return note('Goo spreads on the surface.');const a=aimClient&&world.aim(aimClient.x,aimClient.y);gooPatch(a?.x??p.x+Math.sin(p.facing)*6,a?.z??p.z+Math.cos(p.facing)*6);};
+$('regrow').onclick=()=>{state.burnt={};note('Nests and silk regrown.');};
+$('clear').onclick=()=>{hunt.crawlers.length=0;state.brood=[];state.goo=null;};
+$('ammo').onclick=()=>{endless=!endless;$('ammo').classList.toggle('on',endless);};
+$('god').onclick=()=>{god=!god;$('god').classList.toggle('on',god);};
+$('calm').onclick=()=>{calm=!calm;$('calm').classList.toggle('on',calm);};
+
+setPlace(params.get('place')==='surface'?'surface':'cave');setWeapon(params.get('weapon')??'pistol');
+mark('[data-speed]',x=>x.dataset.speed==='1');
+window.lab={state,get hunt(){return hunt;},world,keys,fixed,render,setPlace,setWeapon,crawlerAt,hatchlings,gooPatch,
+ aimAt(x,y){aimClient={x,y};},
+ /** Puts the cursor over a sim point (cave-local underground), or the nearest live target. */
+ aimAtSim(x,z,y=.4){const fx=world.scene.getObjectByName('hunt-effects'),root=fx?.parent;if(!root)return null;const v=root.localToWorld(new THREE.Vector3(x,y,z)).project(world.camera),r=canvas.getBoundingClientRect();aimClient={x:r.left+(v.x+1)/2*r.width,y:r.top+(1-v.y)/2*r.height};return aimClient;},
+ aimAtNearest(){const p=state.player,c=[...hunt.crawlers,...(state.brood??[])].filter(c=>c.state!=='dead').sort((a,b)=>Math.hypot(a.x-p.x,a.z-p.z)-Math.hypot(b.x-p.x,b.z-p.z))[0];return c?this.aimAtSim(c.x,c.z):null;},
+ zoom(z){world.camera.zoom=z;world.camera.updateProjectionMatrix();},fire:()=>fire(hunt,state),release:()=>release(hunt),setClip(c){clip=c;renderClips();},
+ set paused(v){paused=v;},
+ /** Sim and render in lockstep, for stills of exact moments while the tab is in the background. */
+ advance(seconds){for(let t=0;t<seconds-1e-6;t+=1/30){fixed(1/30);previous={...state.player};render(1/30);}}};
+requestAnimationFrame(frame);
+</script></body></html>

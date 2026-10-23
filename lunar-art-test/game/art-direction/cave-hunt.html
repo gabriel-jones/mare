@@ -14,7 +14,8 @@ import {caveLayout} from './caves.js';
 import {movePlayer,resetLocomotion,interpolatePose} from './controller.js';
 import {stepPeril,throwFlare} from './peril.js';
 import {add} from './inventory.js';
-import {createHunt,stepHunt,fire,roll,wrench,pinned,grabbedBy,reload,craftRounds} from './hunt.js';
+import {createHunt,stepHunt,fire,release,roll,wrench,pinned,grabbedBy} from './hunt.js';
+import {reload,armsOf,heldWeapon,reserveOf} from './arms.js';
 import {worldVectorToCave} from './cave-space.js';
 
 const params=new URLSearchParams(location.search),zone=Number(params.get('zone')??1);
@@ -24,18 +25,19 @@ const canvas=document.getElementById('game'),world=await createWorld(canvas,stat
 let previous={...state.player},jumpVelocity=0,accumulator=0,last=performance.now(),aimClient=null;
 canvas.addEventListener('pointermove',e=>{aimClient={x:e.clientX,y:e.clientY};});
 canvas.addEventListener('pointerdown',e=>{aimClient={x:e.clientX,y:e.clientY};fire(hunt,state);});
+canvas.addEventListener('pointerup',()=>release(hunt));
 addEventListener('keydown',e=>{const k=e.key.toLowerCase();keys.add(k);if(e.repeat)return;const p=state.player;
  if(k===' '){e.preventDefault();const dx=(keys.has('d')?1:0)-(keys.has('a')?1:0),dz=(keys.has('s')?1:0)-(keys.has('w')?1:0);const w=dx||dz?worldVectorToCave(state.seed,0,(dx+dz)*Math.SQRT1_2,(-dx+dz)*Math.SQRT1_2):{x:Math.sin(p.facing),z:Math.cos(p.facing)};roll(hunt,state,w.x,w.z);}
  if(k==='shift'&&!(p.y>0)&&!pinned(hunt))jumpVelocity=1.8;
  if(k==='q')throwFlare(state,aimClient&&world.aim(aimClient.x,aimClient.y));
- if(k==='e')wrench(hunt,state);if(k==='r')reload(state);if(k==='c')craftRounds(state);});
+ if(k==='e')wrench(hunt,state);if(k==='r')reload(state);});
 addEventListener('keyup',e=>keys.delete(e.key.toLowerCase()));
 function fixed(dt){
  const p=state.player,dx=(keys.has('d')?1:0)-(keys.has('a')?1:0),dz=(keys.has('s')?1:0)-(keys.has('w')?1:0);
  previous={...p};
  if(hunt.rolling||pinned(hunt)){p.vx=0;p.vz=0;p.speed=0;}else movePlayer(state,dx,dz,dt,DEFS);
  if(aimClient&&!pinned(hunt)){const a=world.aim(aimClient.x,aimClient.y);if(a&&Math.hypot(a.x-p.x,a.z-p.z)>.3)p.facing=Math.atan2(a.x-p.x,a.z-p.z);}
- stepHunt(hunt,state,dt);stepPeril(state,dt);
+ hunt.drawn=true;stepHunt(hunt,state,dt);stepPeril(state,dt);
  if((p.y??0)>0||jumpVelocity>0){jumpVelocity-=1.62*dt;p.y=Math.max(0,(p.y??0)+jumpVelocity*dt);if(p.y===0)jumpVelocity=0;}
  p.animation=(p.y>0||jumpVelocity>0)?'jump':p.speed>.1?'run':'idle';
 }
@@ -43,7 +45,7 @@ function frame(now){
  const dt=window.harness.paused?0:Math.min((now-last)/1000,.1);last=now;accumulator+=dt;
  while(accumulator>=1/30){fixed(1/30);accumulator-=1/30;}
  world.update(state,dt,interpolatePose(previous,state.player,accumulator/(1/30)),null,hunt);
- const g=state.player.gun;document.getElementById('note').textContent=`zone ${zone} · crawlers ${hunt.crawlers.map(c=>c.state).join(', ')}\nsuit ${Math.ceil(state.player.health??100)} · ammo ${g?.mag}/${g?.reserve}${grabbedBy(hunt)?' · GRABBED':''}${state.player.cave==null?' · BLACKED OUT':''}`;
+ const w=heldWeapon(state),g={mag:w?armsOf(state).loaded[w]:0,reserve:w?reserveOf(state,w):0};document.getElementById('note').textContent=`zone ${zone} · crawlers ${hunt.crawlers.map(c=>c.state).join(', ')}\nsuit ${Math.ceil(state.player.health??100)} · ammo ${g?.mag}/${g?.reserve}${grabbedBy(hunt)?' · GRABBED':''}${state.player.cave==null?' · BLACKED OUT':''}`;
  requestAnimationFrame(frame);
 }
 window.harness={state,hunt,world,keys,paused:false,aimAt(x,y){aimClient={x,y};},fire:()=>fire(hunt,state),roll:(x,z)=>roll(hunt,state,x,z),wrench:()=>wrench(hunt,state),step:(seconds)=>{for(let t=0;t<seconds;t+=1/30)fixed(1/30);},jump:()=>{jumpVelocity=1.8;},

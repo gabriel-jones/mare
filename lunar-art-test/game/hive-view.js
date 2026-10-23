@@ -236,7 +236,7 @@ export function createHiveView(caveView,cave,{zone,toCave,viewDir,smoke}){
   for(const s of silks){
    const burnt=isBurnt(state,id,zone,s.key),u=s.mesh.material.uniforms;
    if(s.burnt===null&&burnt)s.burnT=99;
-   else if(burnt&&!s.burnt){s.burnT=0;const f=(state.flares??[]).map(f=>flareNow(f,p)).find(n=>n.stage==='down');
+   else if(burnt&&!s.burnt){s.burnT=0;const f=(state.flares??[]).map(f=>flareNow(f,p)).find(n=>n.stage==='down')??p;
     const side=f?(s.along?f.x-s.x:f.z-s.z):-1,across=f?(s.along?f.z-s.z:f.x-s.x):0;u.uIgnite.value.set(Math.max(.1,Math.min(.9,.5+across/s.W)),side<0?.03:.97);}
    else if(!burnt&&s.burnt){s.burnT=-1;u.uGrow.value=0;}
    s.burnt=burnt;

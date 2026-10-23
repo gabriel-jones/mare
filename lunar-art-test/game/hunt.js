@@ -142,6 +142,7 @@ export function flamePoints(cave,p){
  */
 function stepFlame(hunt,state,cave,targets,dt,rng){
  const p=state.player,on=!!hunt.trigger&&burnTank(state,dt);
+ for(const c of targets)if(c.scorched)c.scorched=Math.max(0,c.scorched-dt);
  hunt.flame=on?{points:flamePoints(cave,p)}:null;
  if(!on)return;
  const spec=WEAPONS.flamethrower,points=hunt.flame.points,ax=Math.sin(p.facing??0),az=Math.cos(p.facing??0);
