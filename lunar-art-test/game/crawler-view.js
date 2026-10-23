@@ -9,8 +9,8 @@ import {SIGHT_PARS} from './cave-view.js';
  */
 const LEGS=8,FEMUR=1.15,TIBIA=1,META=.55;
 const SIDE_ANGLES=[.5,1.2,1.95,2.6];
-const REST_HEIGHT={idle:1.05,lurk:1.05,stalk:.78,close:.7,skitter:1,flee:1.05,recover:.9,slash:1.2,recoil:1.4,hit:1,shriek:2.15,lunge:.62,grab:1.25,dead:.3};
-const OPEN={shriek:1,lunge:.85,grab:.7,slash:.5};
+const REST_HEIGHT={idle:1.05,lurk:1.05,stalk:.78,close:.7,skitter:1,flee:1.05,recover:.9,slash:1.2,recoil:1.4,hit:1,shriek:2.15,lunge:.62,grab:1.84,dead:.3};
+const OPEN={shriek:1,lunge:.85,grab:1,slash:.5};
 
 const legInfo=[...Array(LEGS)].map((_,i)=>{
  const side=i<4?-1:1,j=i%4,a=SIDE_ANGLES[j],reach=j===0?1.6:j===3?1.5:1.45;
@@ -151,7 +151,7 @@ export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=n
  const splat=(x,z,r,life=8)=>{const s=splatState[nextSplat];nextSplat=(nextSplat+1)%SPLATS;Object.assign(s,{x,z,r,age:0,life});};
  const drip=(p,size=.02+Math.random()*.02)=>{const d=dropState[nextDrop];nextDrop=(nextDrop+1)%DROPS;d.p.copy(p);d.v.set((Math.random()-.5)*.2,-.2,(Math.random()-.5)*.2);d.alive=true;d.size=size;};
 
- const pos=new THREE.Vector3(),vel=new THREE.Vector3(),last=new THREE.Vector3(),pose={height:1.05,pitch:0,roll:0,open:0,yaw:0};let started=false,clock=0,go=true,goT=0,aftershock=0;
+ const pos=new THREE.Vector3(),vel=new THREE.Vector3(),last=new THREE.Vector3(),pose={height:1.05,pitch:0,roll:0,open:0,yaw:0};let started=false,clock=0,stretch=0,go=true,goT=0,aftershock=0;
  const jerk={t:0,want:{yaw:0,pitch:0,roll:0,y:0,open:0},now:{yaw:0,pitch:0,roll:0,y:0,open:0}};
  const m4=new THREE.Matrix4(),q=new THREE.Quaternion(),up=new THREE.Vector3(0,1,0),tmp=new THREE.Vector3(),tmp2=new THREE.Vector3(),dummy=new THREE.Object3D();
  const toParent=(local,out)=>out.copy(local).applyMatrix4(body.matrix);
@@ -193,10 +193,10 @@ export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=n
   // Death is a seizure: violent for a moment, fading, then a few late aftershocks before it curls and melts.
   if(dead){if(c.t>3&&c.t<4.6&&aftershock<=0&&Math.random()<dt*1.6)aftershock=.2+Math.random()*.2;aftershock-=dt;}else aftershock=0;
   const seize=dead?Math.max(c.t<1.9?1:Math.max(0,1-(c.t-1.9)/1.1),aftershock>0?.55:0):0;
-  // While grabbing it climbs onto the player's back and clings there.
+  // While grabbing it climbs the player and clamps its open mouth over the helmet, its body hunched on top.
   const toCrawler=new THREE.Vector2(c.x-player.x,c.z-player.z);if(toCrawler.lengthSq()<1e-4)toCrawler.set(-Math.sin(c.facing),-Math.cos(c.facing));toCrawler.normalize();
   let tx=c.x,tz=c.z;
-  if(state==='grab'){tx=player.x+toCrawler.x*.5;tz=player.z+toCrawler.y*.5;}
+  if(state==='grab'){const gnaw=.03*Math.sin(clock*11);tx=player.x+toCrawler.x*(.3+gnaw);tz=player.z+toCrawler.y*(.3+gnaw);}
   if(!started){started=true;pos.set(tx,0,tz);last.copy(pos);pose.yaw=c.facing;body.position.set(tx,REST_HEIGHT.idle,tz);body.updateMatrix();legs.forEach(l=>{home(l,l.foot);});}
   // Stop-start: it freezes, then darts to catch up, like a spider crossing a floor.
   const fast=state==='skitter'||state==='flee';
@@ -216,18 +216,21 @@ export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=n
   const snap=1-Math.exp(-dt*(seize>.05?60:45));for(const key in jerk.want)jerk.now[key]+=(jerk.want[key]-jerk.now[key])*snap;
   const breathe=Math.sin(clock*1.6)*.03,tremble=(state==='shriek'||state==='recoil')?Math.sin(clock*55)*.015:0;
   const wantHeight=dead?.3+.2*seize:(REST_HEIGHT[state]??1)+(state==='idle'?breathe:0)+Math.min(.08,vel.length()*.01);
-  const pitchFor={shriek:-.75,recoil:-.45,lunge:.25,grab:.55,slash:-.2};
+  const pitchFor={shriek:-.75,recoil:-.45,lunge:.25,grab:.32,slash:-.2};
   pose.height+=(wantHeight-pose.height)*(1-Math.exp(-dt*(state==='shriek'||state==='lunge'||state==='recoil'||dead?10:5)));
   pose.pitch+=((pitchFor[state]??0)+tremble*4-pose.pitch)*(1-Math.exp(-dt*8));
   const speedLean=new THREE.Vector3(vel.x,0,vel.z).applyAxisAngle(up,-pose.yaw);
   // Dead, it flips onto its back.
   pose.roll+=((state==='hit'?.35*Math.sin(c.t*20):0)+(dead?Math.PI*.92:0)+THREE.MathUtils.clamp(-speedLean.x*.03,-.2,.2)-pose.roll)*(1-Math.exp(-dt*(dead?7:8)));
-  const wantOpen=Math.max((OPEN[state]??0)*(state==='shriek'?.85+.15*Math.sin(clock*30):1),jerk.now.open);
+  const wantOpen=Math.max((OPEN[state]??0)*(state==='shriek'?.85+.15*Math.sin(clock*30):state==='grab'?.88+.12*Math.sin(clock*11):1),jerk.now.open);
   pose.open+=(wantOpen-pose.open)*(1-Math.exp(-dt*(wantOpen>pose.open?20:8)));
   body.position.set(pos.x,pose.height+tremble+jerk.now.y,pos.z);
   body.rotation.set(0,0,0);body.rotateY(pose.yaw+jerk.now.yaw);body.rotateX(THREE.MathUtils.clamp(pose.pitch+jerk.now.pitch-speedLean.z*.02,-1.2,1.2));body.rotateZ(pose.roll+jerk.now.roll);body.updateMatrix();
   if(shells.ShellL)shells.ShellL.rotation.y=-pose.open*.55;if(shells.ShellR)shells.ShellR.rotation.y=pose.open*.55;
-  const melt=dead?Math.max(0,Math.min(1,(c.t-3.8)/1.8)):0;model.scale.set(1+melt*.5,1-melt*.75,1+melt*.3);
+  const melt=dead?Math.max(0,Math.min(1,(c.t-3.8)/1.8)):0;
+  // Grabbing, the goo stretches wide enough for its jaws to close round a helmet.
+  stretch+=((state==='grab'?1:0)-stretch)*(1-Math.exp(-dt*(state==='grab'?8:5)));
+  model.scale.set((1+melt*.5)*(1+.75*stretch),(1-melt*.75)*(1+.5*stretch),(1+melt*.3)*(1+.3*stretch));
   // The goo lags behind the body's motion and sags under its weight; it heaves while seizing.
   const wantSag=new THREE.Vector3(THREE.MathUtils.clamp(-speedLean.x*.012,-.07,.07),.035+.02*Math.sin(clock*1.3)+.05*seize*Math.random(),THREE.MathUtils.clamp(-speedLean.z*.012,-.07,.07));
   sag.value.lerp(wantSag,1-Math.exp(-dt*6));
@@ -241,7 +244,7 @@ export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=n
    if(state==='lunge'&&front&&c.t<.4)return local(new THREE.Vector3(s*(j?.9:.45),-.2,1.5));
    if(state==='grab'&&c.t>.04*(j*2+(s>0?1:0))){
     // Wrapped round the torso: front legs reach round to the chest, rear legs clamp the thighs; needles curl along the body and squeeze.
-    const back=Math.atan2(toCrawler.x,toCrawler.y),around=back-s*(2.5-j*.5),h=1.45-j*.3;
+    const back=Math.atan2(toCrawler.x,toCrawler.y),around=back-s*(2.5-j*.5),h=1.5-j*.28;
     const squeeze=.36+.025*Math.sin(clock*9+i*1.7);
     const foot=new THREE.Vector3(player.x+Math.sin(around)*squeeze,h,player.z+Math.cos(around)*squeeze);
     const behind=around+s*.95;leg.wrapAnkle=new THREE.Vector3(player.x+Math.sin(behind)*(squeeze+.12),h+.1,player.z+Math.cos(behind)*(squeeze+.12));
@@ -262,7 +265,7 @@ export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=n
   legs.forEach((leg,i)=>{
    const wasWrapped=!!leg.wrapAnkle;leg.wrapAnkle=null;
    // Goo legs draw in to hug what they hold.
-   leg.shrink+=((state==='grab'?.5:1)-leg.shrink)*(1-Math.exp(-dt*(state==='grab'?10:4)));
+   leg.shrink+=((state==='grab'?.68:1)-leg.shrink)*(1-Math.exp(-dt*(state==='grab'?10:4)));
    const target=reach(i,leg);
    if(wasWrapped&&!leg.wrapAnkle)leg.ankle.copy(leg.foot);
    if(target){
