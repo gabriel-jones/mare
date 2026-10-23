@@ -160,3 +160,53 @@ test('in a real cave zone it finds its way round the rock to the player and keep
  assert.ok(shrieked,'commits to an attack');
  assert.ok(Math.hypot(c.x-player.x,c.z-player.z)<=CRAWLER.lungeRange[1]);
 });
+
+// ---- The hunt in the game's caves ----
+import {createState,serialize,deserialize} from './sim.js';
+import {NEST,createHunt,stepHunt,fire,wrench,roll,gunOf,craftRounds,grabbedBy,pinned} from './hunt.js';
+import * as inv from './inventory.js';
+function underground(zone=0){
+ const s=createState(1847),start=caveLayout(s.seed,0,zone).start;
+ Object.assign(s.player,{cave:0,zone,x:start.x*2,z:start.z*2+(zone?2:1),facing:0});return s;
+}
+test('each cave zone is hunted by more crawlers the deeper it lies, spawned well away from the player',()=>{
+ for(const zone of [0,1,2]){
+  const s=underground(zone),h=createHunt();stepHunt(h,s,1/30,seeded(zone+3));
+  assert.equal(h.crawlers.length,NEST.count[zone]);
+  for(const c of h.crawlers)assert.ok(Math.hypot(c.x-s.player.x,c.z-s.player.z)>=6,'not on top of the player');
+ }
+});
+test('leaving the caves clears the hunt, and coming back rolls a fresh one',()=>{
+ const s=underground(1),h=createHunt();stepHunt(h,s,1/30,seeded());
+ delete s.player.cave;stepHunt(h,s,1/30,seeded());assert.equal(h.crawlers.length,0);
+ s.player.cave=0;stepHunt(h,s,1/30,seeded());assert.equal(h.crawlers.length,NEST.count[1]);
+});
+test('a round lands only after its flight time and a kill brings a replacement later',()=>{
+ const s=underground(0),h=createHunt(),rng=seeded();stepHunt(h,s,1/30,rng);
+ const c=h.crawlers[0];c.x=s.player.x;c.z=s.player.z+9;c.state='lurk';
+ s.player.facing=0;
+ // Hold the crawler still so only the shooting is under test.
+ const before=c.hp;assert.equal(fire(h,s).ok,true);assert.equal(c.hp,before,'not hit at the muzzle');
+ assert.equal(h.shots.length,1);h.crawlers.forEach(k=>k.state='dead');c.state='lurk';
+ const hit=h.shots[0].t;stepHunt(h,s,hit+.01,rng);
+ assert.ok(c.hp<before||h.events.some(e=>e.type==='impact'),'the round arrived');
+ c.hp=0;c.state='dead';c.t=7;stepHunt(h,s,1/30,rng);
+ assert.ok(!h.crawlers.includes(c),'the corpse melts away');assert.ok(h.respawns.length>=1);
+ stepHunt(h,s,NEST.respawn[1]+1,rng);assert.ok(h.events.some(e=>e.type==='spawned'));
+});
+test('a grab hurts the suit, pins the player, and mashing breaks free',()=>{
+ const s=underground(0),h=createHunt(),rng=seeded();stepHunt(h,s,1/30,rng);
+ const c=h.crawlers[0];Object.assign(c,{state:'grab',t:0,escape:0,x:s.player.x,z:s.player.z-.6});
+ const health=s.player.health??100;stepHunt(h,s,.5,rng);
+ assert.ok(s.player.health<health,'held hurts');assert.ok(pinned(h));assert.equal(grabbedBy(h),c);
+ assert.equal(roll(h,s,1,0),false,'cannot roll while held');
+ let free=false;for(let i=0;i<40&&!free;i++)free=wrench(h,s);
+ assert.ok(free);assert.ok(pinned(h),'still tearing it off');assert.equal(c.thrown.facing,s.player.facing);
+ stepHunt(h,s,1,rng);assert.ok(!pinned(h));
+});
+test('the pistol is issued once, crafted from pack metal, and survives a save',()=>{
+ const s=underground(0),g=gunOf(s);g.mag=2;g.reserve=3;
+ inv.remove(s.inventory,'metal',inv.count(s.inventory,'metal'));inv.add(s.inventory,'metal',1);assert.equal(craftRounds(s).ok,true);assert.equal(g.reserve,3+PISTOL.makes);
+ assert.equal(craftRounds(s).ok,false,'out of metal');
+ const back=deserialize(serialize(s));assert.deepEqual(back.player.gun,{mag:2,reserve:3+PISTOL.makes,cooldown:0,reloading:0});
+});

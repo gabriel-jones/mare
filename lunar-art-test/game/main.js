@@ -13,6 +13,8 @@ import {objective,missionAction,salvage,installCore,processorUnlocked,noteSighti
 import {createWatcher,stepWatcher} from './watcher.js';
 import {shipAction,holdLaunch,releaseLaunch,loadSatellite,recallShip,selectResearch,machineAction,lockedReason} from './space.js';
 import {createOrbitView} from './orbit-view.js';
+import {createHunt,stepHunt,fire,reload,craftRounds,roll,wrench,pinned,grabbedBy} from './hunt.js';
+import {worldVectorToCave} from './cave-space.js';
 
 // ?sandbox=1 plays a throwaway colony that never touches the real save.
 const KEY=new URLSearchParams(location.search).has('sandbox')?'lunar-frontier.sandbox':'lunar-frontier.phase-a.v1';
@@ -25,6 +27,8 @@ let orbit=null,shipStatus='pad';
 let jumpVelocity=0,accumulator=0,last=performance.now(),uiClock=0,autoClock=0,salvageReason='';
 const watcher=createWatcher();
 const keys=new Set();
+// Underground the astronaut aims at the cursor; the hunt itself is never saved.
+const hunt=createHunt();let aimClient=null;
 resetLocomotion(state.player);
 let previousPose={...state.player};
 function resetPlayer(){resetLocomotion(state.player);previousPose={...state.player};jumpVelocity=0;accumulator=0;}
@@ -221,7 +225,11 @@ function completed(b){
 function fixedUpdate(dt){
  const dx=(keys.has('d')?1:0)-(keys.has('a')?1:0),dz=(keys.has('s')?1:0)-(keys.has('w')?1:0);
  previousPose={...state.player};
- movePlayer(state,dx,dz,dt,DEFS);
+ const p=state.player,caving=p.cave!=null;
+ if(caving&&(hunt.rolling||pinned(hunt))){p.vx=0;p.vz=0;p.speed=0;}
+ else movePlayer(state,dx,dz,dt,DEFS);
+ if(caving&&aimClient&&!pinned(hunt)){const a=world.aim(aimClient.x,aimClient.y);if(a&&Math.hypot(a.x-p.x,a.z-p.z)>.3)p.facing=Math.atan2(a.x-p.x,a.z-p.z);}
+ stepHunt(hunt,state,dt);
  updatePortals(dt);
  updatePeril(dt);
  if((state.player.y??0)>0||jumpVelocity>0){jumpVelocity-=1.62*dt;state.player.y=Math.max(0,(state.player.y??0)+jumpVelocity*dt);if(state.player.y===0)jumpVelocity=0;}
@@ -248,6 +256,20 @@ function fixedUpdate(dt){
  state.player.animation=!state.player.grounded?'jump':state.player.speed>.1?'run':constructing?'build':'idle';
  tick(state,dt*speed);
 }
+/** Underground controls: Space rolls, Shift jumps, E breaks a grab, R reloads, C makes rounds. True when handled. */
+function caveKey(k){
+ const p=state.player;
+ if(k===' '){
+  const dx=(keys.has('d')?1:0)-(keys.has('a')?1:0),dz=(keys.has('s')?1:0)-(keys.has('w')?1:0);
+  const way=dx||dz?worldVectorToCave(state.seed,p.cave,(dx+dz)*Math.SQRT1_2,(-dx+dz)*Math.SQRT1_2):{x:Math.sin(p.facing),z:Math.cos(p.facing)};
+  if(!(p.y>0))roll(hunt,state,way.x,way.z);return true;
+ }
+ if(k==='shift'){if(!(p.y>0)&&!hunt.rolling&&!pinned(hunt))jumpVelocity=1.8;return true;}
+ if(k==='e'&&grabbedBy(hunt)){wrench(hunt,state);return true;}
+ if(k==='r'){const r=reload(state);if(r.reason)notify(r.reason);return true;}
+ if(k==='c'){notify(craftRounds(state).reason);return true;}
+ return false;
+}
 async function start(){
  try{
   let restored=false;
@@ -255,12 +277,14 @@ async function start(){
   ui=createUI(document.querySelector('#ui'),{onSelect:select,onAssign:(robot,area)=>{const r=assignRover(state,robot,area);if(!r.ok)notify(r.reason);},onRemoveZone:id=>notify(removeMiningArea(state,id).reason),onSlot:i=>{if(selectedSlot===i)eatSelected();selectedSlot=i;ui.update(state,view());},onRotate:()=>{rotation=(rotation+1)%4;refreshGhost();},onSave:save,onLoad:load,onReset:()=>{state=createState(Math.floor(Math.random()*999999));selectedType=null;resetPlayer();targetId=null;keys.clear();world?.clearGhost();save();notify('New lunar landing created.');},onCancel:()=>select(null),onOrbit:()=>orbit?.toggle(),onTimeToggle:()=>{speed=speed===1?12:1;notify(speed===1?'Normal day/night speed.':'Day/night simulation ×12. Movement stays normal.');}});
   world=await createWorld(canvas,state);
   orbit=createOrbitView({onReturn:()=>{notify(recallShip(state).reason);orbit.close();},onResearch:id=>notify(selectResearch(state,id).reason),onClose:()=>{keys.clear();canvas.focus({preventScroll:true});}});
-  canvas.addEventListener('pointermove',point);
+  canvas.addEventListener('pointermove',e=>{aimClient={x:e.clientX,y:e.clientY};point(e);});
   canvas.addEventListener('pointerleave',()=>{if(beltPath||paintPath||erasing)return;hover=null;world.clearGhost();});
   canvas.addEventListener('pointerdown',e=>{
    canvas.focus({preventScroll:true});
    if(e.button===2){select(null);return;}
    if(e.button!==0)return;
+   aimClient={x:e.clientX,y:e.clientY};
+   if(state.player.cave!=null){const r=fire(hunt,state);if(r.reason)notify(r.reason);return;}
    point(e);
    if(selectedType==='conveyor'&&hover){beltPath=[{x:hover.x,z:hover.z}];try{canvas.setPointerCapture(e.pointerId);}catch{}refreshGhost();}
    else if(DEFS[selectedType]?.paint&&hover){paintPath=[{x:hover.x,z:hover.z}];try{canvas.setPointerCapture(e.pointerId);}catch{}refreshGhost();}
@@ -281,6 +305,7 @@ async function start(){
    if(orbit.open){if(k==='escape')orbit.close();return;}
    if(['w','a','s','d','e','f','q','x',' ','r','b','g','escape'].includes(k)||SHORTCUTS[k]||/^[0-9]$/.test(k))e.preventDefault();
    keys.add(k);if(e.repeat)return;
+   if(state.player.cave!=null&&caveKey(k))return;
    if(k===' '&&!(state.player.y>0)){jumpVelocity=1.8;}
    if(k==='escape')select(null);
    if(k==='b')ui.toggleMenu();
@@ -313,7 +338,7 @@ async function start(){
    const dt=Math.min((now-last)/1000,.1);last=now;accumulator+=dt;
    while(accumulator>=1/30){fixedUpdate(1/30);accumulator-=1/30;}
    if(stepWatcher(watcher,state,dt)==='vanished'){const remark=noteSighting(state);if(remark)setTimeout(()=>ui.say(remark),1500);}
-   world.update(state,dt,interpolatePose(previousPose,state.player,accumulator/(1/30)),watcher);uiClock+=dt;autoClock+=dt;
+   world.update(state,dt,interpolatePose(previousPose,state.player,accumulator/(1/30)),watcher,hunt);uiClock+=dt;autoClock+=dt;
    if(state.ship.status!==shipStatus){if(state.ship.status==='orbit'&&shipStatus==='ascent'){notify(`Satellites deployed. ${state.satellites} in orbit.`);orbit.show();}if(state.ship.status==='pad'&&shipStatus==='descent')notify('The Starship is back on the pad.');shipStatus=state.ship.status;}
    orbit.update(state,dt);
    if(uiClock>.1){ui.update(state,view());refreshGhost();uiClock=0;}

@@ -365,6 +365,11 @@ export function deserialize(text) {
     state.player[axis] = raw.player[axis];
   }
   if (raw.player.satiety != null) { if (!count(raw.player.satiety, 100)) throw new Error('Invalid player.'); state.player.satiety = raw.player.satiety; }
+  if (raw.player.gun != null) {
+    const { mag, reserve } = raw.player.gun;
+    if (!Number.isInteger(mag) || !count(mag, 6) || !Number.isInteger(reserve) || !count(reserve, 9999)) throw new Error('Invalid pistol.');
+    state.player.gun = { mag, reserve, cooldown: 0, reloading: 0 };
+  }
   if (raw.player.cave != null) {
     const zone = raw.player.zone ?? 0;
     if (!Number.isInteger(raw.player.cave) || raw.player.cave < 0 || raw.player.cave > 2 || !Number.isInteger(zone) || zone < 0 || zone >= CAVE_ZONES) throw new Error('Invalid cave position.');
