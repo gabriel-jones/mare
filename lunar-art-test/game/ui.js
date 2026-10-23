@@ -3,6 +3,7 @@ import { ITEM_INFO } from './defs.js';
 import { count } from './inventory.js';
 import { hunger, galleyRecipe } from './life.js';
 import { BUFFS, CROPS, RECIPES, cropsFor, isGrower, recipeKnown } from './farm.js';
+import { infested } from './goo.js';
 import { robotStatus, lampLevel } from './building-status.js';
 import { areaKind, remainingRegolith, MAX_MINING_AREAS } from './production.js';
 
@@ -18,6 +19,7 @@ const ICONS = {
   hydrorack: '<path d="M5 3v18M19 3v18M5 8h14M5 14h14M5 20h14"/><path d="M9 8c0-2 1-3 2-3m3 3c0-2 1-3 2-3M9 14c0-2 1-3 2-3m3 3c0-2 1-3 2-3"/>',
   verticalfarm: '<path d="M7 2h10v20H7ZM7 7h10M7 12h10M7 17h10"/><path d="M10 7V5m4 2V5m-4 7v-2m4 2v-2m-4 7v-2m4 2v-2"/>',
   mushroomtray: '<path d="M3 18h18v3H3Z"/><path d="M5 14a3 3 0 0 1 6 0Zm2 0v4m6-6a4 4 0 0 1 8 0Zm4 0v6"/>',
+  goovat: '<path d="M6 6h12v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2Z"/><path d="M5 3h14v3H5ZM6 13c2-1.5 4 1.5 6 0s4-1.5 6 0"/><circle cx="10" cy="17" r=".6"/><circle cx="14" cy="16" r=".6"/>',
   mill: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/><path d="M12 4v6m0 4v6M4 12h6m4 0h6"/>',
   recycler: '<path d="M12 3s5 6 5 9.5a5 5 0 0 1-10 0C7 9 12 3 12 3Z"/><path d="m9 13 2 2 4-4"/>',
   conveyor: '<path d="M3 15h18M3 19h18M7 15v4m5-4v4m5-4v4"/><path d="m9 6 3 3-3 3m4-6 3 3-3 3"/>',
@@ -44,7 +46,7 @@ const TOOLS = {
   dismantle: { name: 'Dismantle', key: 'z', description: 'Click or drag over structures and blueprints to take them down. Materials are returned.' },
 };
 // Palette sections, in menu order.
-const GROUPS = [['Power & industry', ['solar', 'battery', 'hopper', 'conveyor', 'processor', 'melter', 'storage']], ['Rooms', ['habitat', 'greenhouse', 'airlock']], ['Fittings', ['growbed', 'hydrorack', 'verticalfarm', 'mushroomtray', 'galley', 'mill', 'recycler']], ['Space', ['fabricator', 'assembler', 'electrolyser', 'tank', 'dock', 'roverbay']], ['Deep', ['xenolab', 'reactor']], ['Tools', ['mine', 'dismantle']]];
+const GROUPS = [['Power & industry', ['solar', 'battery', 'hopper', 'conveyor', 'processor', 'melter', 'storage']], ['Rooms', ['habitat', 'greenhouse', 'airlock']], ['Fittings', ['growbed', 'hydrorack', 'verticalfarm', 'mushroomtray', 'galley', 'mill', 'recycler']], ['Space', ['fabricator', 'assembler', 'electrolyser', 'tank', 'dock', 'roverbay']], ['Deep', ['xenolab', 'reactor', 'goovat']], ['Tools', ['mine', 'dismantle']]];
 const svg = (paths, width = 1.5) => `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
 const number = (value) => Math.round(Number(value) || 0).toLocaleString();
 const costText = def => def.cost ? Object.entries(def.cost).map(([item, n]) => `${n} ${ITEM_INFO[item]?.name.toLowerCase() ?? item}`).join(', ') : 'Free';
@@ -220,7 +222,7 @@ export function createUI(root, callbacks = {}) {
       const lines = [];
       if (view.missionUse) lines.push(`<kbd>E</kbd> ${view.missionUse.verb}${view.missionUse.hold && view.missionUse.progress > 0 ? ` <span class="hint-progress"><i style="transform:scaleX(${view.missionUse.progress})"></i></span>` : ''}`);
       else if (view.use && !view.nearbyBuilding) lines.push(`<kbd>E</kbd> ${view.use.verb}`);
-      if (state.player.cave != null) {
+      if (state.player.cave != null || infested(state)) {
         const flares = count(state.inventory, 'flare');
         if (flares) lines.push(`<kbd>Q</kbd> Throw flare · ${flares}`);
         else if (count(state.inventory, 'metal') >= 2) lines.push('<kbd>X</kbd> Make 3 flares · 2 metal');

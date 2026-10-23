@@ -16,7 +16,7 @@ items=[('metal','Metal'),('silicon','Silicon'),('crop','Potatoes'),('greens','Gr
        ('core','Processor core'),('frame','Satellite frame'),('wing','Solar wing'),
        ('chip','Compute chip'),('satellite','AI satellite'),('titanium','Titanium ore'),
        ('rareearth','Rare-earth crystal'),('artifact','Alien artifact'),
-       ('heart','Heart of the Deep'),('flare','Flare')]
+       ('heart','Heart of the Deep'),('goo','Black goo'),('flare','Flare')]
 COLS=10; CARD=130; ROWS=-(-len(items)//COLS)
 
 # Check coverage against the actual carried inventory, not the separate belt-item list.

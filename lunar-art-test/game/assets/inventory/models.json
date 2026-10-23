@@ -144,6 +144,11 @@
     "materialParts": 4,
     "originalTriangles": 972
   },
+  "goo": {
+    "triangles": 900,
+    "materialParts": 4,
+    "originalTriangles": 1436
+  },
   "regolith": {
     "triangles": 60,
     "materialParts": 1,

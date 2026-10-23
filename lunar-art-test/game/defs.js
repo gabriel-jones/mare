@@ -40,6 +40,7 @@ export const ITEM_INFO = Object.freeze({
   rareearth: { name: 'Rare-earth crystal', stack: 10 },
   artifact: { name: 'Alien artifact', stack: 5 },
   heart: { name: 'Heart of the Deep', stack: 1 },
+  goo: { name: 'Black goo', stack: 20 },
   flare: { name: 'Flare', stack: 12 },
 });
 const allSides = [0, 1, 2, 3].map(dir => ({ x: 0, z: 0, dir }));
@@ -58,6 +59,7 @@ export const DEFS = Object.freeze({
   verticalfarm: { name: 'Vertical farm', w: 1, d: 2, inset: 0.15, cost: { metal: 24, silicon: 10 }, buildTime: 5, layer: 'interior', needs: 'greenhouse', research: 'vertical', description: 'A tower of trays for wheat, the hungriest crop for space. Uses 0.8 kW while growing.' },
   mushroomtray: { name: 'Mushroom tray', w: 1, d: 1, inset: 0.2, cost: { metal: 8, silicon: 2 }, buildTime: 2, layer: 'interior', needs: 'habitat', research: 'mycology', description: 'Grows mushrooms in the dark of a habitat room. No power, a little water.' },
   galley: { name: 'Galley', w: 1, d: 1, inset: 0.3, cost: { metal: 14, silicon: 4 }, buildTime: 3, layer: 'interior', needs: 'habitat', description: 'Cooks crops into meals; better recipes give lasting effects. Uses 1.5 kW while cooking.' },
+  goovat: { name: 'Goo vat', w: 1, d: 1, inset: 0.25, cost: { metal: 24, silicon: 6, titanium: 4 }, buildTime: 5, layer: 'interior', needs: 'habitat', research: 'containment', description: 'Cultures black goo from a nest sample. Uses 2 kW once seeded; if the power fails it breaches.' },
   mill: { name: 'Mill', w: 1, d: 1, inset: 0.25, cost: { metal: 16, silicon: 4 }, buildTime: 3, layer: 'interior', needs: 'habitat', research: 'processing', description: 'Grinds wheat into flour and soybeans into protein. Uses 1 kW while milling.' },
   recycler: { name: 'Water recycler', w: 1, d: 1, inset: 0.25, cost: { metal: 10, silicon: 6 }, buildTime: 3, layer: 'interior', needs: 'habitat', description: 'Reclaims water inside a pressurised habitat. Uses 0.5 kW.' },
   conveyor: { name: 'Conveyor belt', key: 'c', w: 1, d: 1, cost: { metal: 1 }, buildTime: 0.25, walkable: true, description: 'Carries items forward. Drag a route; it can turn corners.' },
@@ -74,7 +76,7 @@ export const DEFS = Object.freeze({
   reactor: { name: 'Resonance reactor', w: 2, d: 2, cost: { metal: 30, titanium: 12, rareearth: 4 }, buildTime: 8, research: 'reactor', description: 'An alien design: a rare-earth lattice that gives a steady 10 kW, day and night. Needs its schematic from the caves, then research.' },
 });
 /** Stencil codes for machine callouts: `MLT-02` is the second ice melter built. */
-export const CODES = Object.freeze({ solar: 'SOL', battery: 'BAT', hopper: 'HOP', habitat: 'HAB', greenhouse: 'GRN', airlock: 'ALK', growbed: 'BED', hydrorack: 'HYD', verticalfarm: 'VRT', mushroomtray: 'MSH', mill: 'MIL', galley: 'GAL', recycler: 'RCY', conveyor: 'BLT', processor: 'PRC', melter: 'MLT', storage: 'CRT', fabricator: 'FAB', assembler: 'ASM', electrolyser: 'ELY', tank: 'TNK', dock: 'DCK', roverbay: 'RVB', xenolab: 'XEN', reactor: 'RCT' });
+export const CODES = Object.freeze({ solar: 'SOL', battery: 'BAT', hopper: 'HOP', habitat: 'HAB', greenhouse: 'GRN', airlock: 'ALK', growbed: 'BED', hydrorack: 'HYD', verticalfarm: 'VRT', mushroomtray: 'MSH', mill: 'MIL', goovat: 'VAT', galley: 'GAL', recycler: 'RCY', conveyor: 'BLT', processor: 'PRC', melter: 'MLT', storage: 'CRT', fabricator: 'FAB', assembler: 'ASM', electrolyser: 'ELY', tank: 'TNK', dock: 'DCK', roverbay: 'RVB', xenolab: 'XEN', reactor: 'RCT' });
 export const tagOf = b => `${CODES[b.type] ?? 'UNT'}-${String(b.serial ?? 0).padStart(2, '0')}`;
 export const ROOM_TYPES = Object.freeze(Object.keys(DEFS).filter(type => DEFS[type].layer === 'floor'));
 

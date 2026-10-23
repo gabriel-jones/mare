@@ -61,5 +61,5 @@ export function restoreDelve(state, raw) {
       state.caveLoot[key] = [...new Set(list.filter(k => known.has(k)))];
     }
   }
-  if (raw.blueprints != null) { if (!Array.isArray(raw.blueprints) || raw.blueprints.some(b => b !== 'reactor')) throw new Error('Invalid blueprints.'); state.blueprints = [...new Set(raw.blueprints)]; }
+  if (raw.blueprints != null) { if (!Array.isArray(raw.blueprints) || raw.blueprints.some(b => b !== 'reactor' && b !== 'containment')) throw new Error('Invalid blueprints.'); state.blueprints = [...new Set(raw.blueprints)]; }
 }

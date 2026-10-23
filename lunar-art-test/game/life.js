@@ -1,6 +1,7 @@
 import { DEFS, ITEM_INFO } from './defs.js';
 import { habitatLayout, openRooms } from './habitat.js';
 import * as inv from './inventory.js';
+import { gooOn } from './goo.js';
 import { CROPS, GALLEY, MILL, RECIPES, AUTO, BUFFS, isGrower, cropsFor, defaultCrop, recipeUnlocked, recipeKnown, addBuffs, buffed, stepBuffs } from './farm.js';
 
 // Provisional tuning.
@@ -40,7 +41,7 @@ export function roomStatus(state) {
   return { layout, rooms, at: (x, z) => { const room = layout.roomOf.get(`${x},${z}`); return room ? rooms.get(room.index) : null; } };
 }
 const pressurisedAt = (status, b) => !!status.at(b.x, b.z)?.pressurised;
-const growing = (state, b, status) => b.built && pressurisedAt(status, b) && b.grow < 1 && (b.watered || state.reserves.water >= CROPS[b.crop].water);
+const growing = (state, b, status) => b.built && pressurisedAt(status, b) && b.grow < 1 && !gooOn(state, b) && (b.watered || state.reserves.water >= CROPS[b.crop].water);
 export const readyCount = b => Object.values(b.ready ?? {}).reduce((a, n) => a + n, 0);
 const cooking = (b, status) => b.built && pressurisedAt(status, b) && b.queue?.length > 0 && readyCount(b) < GALLEY.ready;
 const milling = (b, status) => b.built && pressurisedAt(status, b) && b.queue?.length > 0 && readyCount(b) < MILL.cap;

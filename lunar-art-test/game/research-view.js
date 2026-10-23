@@ -61,7 +61,7 @@ export function createResearchView(callbacks = {}) {
         for (const [id, el] of Object.entries(nodes)) {
           const s = stateOf(state, id), t = TECHS[id];
           el.dataset.state = s; el.disabled = s === 'done' || s === 'hidden' || s === 'locked';
-          el.querySelector('small').textContent = s === 'done' ? 'Researched' : s === 'hidden' ? 'Needs a schematic from deep in the caves' : s === 'locked' ? `Needs ${missingFor(state, id).map(m => TECHS[m].name).join(', ')}` : t.description;
+          el.querySelector('small').textContent = s === 'done' ? 'Researched' : s === 'hidden' ? t.hint : s === 'locked' ? `Needs ${missingFor(state, id).map(m => TECHS[m].name).join(', ')}` : t.description;
           el.title = t.description;
         }
         for (const p of root.querySelectorAll('[data-link]')) { const [from, to] = p.dataset.link.split('>'); p.dataset.state = techDone(state, to) ? 'done' : techDone(state, from) ? 'open' : 'locked'; }

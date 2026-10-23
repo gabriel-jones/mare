@@ -43,6 +43,10 @@ M = {
  'stem': material('Lunar • mushroom stem', (.86,.83,.74), 0,.8),
  'dim': material('Lunar • dim red work light', (1,.12,.05), .1,.3, 1.2),
  'grain': material('Lunar • milled grain', (.82,.66,.38), 0,.85),
+ # The runtime renders this material translucent by name.
+ 'greenglass': material('Lunar • greenhouse glazing', (.5,.78,.76), .1,.06),
+ 'goo': material('Lunar • black goo', (.006,.006,.008), .2,.06),
+ 'vein': material('Lunar • goo vein glow', (1,.08,.03), .1,.3, 2.2),
 }
 
 def finish(o, name, mat, bevel=0, smooth=False):
@@ -175,10 +179,34 @@ def mill():
     blob('Flour sack', (-.25, -.45, .2), .2, 1.05, 'grain')
     box('Mill screen', (.22, -.105, 1.0), (.34, .01, .2), 'glass')
 
+# --- Goo vat: a sealed glass column on a heavy plinth; the goo inside (Level) rises with the stock. ---
+def vat():
+    box('Vat plinth', (0, .1, .16), (1.5, 1.4, .32), 'dark', .02)
+    box('Plinth stripe', (0, -.605, .2), (1.5, .01, .06), 'orange')
+    cyl('Vat glass', (0, .1, .98), .56, 1.3, 'greenglass', 28)
+    for z in [.36, 1.6]: cyl('Vat ring', (0, .1, z), .62, .1, 'metal', 28)
+    for a in range(4):
+        x, y = math.cos(a * math.pi / 2 + .4) * .6, .1 + math.sin(a * math.pi / 2 + .4) * .6
+        box('Vat rib', (x, y, .98), (.06, .06, 1.24), 'dark')
+    cyl('Vat lid', (0, .1, 1.7), .5, .1, 'dark', 24)
+    cone('Vat dome', (0, .1, 1.82), .42, .12, .16, 'metal', 24)
+    for a in range(4):
+        box('Lid clamp', (math.cos(a * math.pi / 2) * .58, .1 + math.sin(a * math.pi / 2) * .58, 1.68), (.12, .12, .14), 'orange', .01)
+    cyl('Vent stack', (.38, .48, 1.92), .06, .3, 'metal', 8)
+    cyl('Feed pipe', (-.45, .62, 1.1), .05, 1.4, 'orange', 8)
+    box('Vat panel', (.55, -.5, .55), (.3, .06, .3), 'ivory', .01)
+    box('Vat screen', (.55, -.535, .58), (.2, .01, .12), 'vein')
+
+def goo_level():
+    cyl('Level', (0, .1, .75), .5, 1.5, 'goo', 24)
+    for i, (x, y, z) in enumerate([(.3, -.3, .9), (-.35, -.2, 1.15), (.1, -.47, .55)]):
+        cyl('Goo vein', (x, y + .1, z), .03, .35, 'vein', 6, (0, .4 * (i - 1), 0))
+
 INTERIOR = {
     'hydrorack': [('Rack', rack), ('Plants', rack_plants), ('Lamp', lambda: status_lamp(.78, -.42, 1.95))],
     'verticalfarm': [('Tower', tower), ('Plants', tower_plants), ('Lamp', lambda: status_lamp(.8, -1.8, 2.0))],
     'mushroomtray': [('Cabinet', cabinet), ('Plants', mushrooms), ('Lamp', lambda: status_lamp(-.72, .62, 1.9))],
+    'goovat': [('Vat', vat), ('Level', goo_level), ('Lamp', lambda: status_lamp(.62, .62, 1.5, .32))],
     'mill': [('Mill', mill), ('Lamp', lambda: status_lamp(-.55, .62, 1.3, .16))],
 }
 

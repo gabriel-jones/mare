@@ -119,6 +119,13 @@ export function stepHunt(hunt,state,dt,rng=Math.random){
  if(hunt.events.length>200)hunt.events.splice(0,hunt.events.length-200);
 }
 
+/** A nest scraped for goo: one more crawls out of it, cap or no, and the rest lose patience and close in. */
+export function rouse(hunt,state,nestKey,rng=Math.random){
+ const p=state.player;if(p.cave==null||hunt.key==null)return;
+ const cave=caveLayout(state.seed,p.cave,p.zone??0),n=cave.nests.find(n=>n.key===nestKey);
+ if(n){const c=createCrawler(n.x*CAVE_CELL,n.z*CAVE_CELL,rng);c.facing=Math.atan2(p.x-c.x,p.z-c.z);c.nest=n.key;c.state='stalk';c.patience=0;hunt.crawlers.push(c);hunt.events.push({type:'spawned',crawler:c,nest:n.key});}
+ for(const c of hunt.crawlers)if(c.state==='lurk'||c.state==='stalk'){c.state='stalk';c.patience=0;}
+}
 /** Pull the trigger, aimed along the player's facing. The round is in flight for distance / bullet speed. */
 export function fire(hunt,state){
  const p=state.player;if(p.cave==null||hunt.key==null)return {ok:false};

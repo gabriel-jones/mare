@@ -48,6 +48,7 @@ def materials(p):
             'stew': mat('thick stew', (.2,.06,.015), 0,.5),
             'sauce': mat('tomato sauce', (.6,.08,.02), 0,.45),
             'cheese': mat('melted cheese', (.98,.82,.42), 0,.5),
+            'goo': mat('black goo', (.008,.008,.01), .25,.05),
         })
     return p
 
@@ -382,12 +383,21 @@ def medkit(p):
     for x in [-.36,.36]: box('Medkit / latch',(x,-.32,.42),(.1,.03,.1),p['silver'],.01)
 
 
+def goo(p):
+    materials(p)
+    cylinder('Goo / sample vial',(0,0,.55),.3,.78,p['goo'],24)
+    for z in [.12,.98]: cylinder('Goo / cap',(0,0,z),.33,.14,p['ivory'],24)
+    cylinder('Goo / seal band',(0,0,.55),.315,.08,p['orange'],24)
+    for i,(x,z) in enumerate([(.12,.38),(-.08,.72),(.18,.82)]):
+        sphere('Goo / lit pustule',(x,-.27,z),(.05,.04,.05),p['red'],segments=10)
+
+
 BUILDERS = [('metal',study['metal']),('silicon',silicon),('crop',study['potatoes']),('greens',greens),
             ('soy',soy),('tomato',tomato),('algae',algae),('wheat',wheat),('mushroom',mushroom),
             ('flour',flour),('protein',protein),('meal',meal),('salad',salad),('bread',bread),('stew',stew),
             ('broth',broth),('algaecake',algaecake),('pizza',pizza),('medkit',medkit),('core',core),
             ('frame',frame),('wing',wing),('chip',study['chip']),('satellite',satellite),('titanium',titanium),
-            ('rareearth',rareearth),('artifact',study['artifact']),('heart',heart),('flare',flare)]
+            ('rareearth',rareearth),('artifact',study['artifact']),('heart',heart),('goo',goo),('flare',flare)]
 
 
 def build_inventory():

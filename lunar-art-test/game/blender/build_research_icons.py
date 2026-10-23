@@ -41,7 +41,7 @@ TECHS = [('hydroponics', building('hydrorack')), ('soy', item('soy')), ('tomato'
          ('algae', item('algae')), ('mycology', building('mushroomtray')), ('processing', building('mill')),
          ('medicine', item('medkit')), ('vertical', building('verticalfarm')), ('wheat', item('wheat')),
          ('roverbay', building('roverbay')), ('reactor', building('reactor'))]
-if os.path.exists(ROOT / 'assets/goovat.glb'): TECHS.append(('goo', building('goovat')))
+TECHS.append(('containment', building('goovat')))
 
 
 if __name__ == '__main__':

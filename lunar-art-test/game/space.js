@@ -22,7 +22,8 @@ export const TECHS = Object.freeze({
   vertical: { name: 'Vertical farming', branch: 'farming', cost: 20, requires: ['processing'], description: 'A tall greenhouse tower of trays.' },
   wheat: { name: 'Wheat', branch: 'farming', cost: 12, requires: ['vertical'], description: 'Wheat for the vertical farm, milled into flour.' },
   roverbay: { name: 'Rover bay', branch: 'industry', cost: 24, description: 'A bay that builds extra mining rovers.' },
-  reactor: { name: 'Resonance reactor', branch: 'deep', cost: 40, schematic: true, description: 'Steady power from a rare-earth lattice, day and night.' },
+  reactor: { name: 'Resonance reactor', branch: 'deep', cost: 40, schematic: true, hint: 'Needs a schematic from deep in the caves', description: 'Steady power from a rare-earth lattice, day and night.' },
+  containment: { name: 'Goo containment', branch: 'deep', cost: 30, schematic: true, hint: 'Study the Heart of the Deep at a xeno lab', description: 'A sealed vat that cultures black goo. Scrape a sample from a live nest (E).' },
 });
 /** Prerequisites not yet researched. */
 export const missingFor = (state, id) => (TECHS[id].requires ?? []).filter(r => !techDone(state, r));
@@ -39,7 +40,7 @@ export const hasSchematic = (state, id) => !TECHS[id]?.schematic || (state.bluep
 /** Why a research-gated building can't be placed yet, or null. */
 export function lockedReason(state, type) {
   const tech = DEFS[type]?.research;
-  if (tech && !hasSchematic(state, tech)) return `Locked: find the ${TECHS[tech].name.toLowerCase()} schematic deep in the caves.`;
+  if (tech && !hasSchematic(state, tech)) return `Locked: ${TECHS[tech].hint.toLowerCase()}.`;
   return tech && !techDone(state, tech) ? `Locked: research ${TECHS[tech].name} first (T).` : null;
 }
 
@@ -159,6 +160,8 @@ export function studyFinds(state, id) {
   if (!b) return { ok: false, reason: 'No xeno lab here.' };
   const points = studyValue(state);
   if (!points) return { ok: false, reason: 'Bring artifacts from the caves to study.' };
+  // The Heart is what teaches us to hold the goo.
+  if (inv.count(state.inventory, 'heart')) { state.blueprints ??= []; if (!state.blueprints.includes('containment')) state.blueprints.push('containment'); }
   for (const item of Object.keys(STUDY)) inv.remove(state.inventory, item, inv.count(state.inventory, item));
   state.research.bank += points;
   return { ok: true, reason: `Studied · +${points} research points. Spend them in research (T).` };

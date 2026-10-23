@@ -3,6 +3,7 @@ import { CELL_SIZE, ITEM_INFO } from './defs.js';
 import * as inv from './inventory.js';
 import { stepInfest, silkBlocks } from './infest.js';
 import { BUFFS, buffed } from './farm.js';
+import { burnGoo, infested } from './goo.js';
 
 /** The player's health, what hurts it underground, what happens at zero, and the flares that push back the dark. */
 export const HEALTH = Object.freeze({ max: 100, regen: 4, regenDelay: 5, vent: 14, toxic: 6 });
@@ -43,6 +44,7 @@ export function stepPeril(state, dt) {
   });
   const fires = (state.flares ?? []).filter(f => f.cave === p.cave && (f.zone ?? 0) === (p.zone ?? 0)).map(f => flareNow(f, p)).filter(n => n.stage === 'down' && n.lit > 0);
   stepInfest(state, dt, fires);
+  if (p.cave == null) burnGoo(state, fires);
   if (p.health <= 0) return blackout(state);
   return hazard ? { hazard } : null;
 }
@@ -105,19 +107,20 @@ export function craftFlares(state) {
   return { ok: true, reason: `${FLARE.makes} flares made.` };
 }
 /**
- * Strikes a flare in hand and throws it at `target` (cave-local {x,z}; straight ahead without one), landing short of the
+ * Strikes a flare in hand and throws it at `target` (cave-local {x,z}, or world metres on the surface, where flares
+ * are only for an infested base; straight ahead without one), landing short of the
  * first wall in the way. It burns from the strike: `age` runs from the throw, `t` is the burn left once it lands.
  */
 export function throwFlare(state, target = null) {
   const p = state.player;
-  if (p.cave == null) return { ok: false, reason: 'Save flares for the dark.' };
+  if (p.cave == null && !infested(state)) return { ok: false, reason: 'Save flares for the dark.' };
   if (!inv.count(state.inventory, 'flare')) return { ok: false, reason: 'No flares. Press X to make some from metal.' };
   if (state.flares?.some(f => (f.age ?? Infinity) < FLARE.release)) return { ok: false, reason: '' };
   const zone = p.zone ?? 0, aimed = target && Math.hypot(target.x - p.x, target.z - p.z) > .5;
   const angle = aimed ? Math.atan2(target.x - p.x, target.z - p.z) : p.facing ?? 0, fx = Math.sin(angle), fz = Math.cos(angle);
   const want = aimed ? Math.min(FLARE.range, Math.hypot(target.x - p.x, target.z - p.z)) : FLARE.range * .7;
   let reach = 0;
-  for (let d = .25; d <= want; d += .25) { if (!caveWalkable(state.seed, p.cave, p.x + fx * d, p.z + fz * d, .1, zone) || silkBlocks(state, p.x + fx * d, p.z + fz * d, .1)) break; reach = d; }
+  for (let d = .25; d <= want; d += .25) { if (p.cave != null && (!caveWalkable(state.seed, p.cave, p.x + fx * d, p.z + fz * d, .1, zone) || silkBlocks(state, p.x + fx * d, p.z + fz * d, .1))) break; reach = d; }
   inv.remove(state.inventory, 'flare', 1);
   state.flares ??= [];
   const flight = FLARE.flight + reach * .05;

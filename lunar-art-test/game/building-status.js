@@ -5,6 +5,7 @@ import { ELECTROLYSIS, LAUNCH, REACTOR_POWER, electrolyserReady, touchesPad } fr
 import { processorReady, melterReady, fabricatorReady, assemblerReady, currentPart, ASSEMBLY, FAB, remainingRegolith, roverHasWork, hasMelter, miningCells, dockSpace, total, ROVER, RECIPE, MELT, PROCESSOR_INPUT_CAP } from './production.js';
 import { LIFE, roomStatus, readyCount } from './life.js';
 import { CROPS, MILL, isGrower } from './farm.js';
+import { GOO, gooOn } from './goo.js';
 
 const roomCache={state:null,time:-1,result:null};
 function roomsOf(state){
@@ -55,9 +56,16 @@ export function buildingStatus(building,state){
  }
  const room=DEFS[building.type].layer?roomsOf(state).at(building.x,building.z):null;
  if(DEFS[building.type].layer==='floor')return room?.pressurised?{text:'Pressurised',read:'LIFE SUPPORT NOMINAL',tone:'charge'}:{text:room?.reason??'No airlock',read:'ROOM UNPRESSURISED',tone:'warning'};
+// A failing vat outranks the room it stands in.
+ if(building.type==='goovat'){
+  if(!building.seeded)return building.stock>=1?{text:`${Math.floor(building.stock)} goo ready`,read:'PRESS E TO COLLECT',tone:'low'}:{text:'Unseeded',read:'NEEDS A SAMPLE FROM A LIVE NEST',tone:'inactive'};
+  if(state.power.powered===false)return {text:`Breach in ${Math.ceil(GOO.breachAfter-building.dark)}s`,read:'CONTAINMENT FAILING · RESTORE POWER',tone:'warning'};
+  return building.stock>=GOO.cap?{text:'Vat full',read:`PRESS E · ${GOO.cap} BLACK GOO`,tone:'low'}:{text:'Culturing',read:`BLACK GOO ${Math.floor(building.stock)} / ${GOO.cap}`,tone:'charge',fill:building.work};
+ }
  if(DEFS[building.type].layer==='interior'&&!room?.pressurised)return {text:'No air',read:'ROOM UNPRESSURISED',tone:'inactive'};
  if(isGrower(building)){
   const crop=CROPS[building.crop],name=ITEM_INFO[building.crop].name.toUpperCase();
+  if(gooOn(state,building))return {text:'Choked by goo',read:'BURN IT OFF WITH A FLARE',tone:'warning'};
   if(building.grow>=1)return {text:'Ripe',read:`PRESS E TO HARVEST ${name}`,tone:'low'};
   if(!building.watered&&state.reserves.water<crop.water)return {text:'Needs water',read:`WATER ${Math.floor(state.reserves.water)}`,tone:'warning',glyph:'water'};
   return state.power.powered===false&&crop.power?noPower:{text:'Growing',read:`${name} · ${Math.floor(building.grow*100)}%`,tone:'charge',fill:building.grow};

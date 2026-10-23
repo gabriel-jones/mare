@@ -1,0 +1,32 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Goo vat breach • art review</title><link rel="stylesheet" href="../game.css"><style>canvas{position:fixed;inset:0;width:100%;height:100%;outline:none}</style><script type="importmap">{"imports":{"three":"../../node_modules/three/build/three.module.js","three/addons/":"../../node_modules/three/examples/jsm/"}}</script></head><body><canvas id="game" tabindex="0"></canvas><script type="module">
+// Isolated review of a breached goo vat: goo across the base, hatchlings loose, flares. Never reads or writes colony saves.
+// ?flare=1 throws a flare onto the goo; ?calm=1 keeps a seeded, powered vat instead of a breach.
+import{createWorld}from'../world.js';import{createState,tick}from'../sim.js';import{ensureBuildingState}from'../production.js';import{ensureLifeState}from'../life.js';
+import{ensureVat,stepBrood}from'../goo.js';import{throwFlare,stepPeril,flareNow,FLARE}from'../peril.js';import{add}from'../inventory.js';
+const params=new URLSearchParams(location.search),state=createState();
+state.time=25;state.player.facing=Math.PI;state.player.animation='idle';state.research.done.push('containment');state.blueprints=['containment'];
+const layout=[];
+for(let x=-7;x<=-5;x++)for(const z of [1,2])layout.push(['habitat',x,z,0]);
+for(const x of [-4,-3])for(const z of [1,2])layout.push(['greenhouse',x,z,0]);
+layout.push(['airlock',-6,3,0],['goovat',-7,1,0,{seeded:true,stock:5,work:.4}],['galley',-5,1,0],['growbed',-4,1,0,{grow:.6,watered:true}],['hydrorack',-3,1,0,{crop:'soy',grow:.5,watered:true}],['solar',3,-1,0],['battery',6,-1,0]);
+state.buildings=layout.map(([type,x,z,rotation,extra],i)=>Object.assign(ensureVat(ensureLifeState(ensureBuildingState({id:i+1,type,x,z,rotation,progress:1,built:true}))),{air:true},extra));
+state.buildings.forEach(b=>{if(!['habitat','greenhouse','airlock'].includes(b.type))delete b.air;});state.nextId=layout.length+1;
+Object.assign(state.player,{x:-8,z:9});
+tick(state,0);state.power.stored=state.power.capacity;tick(state,0);
+if(!params.has('calm')){
+ const vat=state.buildings.find(b=>b.type==='goovat');state.power.stored=0;state.time=150;
+ for(let t=0;t<17;t+=.5)tick(state,.5);
+ state.goo.cells.push([-6,1],[-6,2],[-5,1],[-4,1]);state.time=25;state.power.stored=state.power.capacity;
+ state.brood.forEach((c,i)=>{c.x=-12+i*2;c.z=4+i;});
+}
+add(state.inventory,'flare',6);
+const base=document.createElement('base');base.href='../';document.head.append(base);
+const world=await createWorld(document.querySelector('canvas'),state);window.addEventListener('resize',world.resize);
+if(params.has('flare'))throwFlare(state,{x:-12,z:3});
+window.preview={state,world};
+let last=performance.now();function frame(now){const dt=Math.min((now-last)/1000,.1);last=now;
+ stepPeril(state,dt);tick(state,dt);
+ const fires=(state.flares??[]).map(f=>flareNow(f,state.player)).filter(n=>n.stage==='down'&&n.lit>0).map(n=>({x:n.x,z:n.z,r:FLARE.radius*n.lit}));
+ stepBrood(state,dt,fires);state.player.health=100;
+ world.update(state,dt);requestAnimationFrame(frame)}requestAnimationFrame(frame);
+</script></body></html>

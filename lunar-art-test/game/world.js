@@ -19,6 +19,11 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DEFS, footprint, playerObstructs } from './sim.js';
 import { createAstronaut } from './actor.js';
 import { createCombatView } from './combat-view.js';
+import { createCrawlerView } from './crawler-view.js';
+import { createFlareView } from './flare-view.js';
+import { createGooView } from './goo-view.js';
+import { FLARE } from './peril.js';
+import { GOO } from './goo.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 // Presentation only: the simulation owns all positions, resources, and time.
@@ -37,7 +42,7 @@ export async function createWorld(canvas, initialState) {
   renderer.toneMapping=THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure=1.12;
   const loader=new GLTFLoader();
-  const assetNames=['starship','launchpad','solar','battery','hopper','habitat-kit','conveyor','conveyor-corner','processor','storage','growbed','hydrorack','verticalfarm','mushroomtray','mill','galley','recycler','melter','fabricator','assembler','electrolyser','tank','dock','roverbay','xenolab','reactor','lander','rover','hauler','rock-a','rock-b','rock-c','cave-mouth'];
+  const assetNames=['starship','launchpad','solar','battery','hopper','habitat-kit','conveyor','conveyor-corner','processor','storage','growbed','hydrorack','verticalfarm','mushroomtray','mill','goovat','galley','recycler','melter','fabricator','assembler','electrolyser','tank','dock','roverbay','xenolab','reactor','lander','rover','hauler','rock-a','rock-b','rock-c','cave-mouth'];
   const [loaded,itemModels]=await Promise.all([
     Promise.all(assetNames.map(name=>loader.loadAsync(`./assets/${name}.glb`).then(g=>[name,g.scene]).catch(e=>{console.error('Asset failed:',name,e);return [name,null];}))),
     loadItemLibrary(loader),
@@ -220,6 +225,22 @@ export async function createWorld(canvas, initialState) {
   if(astronautGLTF){actor=createAstronaut(astronautGLTF);player.add(actor.root);}
   else{box(player,orange,0,.8,0,.65,.8,.45);mesh(sphereGeo,ivory,player,0,1.5,0,.42,.42,.42);}
   const combat=actor&&crawlerGLTF?createCombatView({actor,player,headlamp,crawlerGLTF}):null;
+  // A breached vat's goo, hatchlings and the flares thrown at them, in world metres on the player's ground.
+  const surfaceFx=new THREE.Group();surfaceFx.name='surface-hunt';scene.add(surfaceFx);
+  const HATCHLING=.6,surfaceFlares=createFlareView(surfaceFx),thrownOnSurface=new WeakSet(),broodViews=new Map();
+  const gooView=createGooView(scene,(x,z)=>habitatView.floorAt(state,x,z)??heightAt(state.seed,x,z));
+  function updateSurfaceHunt(dt,underground){
+    surfaceFx.visible=!underground;gooView.update(state,dt);
+    const brood=underground?[]:state.brood??[];
+    // Hatchlings are a smaller brood: each view sits in a holder scaled about the hatchling, so its legs stay planted.
+    for(const c of brood)if(!broodViews.has(c)&&crawlerGLTF){const holder=new THREE.Group();holder.scale.setScalar(HATCHLING);surfaceFx.add(holder);const view=createCrawlerView(crawlerGLTF,holder,{mode:'studio'});broodViews.set(c,{holder,view,update:(c,dt,ctx)=>{holder.position.set(c.x*(1-HATCHLING),0,c.z*(1-HATCHLING));view.update(c,dt,ctx);},dispose:()=>{view.dispose();holder.removeFromParent();}});}
+    for(const [c,v] of broodViews)if(!brood.includes(c)){v.dispose();broodViews.delete(c);}
+    if(underground)return;
+    surfaceFx.position.y=smoothedGround??0;
+    for(const f of state.flares??[])if(f.cave==null&&f.age!=null&&f.age<FLARE.release&&!thrownOnSurface.has(f)){thrownOnSurface.add(f);actor?.throwFlare();}
+    surfaceFlares.update(state,dt,{root:surfaceFx,actor});
+    for(const [c,v] of broodViews)v.update(c,dt,{player:state.player});
+  }
   const suitMaterials=[];actor?.root.traverse(o=>{if(o.isMesh)for(const m of (Array.isArray(o.material)?o.material:[o.material]))if(!suitMaterials.some(x=>x.material===m))suitMaterials.push({material:m,color:m.color.clone(),environment:m.envMapIntensity});});let suitUnderground=false;
   document.body.dataset.characterClips=actor?.clips.join(',')||'unavailable';
   const markerGeo=new THREE.RingGeometry(.58,.66,32);geometries.add(markerGeo);const marker=mesh(markerGeo,mat('#ffbf6c',{emissive:'#a66624',emissiveIntensity:.35}),player,0,.025,0);marker.rotation.x=-Math.PI/2;
@@ -234,7 +255,7 @@ export async function createWorld(canvas, initialState) {
       // Ripe produce shows as the crop's own item model, laid where each grower holds it.
       const crops=RIPE_SPOTS[type]&&itemModels?new THREE.Group():null;
       if(crops){crops.name='Ripe crop';root.add(crops);}
-      return {root,roof:null,emits:DEFS[type].layer==='interior',plants:part('Plants'),crops,cropKind:null,tray,heater:part('Heater')};
+      return {root,roof:null,emits:DEFS[type].layer==='interior',plants:part('Plants'),crops,cropKind:null,tray,level:type==='goovat'?part('Level'):null,heater:part('Heater')};
     }
     const root=new THREE.Group(),w=DEFS[type].w*2,d=DEFS[type].d*2;
     box(root,dark,0,.12,0,w-.12,.24,d-.12);
@@ -296,7 +317,9 @@ export async function createWorld(canvas, initialState) {
   const aimPlane=new THREE.Plane(new THREE.Vector3(0,1,0),0);
   /** The cave-local floor point under the cursor, or null on the surface. */
   function aim(clientX,clientY){
-    if(state.player.cave==null||!caveView)return null;const r=canvas.getBoundingClientRect();if(!r.width||!r.height)return null;
+    const r=canvas.getBoundingClientRect();if(!r.width||!r.height)return null;
+    if(state.player.cave==null){pointer.set((clientX-r.left)/r.width*2-1,-(clientY-r.top)/r.height*2+1);raycaster.setFromCamera(pointer,camera);aimPlane.constant=-player.position.y;return raycaster.ray.intersectPlane(aimPlane,hit)?{x:hit.x,z:hit.z}:null;}
+    if(!caveView)return null;
     pointer.set((clientX-r.left)/r.width*2-1,-(clientY-r.top)/r.height*2+1);raycaster.setFromCamera(pointer,camera);
     aimPlane.constant=-caveView.root.position.y;if(!raycaster.ray.intersectPlane(aimPlane,hit))return null;
     const local=caveView.root.worldToLocal(hit.clone());combat?.setAim(local);return {x:local.x,z:local.z};
@@ -370,6 +393,7 @@ export async function createWorld(canvas, initialState) {
         o.crops.visible=b.built&&b.grow>=1;
       }
       if(o.tray)o.tray.visible=b.built&&Object.values(b.ready??{}).some(n=>n>0);
+      if(o.level&&b.type==='goovat')o.level.scale.y=Math.max(.02,b.seeded||b.stock?(Math.max(b.stock,.6)+b.work)/(GOO.cap+1):.02);
       // Blueprints turn red while the player stands where the finished structure would trap them.
       const blocked=!b.built&&!isRoom(b)&&obstructs(b);
       if(o.built!==b.built||o.blocked!==blocked){o.ownedMaterials.forEach(m=>{m.transparent=!b.built;m.opacity=b.built?1:blocked?.6:.5;m.depthWrite=b.built;m.color.copy(b.built?m.userData.baseColor:blueprintColor[blocked?1:0]);m.emissive.copy(b.built?m.userData.baseEmissive:blueprintEmissive[blocked?1:0]);m.emissiveIntensity=b.built?m.userData.baseEmission:.85;});o.root.traverse(n=>{if(n.isMesh)n.castShadow=b.built;});o.built=b.built;o.blocked=blocked;}
@@ -386,6 +410,7 @@ export async function createWorld(canvas, initialState) {
     follow.set(player.position.x,player.position.y+1.05,player.position.z);
     if(hunting&&combat.shake){follow.x+=(Math.random()-.5)*combat.shake;follow.z+=(Math.random()-.5)*combat.shake;}
     const cameraDistance=4;camera.position.set(follow.x+26*cameraDistance,follow.y+34*cameraDistance,follow.z+26*cameraDistance);camera.lookAt(follow);camera.updateMatrixWorld();
+    updateSurfaceHunt(dt,underground);
     if(underground){caveView.update(state,dt);if(hunting)combat.light(state,hunt,dt);}else updateStatuses();
     renderer.render(scene,camera);canvas.dataset.drawCalls=String(renderer.info.render.calls);canvas.dataset.triangles=String(renderer.info.render.triangles);
   }
@@ -397,7 +422,7 @@ export async function createWorld(canvas, initialState) {
     renderer.compileAsync(view.root,camera,scene).catch(()=>{});view.root.visible=false;
     caveViews.set(key,view);return view;
   }
-  function dispose(){disposed=true;lamps.dispose();caveViews.forEach(v=>v.dispose());vignette.remove();expedition.dispose();productionView.dispose();habitatView.dispose();statusLayer.remove();terrainView.dispose();grid.geometry.dispose();grid.material.dispose();combat?.dispose();actor?.dispose();reflection.dispose();canvas.removeEventListener('wheel',zoom);for(const o of structures.values()){o.ownedMaterials?.forEach(m=>m.dispose());scene.remove(o.ports);}geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());itemModels?.dispose();renderer.dispose();}
+  function dispose(){disposed=true;gooView.dispose();broodViews.forEach(v=>v.dispose());surfaceFx.removeFromParent();lamps.dispose();caveViews.forEach(v=>v.dispose());vignette.remove();expedition.dispose();productionView.dispose();habitatView.dispose();statusLayer.remove();terrainView.dispose();grid.geometry.dispose();grid.material.dispose();combat?.dispose();actor?.dispose();reflection.dispose();canvas.removeEventListener('wheel',zoom);for(const o of structures.values()){o.ownedMaterials?.forEach(m=>m.dispose());scene.remove(o.ports);}geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());itemModels?.dispose();renderer.dispose();}
   resize();update(initialState,1);
   return {renderer,scene,camera,update,pick,aim,setGhost,clearGhost,resize,dispose};
 }

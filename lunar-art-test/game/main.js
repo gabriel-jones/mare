@@ -1,7 +1,8 @@
 import { crossCavePortal } from './travel.js';
 import { ZONE_NAMES } from './caves.js';
 import { lootAction, takeLoot } from './delve.js';
-import { stepPeril, dropAction, recoverDrop, craftFlares, throwFlare, HURT_TEXT, BLACKOUT } from './peril.js';
+import { stepPeril, dropAction, recoverDrop, craftFlares, throwFlare, flareNow, FLARE, HURT_TEXT, BLACKOUT } from './peril.js';
+import { sampleAction, takeSample, stepBrood, vatAction } from './goo.js';
 import {DEFS,createState,validatePlacement,placeBlueprint,construct,tick,serialize,deserialize,cancelBlueprint,deconstruct,setMiningArea,miningAreaReason,removeMiningArea,assignRover,rotateBelt,playerObstructs,interact,removalCheck,PROCESSOR_LOCKED} from './sim.js';
 import {DIRS,ITEM_INFO,footprint} from './defs.js';
 import {movePlayer,nearestBlueprint,buildingCenter,resetLocomotion,interpolatePose,RUN_SPEED} from './controller.js';
@@ -15,7 +16,7 @@ import {createWatcher,stepWatcher} from './watcher.js';
 import {shipAction,holdLaunch,releaseLaunch,loadSatellite,recallShip,selectResearch,machineAction,lockedReason} from './space.js';
 import {createOrbitView} from './orbit-view.js';
 import {createResearchView} from './research-view.js';
-import {createHunt,stepHunt,fire,reload,craftRounds,roll,wrench,pinned,grabbedBy} from './hunt.js';
+import {createHunt,stepHunt,fire,reload,craftRounds,roll,wrench,pinned,grabbedBy,rouse} from './hunt.js';
 import {worldVectorToCave} from './cave-space.js';
 
 // ?sandbox=1 plays a throwaway colony that never touches the real save.
@@ -30,7 +31,7 @@ let jumpVelocity=0,accumulator=0,last=performance.now(),uiClock=0,autoClock=0,sa
 const watcher=createWatcher();
 const keys=new Set();
 // Underground the astronaut aims at the cursor; the hunt itself is never saved.
-const hunt=createHunt();let aimClient=null;
+const hunt=createHunt();let aimClient=null,breaches=0;
 resetLocomotion(state.player);
 let previousPose={...state.player};
 function resetPlayer(){resetLocomotion(state.player);previousPose={...state.player};jumpVelocity=0;accumulator=0;}
@@ -67,11 +68,11 @@ function nearby(){
 /** The nearest finished object E would act on: a ripe grow bed, a galley, or a crate holding goods. */
 function nearbyUse(){
  const pack=dropAction(state);if(pack)return pack;
- if(state.player.cave!=null){const find=lootAction(state);return find&&{...find,cave:true};}
+ if(state.player.cave!=null){const find=lootAction(state);if(find)return {...find,cave:true};const sample=sampleAction(state);return sample&&{...sample,sample:true};}
  let best=null,distance=2.8;
  for(const b of state.buildings){
   if(!b.built)continue;
-  const action=b.type==='storage'?(b.inv.metal||b.inv.silicon?{verb:`Collect ${b.inv.metal} metal · ${b.inv.silicon} silicon`}:null):machineAction(state,b)??lifeAction(state,b);
+  const action=b.type==='storage'?(b.inv.metal||b.inv.silicon?{verb:`Collect ${b.inv.metal} metal · ${b.inv.silicon} silicon`}:null):machineAction(state,b)??lifeAction(state,b)??vatAction(state,b);
   if(!action)continue;
   const c=buildingCenter(b,DEFS),d=Math.hypot(c.x-state.player.x,c.z-state.player.z);
   if(d<distance){best={building:b,...action};distance=d;}
@@ -131,6 +132,7 @@ function placePaint(){
 function useNearby(){
  const use=nearbyUse();
  if(use?.drop)notify(recoverDrop(state).reason);
+ else if(use?.sample){const r=takeSample(state);notify(r.reason);if(r.wake)rouse(hunt,state,r.wake);}
  else if(use?.cave){const r=takeLoot(state);notify(r.reason);if(r.say)ui.say(r.say);}
  else if(use)notify(interact(state,use.building.id).reason);
 }
@@ -244,6 +246,10 @@ function fixedUpdate(dt){
  else movePlayer(state,dx,dz,dt,DEFS);
  if(caving&&aimClient&&!pinned(hunt)){const a=world.aim(aimClient.x,aimClient.y);if(a&&Math.hypot(a.x-p.x,a.z-p.z)>.3)p.facing=Math.atan2(a.x-p.x,a.z-p.z);}
  stepHunt(hunt,state,dt);
+ if(!caving&&state.brood?.length){
+  const fires=(state.flares??[]).filter(f=>f.cave==null).map(f=>({f,n:flareNow(f,p)})).filter(({n})=>n.stage==='down'&&n.lit>0).map(({n})=>({x:n.x,z:n.z,r:FLARE.radius*n.lit}));
+  stepBrood(state,dt,fires);
+ }
  updatePortals(dt);
  updatePeril(dt);
  if((state.player.y??0)>0||jumpVelocity>0){jumpVelocity-=1.62*dt;state.player.y=Math.max(0,(state.player.y??0)+jumpVelocity*dt);if(state.player.y===0)jumpVelocity=0;}
@@ -345,6 +351,7 @@ async function start(){
   document.addEventListener('visibilitychange',()=>{keys.clear();last=performance.now();accumulator=0;});
   window.addEventListener('resize',()=>world.resize());
   window.addEventListener('pagehide',()=>{try{localStorage.setItem(KEY,serialize(state));}catch{}});
+  breaches=state.goo?.breaches??0;
   boot.remove();document.body.dataset.ready='true';canvas.focus({preventScroll:true});
   ui.update(state,view());
   const fps=document.createElement('div');fps.className='fps-meter';document.body.append(fps);
@@ -357,6 +364,7 @@ async function start(){
    if(stepWatcher(watcher,state,dt)==='vanished'){const remark=noteSighting(state);if(remark)setTimeout(()=>ui.say(remark),1500);}
    world.update(state,dt,interpolatePose(previousPose,state.player,accumulator/(1/30)),watcher,hunt);uiClock+=dt;autoClock+=dt;
    if(state.ship.status!==shipStatus){if(state.ship.status==='orbit'&&shipStatus==='ascent'){notify(`Satellites deployed. ${state.satellites} in orbit.`);orbit.show();}if(state.ship.status==='pad'&&shipStatus==='descent')notify('The Starship is back on the pad.');shipStatus=state.ship.status;}
+   if((state.goo?.breaches??0)>breaches){breaches=state.goo.breaches;notify('Containment breach! The goo vat lost power.');ui.say('The vat has breached. Goo is spreading through the base and something hatched. Flares burn both: press X for flares, Q to throw.');}
    orbit.update(state,dt);research.update(state);
    if(uiClock>.1){ui.update(state,view());refreshGhost();uiClock=0;}
    if(autoClock>20){try{localStorage.setItem(KEY,serialize(state));saveStatus='Autosaved locally';}catch{}autoClock=0;}
