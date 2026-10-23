@@ -52,9 +52,12 @@ export function createTerrainView(seed,root,models=new Map()){
    // Noise breaks the cut's edge, which would otherwise step along the cave's cells.
    vec2 roofUV=(caveLocal/2.0+(vec2(paintNoise(caveLocal*.7),paintNoise(caveLocal*.7+9.1))-.5)*.7+vec2(32.5,3.5))/64.0;
    float inMap=step(0.0,roofUV.x)*step(roofUV.x,1.0)*step(0.0,roofUV.y)*step(roofUV.y,1.0);
-   float roof=texture2D(uRoofMap,roofUV).r*inMap*uRoofEnabled*step(uRoofHeight+.25,vPaintWorld.y);
+   // Full is open roof over what is in view, cut at any height: where the hill dips to the cave's floor its ground
+   // would otherwise lie across the passage. Half is the rest of the cave's footprint, where only ground down at
+   // floor level goes, so the dark beside the lamp's reach stays dark without unseating the hill above it.
+   float roof=texture2D(uRoofMap,roofUV).r*inMap*uRoofEnabled;
    // Discarding keeps the material opaque, so entering a cave never forces a shader recompile.
-   if(roof>.45)discard;
+   if(roof>.75||roof>.2&&vPaintWorld.y<uRoofHeight+1.2)discard;
    #include <opaque_fragment>
   `);
  };

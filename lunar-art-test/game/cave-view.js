@@ -60,21 +60,30 @@ export function createCaveView(seed,id,parent,zone=0,itemModels=null){
  const cave=caveLayout(seed,id,zone),root=new THREE.Group(),memory=caveMemoryKey(id,zone);parent.add(root);
  const seenNow=new Float32Array(SEEN_SIZE*SEEN_SIZE),seenTarget=new Float32Array(SEEN_SIZE*SEEN_SIZE),seenPixels=new Uint8Array(SEEN_SIZE*SEEN_SIZE);
  const seenMap=new THREE.DataTexture(seenPixels,SEEN_SIZE,SEEN_SIZE,THREE.RedFormat);seenMap.minFilter=seenMap.magFilter=THREE.LinearFilter;seenMap.needsUpdate=true;
+ // Where there is floor (red) and where it drops into a chasm (green), blurred between cells so the floor's
+ // edge rounds off under the wall instead of stepping round each cell.
+ const groundPixels=new Uint8Array(SEEN_SIZE*SEEN_SIZE*2);
+ for(const t of cave.tiles){const x=t.x+SEEN_X0,z=t.z+SEEN_Z0;if(x<0||z<0||x>=SEEN_SIZE||z>=SEEN_SIZE)continue;groundPixels[(z*SEEN_SIZE+x)*2+(t.type==='chasm'||t.type==='shaftDown'?1:0)]=255;}
+ const groundMap=new THREE.DataTexture(groundPixels,SEEN_SIZE,SEEN_SIZE,THREE.RGFormat);groundMap.minFilter=groundMap.magFilter=THREE.LinearFilter;groundMap.needsUpdate=true;
  const sight={uSeenMap:{value:seenMap},uPlayer:{value:new THREE.Vector2()},uFacing:{value:new THREE.Vector2(0,1)},uFlicker:{value:1},uReach:{value:1},uVoid:{value:new THREE.Vector3()},
   uGlow:{value:Array.from({length:LIGHTS},()=>new THREE.Vector4(0,0,0,6))},uGlowColor:{value:Array.from({length:LIGHTS},()=>new THREE.Color(0,0,0))}};
  const disposables=[],keep=x=>(disposables.push(x),x);
  /** Instanced surfaces lit by sight, which they take from the seen field where they stand. */
  // `goo` glazes formations from the tip down with the crawler's black goo, in drips of uneven length (aGoo per instance).
- const litMaterial=(vertexColors,goo=false)=>{
+ const litMaterial=(vertexColors,goo=false,ground=false)=>{
   const material=keep(new THREE.MeshBasicMaterial({color:'#ffffff',vertexColors,fog:false}));
   material.onBeforeCompile=shader=>{
-   Object.assign(shader.uniforms,sight);
+   Object.assign(shader.uniforms,sight,ground?{uGround:{value:groundMap}}:{});
    shader.vertexShader=shader.vertexShader.replace('#include <common>','#include <common>\nvarying vec2 vCaveLocal;varying float vSeen;'+(goo?'attribute float aGoo;varying float vGoo;varying vec3 vLocal;':'')).replace('#include <project_vertex>','#include <project_vertex>\nvCaveLocal=(instanceMatrix*vec4(transformed,1.0)).xz;'+(goo?'vGoo=aGoo;vLocal=transformed;':''));
-   shader.fragmentShader=shader.fragmentShader.replace('#include <common>','#include <common>\n'+SIGHT_PARS+(goo?'varying float vGoo;varying vec3 vLocal;':'')).replace('#include <opaque_fragment>',`
+   shader.fragmentShader=shader.fragmentShader.replace('#include <common>','#include <common>\n'+SIGHT_PARS+(goo?'varying float vGoo;varying vec3 vLocal;':'')+(ground?'uniform sampler2D uGround;':'')).replace('#include <clipping_planes_fragment>','#include <clipping_planes_fragment>\n'+(ground?`
+    vec2 groundAt=vCaveLocal+(vec2(caveNoise(vCaveLocal*1.3),caveNoise(vCaveLocal*1.3+5.1))-.5)*.5;
+    vec2 ground=texture2D(uGround,(groundAt/${CAVE_CELL}.0+vec2(${SEEN_X0}.5,${SEEN_Z0}.5))/${SEEN_SIZE}.0).rg;
+    if(ground.r<.22||ground.g>.5)discard;`:'')).replace('#include <opaque_fragment>',`
     vec3 glow=caveGlow(vCaveLocal);
     vec3 ghost=diffuseColor.rgb*(vec3(.42,.55,.85)*.07+glow*.5);
     float seenHere=caveSeen(vCaveLocal);
     outgoingLight=mix(ghost,outgoingLight*(caveSight(vCaveLocal)*caveGrit(vCaveLocal)+glow),seenHere);
+    ${ground?'outgoingLight*=.45+.55*smoothstep(.22,.5,ground.r);':''}
     ${goo?`float streak=caveNoise(vec2(atan(vLocal.z,vLocal.x)*2.4+vGoo*31.0,vGoo*7.0)),edge=1.0-vGoo*(.15+.8*streak*streak);
     float coat=smoothstep(edge-.012,edge+.012,vLocal.y)*step(.01,vGoo);
     vec3 lit=caveSight(vCaveLocal)+glow,wet=vec3(.03,.03,.04)*lit+lit*pow(caveNoise(vCaveLocal*8.0+vLocal.y*11.0),7.0)*1.4;
@@ -84,11 +93,11 @@ export function createCaveView(seed,id,parent,zone=0,itemModels=null){
   };
   return material;
  };
- const floorMat=litMaterial(false),rockMat=litMaterial(true),formationMat=litMaterial(true,true);
+ const floorMat=litMaterial(false,false,true),rockMat=litMaterial(true),formationMat=litMaterial(true,true);
  const groups=[];let disposed=false;
- function litGroup(geometry,material,items,place,color){
+ function litGroup(geometry,material,items,place,color,vary=true){
   const mesh=new THREE.InstancedMesh(keep(geometry),material,Math.max(1,items.length));mesh.count=items.length;mesh.frustumCulled=false;root.add(mesh);
-  const c=new THREE.Color();items.forEach((item,i)=>{c.set(color(item));const n=Math.sin(item.x*12.9+item.z*78.2+i*.37)*43758.5;c.multiplyScalar(.85+(n-Math.floor(n))*.2);mesh.setColorAt(i,c);});
+  const c=new THREE.Color();items.forEach((item,i)=>{c.set(color(item));const n=Math.sin(item.x*12.9+item.z*78.2+i*.37)*43758.5;if(vary)c.multiplyScalar(.85+(n-Math.floor(n))*.2);mesh.setColorAt(i,c);});
   if(!items.length)mesh.setColorAt(0,c.set('#000'));
   const group={mesh,items,place};groups.push(group);return group;
  }
@@ -110,10 +119,10 @@ export function createCaveView(seed,id,parent,zone=0,itemModels=null){
  const dummy=new THREE.Object3D();
  const cellKnown=key=>seen.has(key);
 
- // Floor, except where the ground falls away.
+ // Floor, except where the ground falls away: one level sheet of tiles, each the same tone, so no cell reads as a block.
  const floorTiles=cave.tiles.filter(t=>t.type!=='chasm'&&t.type!=='shaftDown');
- const floorGeo=new THREE.PlaneGeometry(2.04,2.04);floorGeo.rotateX(-Math.PI/2);
- litGroup(floorGeo,floorMat,floorTiles,t=>{dummy.position.set(t.x*CAVE_CELL,-.035+Math.sin(t.x*1.7+t.z*.4)*.025,t.z*CAVE_CELL);dummy.rotation.set(0,0,0);dummy.scale.setScalar(1);},t=>TILE_COLORS[t.type]??TILE_COLORS.floor);
+ const floorGeo=new THREE.PlaneGeometry(3.2,3.2);floorGeo.rotateX(-Math.PI/2);
+ litGroup(floorGeo,floorMat,floorTiles,t=>{dummy.position.set(t.x*CAVE_CELL,-.035,t.z*CAVE_CELL);dummy.rotation.set(0,0,0);dummy.scale.setScalar(1);},t=>TILE_COLORS[t.type]??TILE_COLORS.floor,false);
 
  // Walls wrap everything carved; the side facing the camera is cut down near the player.
  const edges=[];for(const t of cave.tiles)for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]])if(!cave.open.has(`${t.x+dx},${t.z+dz}`))edges.push({key:t.key,x:t.x,z:t.z,dx,dz});
@@ -141,8 +150,11 @@ export function createCaveView(seed,id,parent,zone=0,itemModels=null){
    if(vRock.y>cutAt)discard;`).replace('#include <opaque_fragment>',`
    vec3 glow=caveGlow(vCaveLocal);
    outgoingLight=mix(diffuseColor.rgb*(vec3(.42,.55,.85)*.07+glow*.5),outgoingLight*(caveSight(vCaveLocal)*caveGrit(vCaveLocal)+glow),caveSeen(vSeenAt));
+   // The inside of the skin, bared where the near wall is cut down: a darker section of rock edging the floor.
+   if(!gl_FrontFacing)outgoingLight*=.42;
    #include <opaque_fragment>`);
  };
+ wallMat.side=THREE.DoubleSide;
  const walls=new THREE.Mesh(wallGeo,wallMat);walls.frustumCulled=false;root.add(walls);
 
  // Cliff faces dropping into chasms and the down shaft, so the dark below reads as depth.
@@ -257,7 +269,10 @@ export function createCaveView(seed,id,parent,zone=0,itemModels=null){
 
  let flicker=0,flickerSeed=0;
 
- const roofPixels=new Uint8Array(64*64),roofMap=keep(new THREE.DataTexture(roofPixels,64,64,THREE.RedFormat));roofMap.minFilter=THREE.LinearFilter;roofMap.magFilter=THREE.LinearFilter;roofMap.needsUpdate=true;
+ // Every cell within three of a passage, inside the mouth (outside it the ground stays, to walk back out onto).
+ const footprint=new Uint8Array(64*64);
+ for(const t of cave.tiles)for(let dx=-3;dx<=3;dx++)for(let dz=-3;dz<=3;dz++){const x=t.x+dx,z=t.z+dz,index=(z+3)*64+x+32;if(z>=0&&x>=-32&&x<32&&index<footprint.length)footprint[index]=128;}
+ const roofPixels=footprint.slice(),roofMap=keep(new THREE.DataTexture(roofPixels,64,64,THREE.RedFormat));roofMap.minFilter=THREE.LinearFilter;roofMap.magFilter=THREE.LinearFilter;roofMap.needsUpdate=true;
  let visible=new Set(),seen=new Set(),loaded=false,clock=1,lastFacing=-100,lastX=-100,lastZ=-100,time=0;
  const glowSources=[
   ...relicItems.map(r=>({key:r.key,loot:r.loot,x:r.x*2,z:r.z*2,color:RELIC[r.kind].color,strength:RELIC[r.kind].light,pulse:r.kind==='heart'})),
@@ -331,14 +346,14 @@ export function createCaveView(seed,id,parent,zone=0,itemModels=null){
   let changed=false;for(const key of visible)if(!seen.has(key)){seen.add(key);changed=true;}
   if(changed){state.exploredCaves??={};state.exploredCaves[memory]=[...seen];}
   // The surface above opens over what is in view and over the rock behind its walls, so no slab of it lies across a wall top.
-  roofPixels.fill(0);const roof=(x,z)=>{const index=(z+3)*64+x+32;if(x>=-32&&x<32&&index>=0&&index<roofPixels.length)roofPixels[index]=255;};
+  roofPixels.set(footprint);const roof=(x,z)=>{const index=(z+3)*64+x+32;if(z>=0&&x>=-32&&x<32&&index<roofPixels.length)roofPixels[index]=255;};
   for(const key of seen){const [x,z]=key.split(',').map(Number);if(!visible.has(key)&&Math.hypot(x*2-p.x,z*2-p.z)>6)continue;roof(x,z);
    for(let dx=-2;dx<=2;dx++)for(let dz=-2;dz<=2;dz++)if(!cave.open.has(`${x+dx},${z+dz}`))roof(x+dx,z+dz);}
   roofMap.needsUpdate=true;
   place(p);
   document.body.dataset.caveVisible=String(visible.size);document.body.dataset.caveExplored=String(seen.size);document.body.style.setProperty('--cave-depth',depth.toFixed(3));
  }
- return {root,roofMap,cave,sight,update,known:cellKnown,dispose(){disposed=true;parent.remove(root);seenMap.dispose();itemBatches.forEach(b=>b.dispose());disposables.forEach(d=>d.dispose());crystals.dispose();relics.dispose();halos.dispose();packHalos.dispose();packs.dispose();groups.forEach(g=>g.mesh.dispose());}};
+ return {root,roofMap,cave,sight,update,known:cellKnown,dispose(){disposed=true;parent.remove(root);seenMap.dispose();groundMap.dispose();itemBatches.forEach(b=>b.dispose());disposables.forEach(d=>d.dispose());crystals.dispose();relics.dispose();halos.dispose();packHalos.dispose();packs.dispose();groups.forEach(g=>g.mesh.dispose());}};
 }
 
 // Deterministic value noise for shaping rock.
