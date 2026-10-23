@@ -249,9 +249,10 @@ test('seeded cave networks are connected, varied, and safe to save underground',
 });
 test('cave visibility is blocked by rock and restricted to the headlamp direction',async()=>{
  const {visibleCaveCells,lineVisible}=await import('./caves.js');
- const cave={cells:new Set(['0,0','0,1','0,2','0,3','0,4','0,-1','0,-2','0,-3','1,0','2,0','2,1','2,2']),tiles:[]};cave.tiles=[...cave.cells].map(key=>{const [x,z]=key.split(',').map(Number);return {key,x,z};});
+ const cave={cells:new Set(['1,0','2,0','2,1','2,2',...Array.from({length:21},(_,i)=>`0,${i-10}`)]),tiles:[]};cave.tiles=[...cave.cells].map(key=>{const [x,z]=key.split(',').map(Number);return {key,x,z};});
  assert.equal(lineVisible(cave,0,0,2,2),false);
- const view=visibleCaveCells(cave,0,0,0);assert.ok(view.has('0,4'));assert.ok(!view.has('0,-3'));assert.ok(view.has('0,-1'));assert.ok(!view.has('2,2'));
+ // A full circle of sight, and the headlamp beam reaches further ahead than the circle does behind.
+ const view=visibleCaveCells(cave,0,0,0);assert.ok(view.has('0,9'));assert.ok(view.has('0,-6'));assert.ok(!view.has('0,-9'));assert.ok(view.has('0,-1'));assert.ok(!view.has('2,2'));
 });
 test('cave movement collides with walls and prevents surface construction',()=>{
  const s=createState();s.player={x:0,z:4,y:0,cave:0};

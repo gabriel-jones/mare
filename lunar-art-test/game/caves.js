@@ -28,8 +28,10 @@ export function lineVisible(cave,x0,z0,x1,z1){
  let x=x0,z=z0,dx=Math.abs(x1-x0),dz=Math.abs(z1-z0),sx=x0<x1?1:-1,sz=z0<z1?1:-1,error=dx-dz;
  while(true){if(!cave.cells.has(caveKey(x,z)))return false;if(x===x1&&z===z1)return true;const e=2*error;if(e>-dz){error-=dz;x+=sx;}if(e<dx){error+=dx;z+=sz;}}
 }
+/** Sight underground: everything in line of sight within SIGHT_RADIUS, and further along the headlamp beam. */
+export const SIGHT_RADIUS=14,BEAM_RANGE=20;
 export function visibleCaveCells(cave,x,z,facing){
  const cx=Math.round(x/CAVE_CELL),cz=Math.round(z/CAVE_CELL),visible=new Set(),fx=Math.sin(facing),fz=Math.cos(facing);
- for(const cell of cave.tiles){const dx=cell.x*CAVE_CELL-x,dz=cell.z*CAVE_CELL-z,distance=Math.hypot(dx,dz);if(distance>15)continue;if(distance>3.4&&(dx*fx+dz*fz)/distance<.6)continue;if(lineVisible(cave,cx,cz,cell.x,cell.z))visible.add(cell.key);}
+ for(const cell of cave.tiles){const dx=cell.x*CAVE_CELL-x,dz=cell.z*CAVE_CELL-z,distance=Math.hypot(dx,dz);if(distance>BEAM_RANGE)continue;if(distance>SIGHT_RADIUS&&(dx*fx+dz*fz)/distance<.55)continue;if(lineVisible(cave,cx,cz,cell.x,cell.z))visible.add(cell.key);}
  return visible;
 }

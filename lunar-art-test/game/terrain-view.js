@@ -52,7 +52,8 @@ export function createTerrainView(seed,root,models=new Map()){
    vec2 roofUV=(caveLocal/2.0+vec2(32.5,3.5))/64.0;
    float inMap=step(0.0,roofUV.x)*step(roofUV.x,1.0)*step(0.0,roofUV.y)*step(roofUV.y,1.0);
    float roof=texture2D(uRoofMap,roofUV).r*inMap*uRoofEnabled*step(uRoofHeight+.25,vPaintWorld.y);
-   diffuseColor.a*=mix(1.0,.035,smoothstep(.15,.8,roof));
+   // Discarding keeps the material opaque, so entering a cave never forces a shader recompile.
+   if(roof>.45)discard;
    #include <opaque_fragment>
   `);
  };
@@ -66,7 +67,6 @@ export function createTerrainView(seed,root,models=new Map()){
  function setCaveCutaway(texture,origin,angle=0){
   const enabled=!!texture;roofUniforms.uRoofEnabled.value=enabled?1:0;roofUniforms.uRoofMap.value=texture||blankRoof;
   if(origin){roofUniforms.uRoofOrigin.value.set(origin.x,origin.z);roofUniforms.uRoofHeight.value=origin.y;roofUniforms.uRoofRotation.value.set(Math.sin(angle),Math.cos(angle));}
-  if(groundMat.transparent!==enabled){groundMat.transparent=enabled;groundMat.depthWrite=!enabled;groundMat.needsUpdate=true;}
  }
 
  // Authored Blender meshes are instanced by variant, keeping repeated rocks cheap.

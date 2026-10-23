@@ -26,6 +26,24 @@ Local play: http://127.0.0.1:8765/game/ (`?sandbox=1` plays a throwaway colony o
 
 Verification: 54 automated simulation/controller/production/habitat/life-support/export checks pass, plus the real backed-up v2 save migrates and round-trips. Browser-verified (sandbox and isolated preview): drag painting with edge-connected strokes, greenhouse glazing and joined roof cut-away, airlock entry, eating, harvest, galley cooking and collection, hotbar and build palette. No multiplayer or full colony-load benchmarks yet.
 
-Next: F co-op (command boundaries start in A, integration after B); G alien retaliation; H outposts/scale/Mars. Later space work: more technologies, satellite roles and real orbital timing.
+Phase E+ implemented: the orbital view is a procedural solar system (Sun, eight planets, the Moon, the main belt around Ceres) with GPU-baked surfaces and fly-to navigation between the system and each body.
+
+Phase F planned: the caves become a place worth going.
+- F1 Seamless entry. Build each cave's view and compile its shaders while the player walks up to the mouth (within ~30 m), keep it after leaving, so crossing the threshold costs nothing.
+- F2 Horror sight. A dim ~14 m circle of visibility around the player that fades to black, plus a brighter headlamp beam ahead. Explored areas outside sight stay as faint cold outlines. Drifting dust in the beam, a vignette and colour drain that deepen with depth, the headlamp stuttering near artifacts and aliens, and shapes glimpsed at the edge of the dark that vanish when lit.
+- F3 Deeper zones. The three entrances keep their seeded first zone; each leads down a shaft to two deeper zones that are larger, darker and more dangerous. Floors stay flat; interest comes from layout and props.
+- F4 Terrain features. Rock-spire and stalagmite clusters that split rooms into paths; chasms crossed only on narrow rock bridges; glowing crystal veins and geodes that light their surroundings; frozen ice pools; alien ruins (carved pillars, doorways, glyphs); hazards (gas vents, unstable floor, toxic pools) that hurt the player.
+- F5 Reasons to go. Rare minerals (titanium ore, rare-earth crystal) found only underground and required by mid and late buildings; alien artifacts that feed research; blueprints found in ruins that unlock buildings; story clues about the tracks and the watcher. The surface carries the early game; mid and late tech needs the caves. Everything is carried out by hand.
+- F6 Risk. Player health (hazards now, aliens in G). At zero the player wakes in the habitat and what they carried lies where they fell. Flares are crafted from metal, thrown to light an area for a while, and repel aliens.
+
+Phase G planned: the crawler, built and reviewed in a separate alien lab page before it enters the game.
+- G1 Look. One human-sized, many-legged crawler with no eyes or face, in the same faceted low-poly style as the kit, made threatening by silhouette, posture and light.
+- G2 Animation. Rigged in Blender with authored clips: idle, stalk, skitter run, rear-up shriek, lunge, grab-and-drag, recoil from light, hit, death. Exported as a GLB like the astronaut.
+- G3 Behaviour. Hates light: never stands in the beam, flees flares. Stalks at the edge of the dark, circles, then rushes when the player looks away or is cornered.
+- G4 Attacks. A telegraphed lunge (rears up and shrieks for a beat, then leaps); a grab that drags the player toward the dark until they break free by mashing a key; hits that short the headlamp for a few seconds.
+- G5 Defence. A sidearm aimed with the mouse (few shots, slow reload, ammo crafted from metal at the colony), a dodge roll, and flares.
+- G6 Lab. Model turntable, every clip on a timeline, and a test cave room where a crawler hunts a dummy astronaut. Then it moves into the caves, with more crawlers in deeper zones.
+
+Phase H planned: crawler raids on the colony. Later: co-op, outposts and scale, Mars, more space technologies.
 
 Current prototype day length, recipes, belt speeds, rover capacity, storage sizes, hunger rate, crop and cooking times are temporary tuning values. Realistic fuel carbon source remains unresolved. Launch fuel, research rates and robot costs are provisional too.

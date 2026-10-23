@@ -8,7 +8,7 @@ import { createStatusLamps } from './status-lamps.js';
 import { createProductionView } from './production-view.js';
 import { createHabitatView } from './habitat-view.js';
 import { airlockOf, habitatLayout, isRoom } from './habitat.js';
-import { surfaceHeightAt as heightAt } from './terrain.js';
+import { surfaceHeightAt as heightAt, terrainData } from './terrain.js';
 import { melterReady } from './production.js';
 import { createExpeditionView } from './expedition-view.js';
 import { createTerrainView } from './terrain-view.js';
@@ -66,7 +66,8 @@ export async function createWorld(canvas, initialState) {
     candidates.sort((a,b)=>a.d-b.d);
     lightPool.forEach((l,i)=>{const c=candidates[i];if(!c||c.intensity<=0){l.intensity=0;return;}l.position.set(c.x,c.y,c.z);l.intensity=c.intensity;l.distance=c.distance;l.color.setHex(c.color);});
   }
-  let caveView=null,activeCave=null,smoothedGround=null;
+  let caveView=null,activeCave=null,smoothedGround=null,caveBlend=0;const caveViews=new Map();
+  const vignette=document.createElement('div');vignette.className='cave-vignette';document.body.append(vignette);
 
   const structures=new Map();
   const statusLayer=document.createElement('div');statusLayer.className='building-status-layer';statusLayer.setAttribute('aria-label','Building status');document.body.append(statusLayer);
@@ -273,14 +274,15 @@ export async function createWorld(canvas, initialState) {
   const expedition=createExpeditionView(scene,models);let watcherState=null;
   function update(next,dt,renderPose=next.player,watcher=null){
     state=next;watcherState=watcher;
-    if(lastSeed!==state.seed){terrainView.dispose();terrainView=createTerrainView(state.seed,terrainRoot,models);lastSeed=state.seed;drapeGrid();}
+    if(lastSeed!==state.seed){terrainView.dispose();terrainView=createTerrainView(state.seed,terrainRoot,models);lastSeed=state.seed;drapeGrid();caveViews.forEach(v=>v.dispose());caveViews.clear();caveView=null;activeCave=null;}
     terrainView.update(state.buildings,footprint,state.player);
     const underground=state.player.cave!=null;
+    // Caves are built and their shaders compiled while the player walks up, so the threshold costs nothing.
+    if(!underground)terrainData(state.seed).caves.forEach((c,id)=>{if(Math.hypot(state.player.x-c.x,state.player.z-c.z)<34)caveViewFor(id);});
     if(activeCave!==(state.player.cave??null)||underground&&!caveView){
-      caveView?.dispose();caveView=null;activeCave=state.player.cave??null;
+      if(caveView)caveView.root.visible=false;caveView=null;activeCave=state.player.cave??null;
       if(underground){
-        caveView=createCaveView(state.seed,activeCave,scene);const origin=caveOrigin(state.seed,activeCave);
-        caveView.root.position.set(origin.x,origin.y,origin.z);caveView.root.rotation.y=origin.angle;
+        caveView=caveViewFor(activeCave);caveView.root.visible=true;const origin=caveOrigin(state.seed,activeCave);
         terrainView.setCaveCutaway(caveView.roofMap,origin,origin.angle);
       }else terrainView.setCaveCutaway(null);
     }
@@ -290,13 +292,16 @@ export async function createWorld(canvas, initialState) {
     canvas.dataset.caveId=String(state.player.cave??'');canvas.dataset.seed=String(state.seed);canvas.dataset.viewHeight=String(viewHeight);
     canvas.dataset.playerX=state.player.x.toFixed(2);canvas.dataset.playerZ=state.player.z.toFixed(2);
     const daylight=Math.max(0,Math.sin(state.time/240*Math.PI*2+Math.PI/3));
-    scene.environmentIntensity=.035+daylight*.265;
-    sun.intensity=.18+daylight*3.1;fill.intensity=.5+daylight*.7;
-    suitFill.intensity=2+(1-daylight)*5;headlamp.intensity=8+(1-daylight)*37;padLight.intensity=5+(1-daylight)*18;
+    // Underground the surface sinks almost to black over a second, leaving only the cave light and colony lamps.
+    caveBlend+=((underground?1:0)-caveBlend)*(1-Math.exp(-Math.min(dt,.1)*3));
+    const surfaceLight=1-.94*caveBlend;
+    scene.environmentIntensity=(.035+daylight*.265)*surfaceLight;
+    sun.intensity=(.18+daylight*3.1)*surfaceLight;fill.intensity=(.5+daylight*.7)*surfaceLight;
+    suitFill.intensity=2+(1-daylight)*5;headlamp.intensity=8+(1-daylight)*37;padLight.intensity=(5+(1-daylight)*18)*surfaceLight;
     sun.position.set(follow.x-25,12+daylight*38,follow.z-30);sun.target.position.set(follow.x,0,follow.z);sun.target.updateMatrixWorld();
-    scene.background.setRGB(.025+daylight*.035,.038+daylight*.05,.065+daylight*.075);scene.fog.color.copy(scene.background);
+    scene.background.setRGB((.025+daylight*.035)*surfaceLight,(.038+daylight*.05)*surfaceLight,(.065+daylight*.075)*surfaceLight);scene.fog.color.copy(scene.background);
     scene.fog.density=.0012;suitFill.distance=underground?6:8;headlamp.distance=underground?20:18;
-    if(underground){suitFill.intensity=3;headlamp.intensity=145;}
+    if(underground){suitFill.intensity=9;headlamp.intensity=145;}
     const position=underground?caveToWorld(state.seed,state.player.cave,renderPose.x,renderPose.z):{x:renderPose.x,y:habitatView.floorAt(state,renderPose.x,renderPose.z)??heightAt(state.seed,renderPose.x,renderPose.z),z:renderPose.z};
     if(smoothedGround==null||Math.abs(position.y-smoothedGround)>2)smoothedGround=position.y;
     else smoothedGround+=(position.y-smoothedGround)*(1-Math.exp(-Math.min(dt,.1)*24));
@@ -336,7 +341,15 @@ export async function createWorld(canvas, initialState) {
     if(underground)caveView.update(state,dt);else updateStatuses();
     renderer.render(scene,camera);canvas.dataset.drawCalls=String(renderer.info.render.calls);canvas.dataset.triangles=String(renderer.info.render.triangles);
   }
-  function dispose(){disposed=true;lamps.dispose();caveView?.dispose();expedition.dispose();productionView.dispose();habitatView.dispose();statusLayer.remove();terrainView.dispose();grid.geometry.dispose();grid.material.dispose();actor?.dispose();reflection.dispose();canvas.removeEventListener('wheel',zoom);for(const o of structures.values()){o.ownedMaterials?.forEach(m=>m.dispose());scene.remove(o.ports);}geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());renderer.dispose();}
+  function caveViewFor(id){
+    let view=caveViews.get(id);if(view)return view;
+    view=createCaveView(state.seed,id,scene);const origin=caveOrigin(state.seed,id);
+    view.root.position.set(origin.x,origin.y,origin.z);view.root.rotation.y=origin.angle;
+    // compile() skips hidden objects, so the cave is visible only for the duration of this call.
+    renderer.compileAsync(view.root,camera,scene).catch(()=>{});view.root.visible=false;
+    caveViews.set(id,view);return view;
+  }
+  function dispose(){disposed=true;lamps.dispose();caveViews.forEach(v=>v.dispose());vignette.remove();expedition.dispose();productionView.dispose();habitatView.dispose();statusLayer.remove();terrainView.dispose();grid.geometry.dispose();grid.material.dispose();actor?.dispose();reflection.dispose();canvas.removeEventListener('wheel',zoom);for(const o of structures.values()){o.ownedMaterials?.forEach(m=>m.dispose());scene.remove(o.ports);}geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());renderer.dispose();}
   resize();update(initialState,1);
   return {renderer,scene,camera,update,pick,setGhost,clearGhost,resize,dispose};
 }

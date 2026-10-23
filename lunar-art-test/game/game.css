@@ -123,6 +123,12 @@ button:focus-visible { outline:2px solid #edbd79;outline-offset:4px; }
 .game-ui .zone-add { display:flex;align-items:center;justify-content:space-between;width:calc(100% - 8px);margin:6px 4px 0;padding:8px 10px;border-radius:3px;font-size:12px; }
 .zone-add kbd { min-width:18px;height:18px;display:inline-grid;place-items:center;border:1px solid #ffffff2a;border-radius:3px;font:600 10px Inter,ui-sans-serif,sans-serif;color:#aab3b6; }
 .game-ui .zone-add:disabled { opacity:.4;pointer-events:none; }
+/* Underground: a vignette and colour drain that deepen with --cave-depth (0 at the mouth, 1 deep inside). */
+.cave-vignette { position:fixed;inset:0;z-index:2;pointer-events:none;opacity:0;transition:opacity 1.2s ease;background:radial-gradient(ellipse 72% 68% at 50% 50%,transparent 28%,rgba(1,2,4,calc(.6 + var(--cave-depth,0) * .32)) 100%); }
+body[data-region=cave] .cave-vignette { opacity:1; }
+canvas#game { transition:filter 1.2s ease; }
+body[data-region=cave] canvas#game { filter:saturate(calc(.72 - var(--cave-depth,0) * .42)) contrast(1.08); }
+
 /* Orbit button and the full-screen orbital view. */
 .game-ui .orbit-toggle { position:fixed;top:22px;right:24px;padding:11px 12px; }
 .orbit-toggle svg { color:#8fc4ff; }
