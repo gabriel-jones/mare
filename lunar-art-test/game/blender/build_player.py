@@ -282,6 +282,17 @@ def hurt(t):
  rig.pose.bones['Hips'].location.y=-.08*h
  leg('L',.18*h,-.08*h,0);leg('R',-.05*h,-.08*h,0)
  aim(AIM_W+Vector((.18,.28,.22))*h,(AIM_A+Vector((.3,.2,1.2))*h).normalized(),AIM_WL+Vector((-.25,.3,.12))*h,(AIM_AL+Vector((-1,.4,.8))*h).normalized())
+TURN=math.pi/8
+def turn(t,d):
+ # Stepping round on the spot, d=+1 to the left. The runtime yaws the body a quarter turn per cycle; a planted foot
+ # counter-rotates against that so it stays put on the ground, while the free foot lifts and swings ahead into the turn.
+ aim_idle(t);rig.pose.bones['Hips'].location.y=-.03
+ for su,offset in [('L' if d>0 else 'R',0),('R' if d>0 else 'L',.5)]:
+  u=(t+offset)%1
+  if u<.5:a=d*TURN*(1-4*u);lift=0
+  else:v=(u-.5)/.5;a=d*TURN*(-1+2*ease(v));lift=.09*math.sin(math.pi*v)
+  leg(su,0,-.03,lift);rig.pose.bones['Thigh.'+su].rotation_euler.y=a
+ rz('Spine',d*.04*math.sin(t*math.tau*2))
 def roll(t):
  # A forward roll through the hips, the body balled up round a lowered pivot.
  spin=math.tau*ease(t);tuck=math.sin(math.pi*t)**.6
@@ -342,11 +353,12 @@ def make_clip(name,frames,pose,loop=True):
  track=rig.animation_data.nla_tracks.new();track.name=name
  track.strips.new(name,1,action);track.mute=True
  return action
-CLIP_NAMES=['Idle','Walk','Run','Build','AimIdle','AimWalk','AimRun','Fire','Hurt','Roll','Jump','Land','Struggle','ThrowOff','Collapse']
+CLIP_NAMES=['Idle','Walk','Run','Build','AimIdle','AimWalk','AimRun','Fire','Hurt','Roll','Jump','Land','Struggle','ThrowOff','Collapse','TurnL','TurnR']
 clips=[make_clip('Idle',90,idle),make_clip('Walk',24,lambda t:gait(t)),make_clip('Run',20,lambda t:gait(t,True)),make_clip('Build',30,build),
  make_clip('AimIdle',60,aim_idle),make_clip('AimWalk',24,lambda t:aim_gait(t)),make_clip('AimRun',20,lambda t:aim_gait(t,True)),make_clip('Fire',8,fire),
  make_clip('Hurt',18,hurt),make_clip('Roll',13,roll),make_clip('Jump',30,jump),make_clip('Land',10,land),
- make_clip('Struggle',24,struggle),make_clip('ThrowOff',20,throw_off),make_clip('Collapse',36,collapse)]
+ make_clip('Struggle',24,struggle),make_clip('ThrowOff',20,throw_off),make_clip('Collapse',36,collapse),
+ make_clip('TurnL',24,lambda t:turn(t,1)),make_clip('TurnR',24,lambda t:turn(t,-1))]
 reset_pose();refresh()
 
 scene.render.fps=30;scene.frame_start=1;scene.frame_end=91
@@ -373,7 +385,7 @@ for engine in ['BLENDER_EEVEE_NEXT','BLENDER_EEVEE','CYCLES']:
 scene.render.resolution_x=900;scene.render.resolution_y=900;scene.render.image_settings.file_format='PNG'
 with contextlib.suppress(Exception):scene.eevee.taa_render_samples=32
 tool.hide_render=True
-for clip,frame,file in [('AimIdle',1,'astronaut-v3-aim.png'),('Fire',2,'astronaut-v3-fire.png'),('Struggle',7,'astronaut-v3-struggle.png'),('Roll',7,'astronaut-v3-roll.png')]:
+for clip,frame,file in [('AimIdle',1,'astronaut-v3-aim.png'),('Fire',2,'astronaut-v3-fire.png'),('Struggle',7,'astronaut-v3-struggle.png'),('Roll',7,'astronaut-v3-roll.png'),('TurnL',19,'astronaut-v3-turn.png')]:
  rig.animation_data.action=clips[CLIP_NAMES.index(clip)];scene.frame_set(frame)
  scene.render.filepath=os.path.join(OUT,file);bpy.ops.render.render(write_still=True)
 rig.animation_data.action=None

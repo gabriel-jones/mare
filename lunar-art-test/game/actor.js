@@ -6,8 +6,9 @@ const FADE={roll:.06,hurt:.05,land:.06,throwoff:.08,jump:.08};
 
 /**
  * Blender-authored in-place animation; controller owns world motion and gravity.
- * `pose`: {animation, speed, gun, backward, rate}. `gun` shows the pistol (astronaut-v3); `backward` plays a walk or run
- * in reverse for backpedalling; `rate` scales one-shots and loops such as the struggle. `fire()` layers the recoil
+ * `pose`: {animation, speed, gun, backward, rate, twist}. `gun` shows the pistol (astronaut-v3); `backward` plays a walk or run
+ * in reverse for backpedalling; `rate` scales one-shots and loops such as the struggle; `twist` turns the torso about
+ * the vertical (radians, positive to the left) so the upper body can aim ahead of the feet. `fire()` layers the recoil
  * additively over whatever is playing; `restart()` replays the current one-shot; `marker(name)` finds the pistol's
  * muzzle and ejection-port bones.
  */
@@ -29,6 +30,7 @@ export function createAstronaut(gltf) {
   actions.set(key,action);
  }
  let current='',active=null;
+ const spine=root.getObjectByName('Spine'),parentQ=new THREE.Quaternion(),twistQ=new THREE.Quaternion(),UP=new THREE.Vector3(0,1,0);
  const tools=[],guns=[];root.traverse(o=>{if(o.name.startsWith('ConstructionTool'))tools.push(o);if(o.name==='Pistol')guns.push(o);});
  function update(pose,dt){
   const wanted=actions.has(pose.animation)?pose.animation:pose.animation?.startsWith('aim')&&actions.has(pose.animation.slice(3))?pose.animation.slice(3):'idle';
@@ -44,6 +46,10 @@ export function createAstronaut(gltf) {
   tools.forEach(o=>o.visible=current==='build');
   guns.forEach(o=>o.visible=!!pose.gun&&current!=='build');
   mixer.update(Math.min(dt,.1));
+  if(spine&&pose.twist){
+   spine.parent.getWorldQuaternion(parentQ);twistQ.setFromAxisAngle(UP,pose.twist);
+   spine.quaternion.premultiply(parentQ).premultiply(twistQ).premultiply(parentQ.invert());
+  }
  }
  function fire(){if(recoil)recoil.reset().setEffectiveWeight(1).play();}
  function restart(){if(active)active.reset().play();}

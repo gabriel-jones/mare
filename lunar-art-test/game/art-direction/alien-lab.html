@@ -138,7 +138,8 @@ const player=new THREE.Group();view.root.add(player);
 const actor=createAstronaut(astronautGLTF);player.add(actor.root);
 actor.root.traverse(o=>{if(o.isMesh){o.material=o.material.clone();o.material.color.multiplyScalar(.3);o.material.envMapIntensity=.05;}});
 const suitFill=new THREE.PointLight('#bddaff',9,6,2);suitFill.position.set(0,2,0);player.add(suitFill);
-const headlamp=new THREE.SpotLight('#cfe8ff',145,20,.52,.65,1.5);headlamp.position.set(0,1.55,.25);const lampTarget=new THREE.Object3D();lampTarget.position.set(0,.1,9);player.add(lampTarget,headlamp);headlamp.target=lampTarget;
+const aimRig=new THREE.Group();view.root.add(aimRig);
+const headlamp=new THREE.SpotLight('#cfe8ff',145,20,.52,.65,1.5);headlamp.position.set(0,1.55,.25);const lampTarget=new THREE.Object3D();lampTarget.position.set(0,.1,9);aimRig.add(lampTarget,headlamp);headlamp.target=lampTarget;
 // Toward the isometric camera, in cave coordinates; the crawler's wet highlights are computed against it.
 const viewDir={value:new THREE.Vector3(104,136,104).normalize().applyAxisAngle(THREE.Object3D.DEFAULT_UP,-angle)};
 const beast=createCrawlerView(crawlerGLTF,view.root,{mode:'sight',sight:view.sight,toCave,viewDir});
@@ -175,16 +176,16 @@ const sparks=particles(60,{additive:true,color:'#ffb066',size:7}),dust=particles
 const impactFlash=new THREE.Sprite(new THREE.SpriteMaterial({map:flashTex,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,opacity:0}));impactFlash.scale.setScalar(.9);view.root.add(impactFlash);
 const aimMarker=new THREE.Mesh(new THREE.RingGeometry(.18,.24,24).rotateX(-Math.PI/2),new THREE.MeshBasicMaterial({color:'#ffcf9a',transparent:true,opacity:.6,depthWrite:false}));aimMarker.position.y=.05;view.root.add(aimMarker);
 
-const rand=Math.random;
+const rand=Math.random,wrapAngle=a=>Math.atan2(Math.sin(a),Math.cos(a));
 let wispClock=0;
-let crawler,gun,dodge,health,hurtPause,lampShort,metal,flareStock,stutter=0,blackout=0,watch=!params.has('play'),hurtFlash=0,flicker=0,shakeT=0,pendingShot=null,strain=0,act=null;
+let crawler,gun,dodge,health,hurtPause,lampShort,metal,flareStock,stutter=0,blackout=0,watch=!params.has('play'),hurtFlash=0,flicker=0,shakeT=0,pendingShot=null,strain=0,act=null,bodyYaw=0,turning=false;
 const hop={t:0},JUMP=.55,LAND=.3;
 const aim={x:0,z:1};let mouse={x:innerWidth/2,y:innerHeight/2};const keys=new Set();
 function spawnAt(x,z){crawler=createCrawler(x,z,rand);crawler.facing=Math.atan2(state.player.x-x,state.player.z-z);beast.reset();}
 function farRoom(){const p=state.player;let best=cave.rooms[0];for(const r of cave.rooms){const d=Math.hypot(r.x*2-p.x,r.z*2-p.z);if(d>16&&d<26&&walkable(cave,r.x*2,r.z*2))return r;if(Math.hypot(best.x*2-p.x,best.z*2-p.z)<d)best=r;}return best;}
 function reset(){
  Object.assign(state.player,{x:cave.start.x*2,z:cave.start.z*2+2,facing:0});state.flares=[];
- gun=createGun(12);dodge=createDodge();act=null;hop.t=0;health=HEALTH.max;hurtPause=0;lampShort=0;metal=10;flareStock=3;blackout=0;patrol=0;
+ gun=createGun(12);dodge=createDodge();act=null;hop.t=0;bodyYaw=state.player.facing;turning=false;health=HEALTH.max;hurtPause=0;lampShort=0;metal=10;flareStock=3;blackout=0;patrol=0;
  const r=farRoom();spawnAt(r.x*2,r.z*2);
 }
 function spawnBehind(){
@@ -370,9 +371,8 @@ function updateHunt(dt){
   if(!grabbed&&crawler.state!=='shriek'&&Math.random()<dt*.08)jump();
   if(!gun.mag&&!gun.reloading&&!gun.reserve&&metal>0)craftAmmoNow();}
  // Pose the actors.
- player.position.set(p.x,0,p.z);player.rotation.y=p.facing;
+ player.position.set(p.x,0,p.z);aimRig.position.set(p.x,0,p.z);aimRig.rotation.y=p.facing;
  const moving=dt?Math.hypot(mx,mz)/dt:0;
- if(dash.rolling)player.rotation.y=Math.atan2(dodge.dx,dodge.dz);
  // The body: one-shots (roll, hurt, throw-off, landing) over the aimed locomotion; a hop lifts the whole astronaut.
  if(hop.t>0){hop.t-=dt;if(hop.t<=0){hop.t=0;play('land',actor.duration('land')/LAND);}}
  actor.root.position.y=hop.t>0?Math.sin(Math.PI*(1-hop.t/JUMP))*.55:0;
@@ -385,7 +385,21 @@ function updateHunt(dt){
  else if(hop.t>0)anim='jump';
  else if(moving>.5)anim=moving>5.2?'aimrun':'aimwalk';
  const backward=moving>.5&&!dash.rolling&&mx*Math.sin(p.facing)+mz*Math.cos(p.facing)<-.3*Math.hypot(mx,mz);
- actor.update({animation:anim,speed:moving,gun:true,backward,rate},dt);
+ // The torso swings onto the aim at once; standing, the feet only follow once it is twisted too far, stepping round.
+ let twist=0;
+ if(dash.rolling){bodyYaw=Math.atan2(dodge.dx,dodge.dz);turning=false;}
+ else if(anim==='aimidle'){
+  const diff=wrapAngle(p.facing-bodyYaw);
+  if(Math.abs(diff)>.6)turning=true;
+  if(turning){
+   const speed=Math.min(7,Math.max(2.4,Math.abs(diff)*5));
+   bodyYaw+=Math.sign(diff)*Math.min(Math.abs(diff),speed*dt);anim=diff>0?'turnl':'turnr';rate=speed/(Math.PI/2);
+   if(Math.abs(diff)<.04)turning=false;
+  }
+  twist=THREE.MathUtils.clamp(wrapAngle(p.facing-bodyYaw),-.75,.75);
+ }else{turning=false;bodyYaw+=wrapAngle(p.facing-bodyYaw)*(1-Math.exp(-dt*14));twist=wrapAngle(p.facing-bodyYaw);}
+ player.rotation.y=bodyYaw;
+ actor.update({animation:anim,speed:moving,gun:true,backward,rate,twist},dt);
  if(pendingShot){pendingShot=null;fireShot();}
  updateShots(dt);
  for(const e of beast.update(crawler,dt,{player:p}))if(e.type==='plant'&&Math.random()<.3)sound('tick',Math.hypot(e.x-p.x,e.z-p.z));
@@ -397,19 +411,20 @@ function updateHunt(dt){
  // The cave's own sight follows the astronaut; our flicker rides on top of its own.
  view.update(state,dt);
  flicker=Math.max(0,flicker-dt);
- if(!lampOn){view.sight.uFlicker.value=lampShort<.8&&Math.random()<.4?.6:.02;}
+ // A slash shorts the lamp: it sputters (and stops burning the crawler) but never goes fully dark.
+ if(!lampOn){view.sight.uFlicker.value=.55+Math.random()*.3;}
  else if(flicker>0)view.sight.uFlicker.value=Math.random()<.4?.35+Math.random()*.3:1;
- // The lamp stutters harder the closer it gets but never quite dies, so you can still see it on you; its dark pool
- // thins up close for the same reason.
+ // The lamp flickers a little as it closes in but stays up, so you see it coming and see it on you; its dark pool
+ // is gone by the time it is a few metres off.
  const closeness=alive*Math.max(0,Math.min(1,1-(near-1.5)/7)),onYou=s==='grab'?1:0;
  if(lampOn){
-  if(Math.random()<dt*(26*closeness*closeness+12*onYou))stutter=.03+Math.random()*.08;
+  if(Math.random()<dt*(7*closeness*closeness+5*onYou))stutter=.03+Math.random()*.06;
   stutter-=dt;
-  const level=stutter>0?.4+Math.random()*.25:1-.25*closeness;
-  view.sight.uFlicker.value=Math.max(.4,Math.min(view.sight.uFlicker.value,level));
+  const level=stutter>0?.72+Math.random()*.18:1-.06*closeness;
+  view.sight.uFlicker.value=Math.max(.7,Math.min(view.sight.uFlicker.value,level));
  }
- view.sight.uVoid.value.set(crawler.x,crawler.z,alive*(.85-.55*Math.max(closeness,onYou)));
- headlamp.intensity=lampOn?145*view.sight.uFlicker.value:0;suitFill.intensity=lampOn?9:2;
+ view.sight.uVoid.value.set(crawler.x,crawler.z,alive*.85*Math.max(0,1-1.6*Math.max(closeness,onYou)));
+ headlamp.intensity=145*view.sight.uFlicker.value;suitFill.intensity=9;
  aimMarker.visible=!watch;
  hurtFlash=Math.max(0,hurtFlash-dt*1.5);$('hurt').style.opacity=String(Math.min(.85,hurtFlash));
  // Camera: the game's isometric view, shaken by hits.
