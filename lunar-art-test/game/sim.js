@@ -1,4 +1,4 @@
-import { caveWalkable } from './caves.js';
+import { caveWalkable, caveLayout, CAVE_ZONES } from './caves.js';
 import { surfaceHeightAt, terrainReason } from './terrain.js';
 import { CELL_SIZE, DEFS, DIRS, ITEMS, dims, footprint } from './defs.js';
 import { airlockApron, habitatLayout, isRoom, trapsPlayer } from './habitat.js';
@@ -361,9 +361,15 @@ export function deserialize(text) {
     state.player[axis] = raw.player[axis];
   }
   if (raw.player.satiety != null) { if (!count(raw.player.satiety, 100)) throw new Error('Invalid player.'); state.player.satiety = raw.player.satiety; }
-  if (raw.player.cave != null) { if (!Number.isInteger(raw.player.cave) || raw.player.cave < 0 || raw.player.cave > 2 || !caveWalkable(raw.seed, raw.player.cave, state.player.x, state.player.z)) throw new Error('Invalid cave position.'); state.player.cave = raw.player.cave; }
+  if (raw.player.cave != null) {
+    const zone = raw.player.zone ?? 0;
+    if (!Number.isInteger(raw.player.cave) || raw.player.cave < 0 || raw.player.cave > 2 || !Number.isInteger(zone) || zone < 0 || zone >= CAVE_ZONES) throw new Error('Invalid cave position.');
+    state.player.cave = raw.player.cave; if (zone) state.player.zone = zone;
+    // Caves gained features over time; a player saved where a spire now stands is moved to the zone's start.
+    if (!caveWalkable(raw.seed, raw.player.cave, state.player.x, state.player.z, .3, zone)) { const start = caveLayout(raw.seed, raw.player.cave, zone).start; state.player.x = start.x * 2; state.player.z = start.z * 2 + (zone ? 2 : 1); }
+  }
   if (raw.exploredCaves) state.exploredCaves = {};
-  if (raw.exploredCaves && typeof raw.exploredCaves === 'object') for (const [id, cells] of Object.entries(raw.exploredCaves)) { if (/^[0-2]$/.test(id) && Array.isArray(cells)) state.exploredCaves[id] = cells.filter(k => typeof k === 'string' && /^-?\d{1,2},-?\d{1,2}$/.test(k)).slice(0, 6000); }
+  if (raw.exploredCaves && typeof raw.exploredCaves === 'object') for (const [id, cells] of Object.entries(raw.exploredCaves)) { if (/^[0-2](:[12])?$/.test(id) && Array.isArray(cells)) state.exploredCaves[id] = cells.filter(k => typeof k === 'string' && /^-?\d{1,2},-?\d{1,2}$/.test(k)).slice(0, 6000); }
   // Work lights were retired once every machine carried its own lamp; old saves just lose them.
   raw.buildings = raw.buildings.filter(b => b?.type !== 'lamp');
   const ids = new Set();

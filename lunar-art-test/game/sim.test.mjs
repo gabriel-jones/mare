@@ -245,7 +245,26 @@ test('seeded cave networks are connected, varied, and safe to save underground',
  assert.notDeepEqual([...caveLayout(42,0).cells],[...caveLayout(43,0).cells]);
  const s=createState();s.player={x:0,z:4,y:0,satiety:100,cave:1};s.exploredCaves={1:['0,0','0,1']};
  assert.deepEqual(deserialize(serialize(s)),s);
- s.player.x=110;assert.throws(()=>deserialize(serialize(s)),/cave position/);
+ // A position that is no longer walkable (rock, or a feature added since) moves the player to the zone start.
+ s.player.x=110;const moved=deserialize(serialize(s));assert.equal(moved.player.cave,1);assert.ok(caveWalkable(moved.seed,1,moved.player.x,moved.player.z));
+ s.player.zone=7;assert.throws(()=>deserialize(serialize(s)),/cave position/);
+});
+test('every cave has three connected zones joined by shafts, with features that never cut a path',async()=>{
+ const {caveLayout,caveWalkable,CAVE_ZONES}=await import('./caves.js'),{crossCavePortal}=await import('./travel.js');
+ for(const seed of [42,1847,9191])for(let id=0;id<3;id++)for(let zone=0;zone<CAVE_ZONES;zone++){
+  const cave=caveLayout(seed,id,zone),start=`${cave.start.x},${cave.start.z}`,visited=new Set([start]),queue=[start];
+  while(queue.length){const [x,z]=queue.pop().split(',').map(Number);for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]]){const k=`${x+dx},${z+dz}`;if(cave.cells.has(k)&&!visited.has(k)){visited.add(k);queue.push(k);}}}
+  assert.equal(visited.size,cave.cells.size,`seed ${seed} cave ${id} zone ${zone} is one connected network`);
+  for(const t of cave.tiles)if(['spire','pillar','chasm'].includes(t.type))assert.ok(!cave.cells.has(t.key),'solid features and chasms block walking');
+  assert.ok(cave.tiles.some(t=>t.type==='bridge')||!cave.tiles.some(t=>t.type==='chasm'),'chasms come with a bridge');
+  assert.equal(!!cave.down,zone<CAVE_ZONES-1);assert.equal(!!cave.up,zone>0);assert.equal(!!cave.heart,zone===CAVE_ZONES-1);
+  if(cave.down)assert.ok(cave.cells.has(`${cave.down.x},${cave.down.z}`)&&cave.cells.has(`${cave.down.x},${cave.down.z-1}`));
+ }
+ // Down the shaft lands beside the shaft up, and climbing back returns beside the shaft down.
+ const s=createState(42),top=caveLayout(42,0,0).down;s.player={x:top.x*2,z:top.z*2,y:0,cave:0};
+ assert.equal(crossCavePortal(s),'down');assert.equal(s.player.zone,1);assert.ok(caveWalkable(42,0,s.player.x,s.player.z,.3,1));
+ s.player.z=0;s.player.x=0;assert.equal(crossCavePortal(s),'up');assert.equal(s.player.zone,undefined);assert.equal(s.player.z,(top.z-1)*2);
+ s.player.zone=1;s.exploredCaves={'0:1':['0,0']};assert.deepEqual(deserialize(serialize(s)).exploredCaves,{'0:1':['0,0']});
 });
 test('cave visibility is blocked by rock and restricted to the headlamp direction',async()=>{
  const {visibleCaveCells,lineVisible}=await import('./caves.js');
@@ -264,10 +283,10 @@ test('portal thresholds preserve world position and facing without a camera jump
  const {crossCavePortal}=await import('./travel.js'),{terrainData}=await import('./terrain.js'),{caveToWorld}=await import('./cave-space.js');
  for(let id=0;id<3;id++){
   const s=createState(),c=terrainData(s.seed).caves[id];s.player.x=c.x+Math.sin(c.angle)*.2;s.player.z=c.z+Math.cos(c.angle)*.2;s.player.facing=c.angle;
-  const before={...s.player};assert.equal(crossCavePortal(s),true);assert.equal(s.player.cave,id);
+  const before={...s.player};assert.equal(crossCavePortal(s),'cave');assert.equal(s.player.cave,id);
   const world=caveToWorld(s.seed,id,s.player.x,s.player.z);assert.ok(Math.hypot(world.x-before.x,world.z-before.z)<1e-9);assert.ok(Math.abs(s.player.facing)<1e-9);
   assert.equal(crossCavePortal(s),false);s.player.z=-.8;const outside=caveToWorld(s.seed,id,s.player.x,s.player.z);
-  assert.equal(crossCavePortal(s),true);assert.equal(s.player.cave,undefined);assert.ok(Math.hypot(outside.x-s.player.x,outside.z-s.player.z)<1e-9);assert.equal(crossCavePortal(s),false);
+  assert.equal(crossCavePortal(s),'surface');assert.equal(s.player.cave,undefined);assert.ok(Math.hypot(outside.x-s.player.x,outside.z-s.player.z)<1e-9);assert.equal(crossCavePortal(s),false);
  }
 });
 test('screen movement keeps the same world direction inside rotated cave entrances',async()=>{

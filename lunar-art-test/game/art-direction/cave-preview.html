@@ -1,6 +1,6 @@
 <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Caves • art review</title><link rel="stylesheet" href="../game.css"><style>html,body{margin:0;height:100%;overflow:hidden;background:#090f1a}canvas#game{position:fixed;inset:0;width:100%;height:100%;outline:none}</style><script type="importmap">{"imports":{"three":"../../node_modules/three/build/three.module.js","three/addons/":"../../node_modules/three/examples/jsm/"}}</script></head><body><canvas id="game" tabindex="0"></canvas><script type="module">
 // Isolated cave review. Never reads or writes colony saves.
-// ?z=12 stands the astronaut 12 m inside cave 0 (&facing=radians, &cave=1); ?walk=1 walks in from outside the mouth
+// ?z=12 stands the astronaut 12 m inside cave 0 (&x=, &facing=radians, &cave=1, &zone=1 or 2); ?walk=1 walks in from outside the mouth
 // and records the longest frame in window.longestFrame, so threshold hitches show up as numbers.
 import{createWorld}from'../world.js';import{createState,tick}from'../sim.js';import{crossCavePortal}from'../travel.js';import{caveToWorld}from'../cave-space.js';import{terrainData}from'../terrain.js';
 const params=new URLSearchParams(location.search),state=createState(),cave=Number(params.get('cave')??0);
@@ -9,13 +9,13 @@ const base=document.createElement('base');base.href='../';document.head.append(b
 const angle=terrainData(state.seed).caves[cave].angle,walk=params.has('walk');
 let local=walk?-40:Number(params.get('z')??12);
 function place(){
- if(state.player.cave!=null){state.player.z=local;state.player.x=0;state.player.facing=Number(params.get('facing')??0);return;}
+ if(state.player.cave!=null){if(walk){state.player.z=local;state.player.x=0;}return;}
  const w=caveToWorld(state.seed,cave,0,local);Object.assign(state.player,{x:w.x,z:w.z,facing:angle});crossCavePortal(state);
  if(state.player.cave!=null)state.player.facing=0;
 }
-if(!walk){Object.assign(state.player,{cave,x:0,z:local,facing:Number(params.get('facing')??0)});}else place();
+if(!walk){Object.assign(state.player,{cave,x:Number(params.get('x')??0),z:local,facing:Number(params.get('facing')??0)});if(Number(params.get('zone')))state.player.zone=Number(params.get('zone'));}else place();
 const world=await createWorld(document.querySelector('canvas'),state);window.addEventListener('resize',world.resize);
-window.longestFrame=0;window.state=state;
+window.longestFrame=0;window.state=state;window.world=world;
 let last=performance.now();
 function frame(now){
  const dt=Math.min((now-last)/1000,.25);last=now;

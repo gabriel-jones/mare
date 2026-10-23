@@ -28,7 +28,7 @@ export function movePlayer(state,dx,dz,dt,defs){
  const change=Math.hypot(dvx,dvz),limit=(len?45:54)*step,blend=change?Math.min(1,limit/change):1;
  p.vx=vx+dvx*blend;p.vz=vz+dvz*blend;
  const blocked=(x,z)=>{
-  if(p.cave!=null)return !caveWalkable(state.seed,p.cave,x,z);
+  if(p.cave!=null)return !caveWalkable(state.seed,p.cave,x,z,.3,p.zone??0);
   if(Math.abs(x)>125||Math.abs(z)>125)return true;
   if(terrainBlocked(state.seed,x,z,state.buildings,defs))return true;
   // Landing ship itself is solid; the rest of the pad is walkable.

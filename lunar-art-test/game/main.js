@@ -1,4 +1,5 @@
 import { crossCavePortal } from './travel.js';
+import { ZONE_NAMES } from './caves.js';
 import {DEFS,createState,validatePlacement,placeBlueprint,construct,tick,serialize,deserialize,cancelBlueprint,deconstruct,setMiningArea,miningAreaReason,removeMiningArea,assignRover,rotateBelt,playerObstructs,interact,removalCheck,PROCESSOR_LOCKED} from './sim.js';
 import {DIRS,ITEM_INFO,footprint} from './defs.js';
 import {movePlayer,nearestBlueprint,buildingCenter,resetLocomotion,interpolatePose,RUN_SPEED} from './controller.js';
@@ -196,7 +197,8 @@ function commandPlace(){
 let portalCooldown=0;
 function updatePortals(dt){
  portalCooldown=Math.max(0,portalCooldown-dt);if(portalCooldown>0)return;
- if(crossCavePortal(state)){resetPlayer();portalCooldown=1.2;select(null);hover=null;targetId=null;}
+ const crossed=crossCavePortal(state);
+ if(crossed){resetPlayer();portalCooldown=1.2;select(null);hover=null;targetId=null;if(crossed==='down'||crossed==='up')notify(ZONE_NAMES[state.player.zone??0]);}
 }
 function completed(b){
  notify(`${DEFS[b.type].name} complete.`);

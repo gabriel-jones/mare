@@ -1,5 +1,6 @@
 import { caveOrigin,caveToWorld } from './cave-space.js';
 import { createCaveView } from './cave-view.js';
+import { caveLayout } from './caves.js';
 import { buildingStatus, robotStatus, shipStatus, lampLevel } from './building-status.js';
 import { LAUNCH } from './space.js';
 import { DIRS, ports as machinePorts } from './defs.js';
@@ -278,12 +279,20 @@ export async function createWorld(canvas, initialState) {
     terrainView.update(state.buildings,footprint,state.player);
     const underground=state.player.cave!=null;
     // Caves are built and their shaders compiled while the player walks up, so the threshold costs nothing.
-    if(!underground)terrainData(state.seed).caves.forEach((c,id)=>{if(Math.hypot(state.player.x-c.x,state.player.z-c.z)<34)caveViewFor(id);});
-    if(activeCave!==(state.player.cave??null)||underground&&!caveView){
-      if(caveView)caveView.root.visible=false;caveView=null;activeCave=state.player.cave??null;
+    const zone=state.player.zone??0,placeKey=underground?`${state.player.cave}:${zone}`:null;
+    if(!underground)terrainData(state.seed).caves.forEach((c,id)=>{if(Math.hypot(state.player.x-c.x,state.player.z-c.z)<34)caveViewFor(id,0);});
+    else{
+      // The same for the zones above and below, once the player nears the shaft that leads there.
+      const here=caveLayout(state.seed,state.player.cave,zone),near=s=>s&&Math.hypot(state.player.x-s.x*2,state.player.z-s.z*2)<24;
+      if(near(here.down))caveViewFor(state.player.cave,zone+1);
+      if(near(here.up))caveViewFor(state.player.cave,zone-1);
+    }
+    if(activeCave!==placeKey||underground&&!caveView){
+      if(caveView)caveView.root.visible=false;caveView=null;activeCave=placeKey;
       if(underground){
-        caveView=caveViewFor(activeCave);caveView.root.visible=true;const origin=caveOrigin(state.seed,activeCave);
-        terrainView.setCaveCutaway(caveView.roofMap,origin,origin.angle);
+        caveView=caveViewFor(state.player.cave,zone);caveView.root.visible=true;const origin=caveOrigin(state.seed,state.player.cave);
+        // Only the upper zone lies under the hill; deeper zones need no roof cut away.
+        if(zone===0)terrainView.setCaveCutaway(caveView.roofMap,origin,origin.angle);else terrainView.setCaveCutaway(null);
       }else terrainView.setCaveCutaway(null);
     }
     terrainRoot.visible=true;grid.visible=!underground;statusLayer.hidden=underground;
@@ -302,7 +311,7 @@ export async function createWorld(canvas, initialState) {
     scene.background.setRGB((.025+daylight*.035)*surfaceLight,(.038+daylight*.05)*surfaceLight,(.065+daylight*.075)*surfaceLight);scene.fog.color.copy(scene.background);
     scene.fog.density=.0012;suitFill.distance=underground?6:8;headlamp.distance=underground?20:18;
     if(underground){suitFill.intensity=9;headlamp.intensity=145;}
-    const position=underground?caveToWorld(state.seed,state.player.cave,renderPose.x,renderPose.z):{x:renderPose.x,y:habitatView.floorAt(state,renderPose.x,renderPose.z)??heightAt(state.seed,renderPose.x,renderPose.z),z:renderPose.z};
+    const position=underground?caveToWorld(state.seed,state.player.cave,renderPose.x,renderPose.z,zone):{x:renderPose.x,y:habitatView.floorAt(state,renderPose.x,renderPose.z)??heightAt(state.seed,renderPose.x,renderPose.z),z:renderPose.z};
     if(smoothedGround==null||Math.abs(position.y-smoothedGround)>2)smoothedGround=position.y;
     else smoothedGround+=(position.y-smoothedGround)*(1-Math.exp(-Math.min(dt,.1)*24));
     player.position.set(position.x,smoothedGround+(renderPose.y||0),position.z);
@@ -341,13 +350,13 @@ export async function createWorld(canvas, initialState) {
     if(underground)caveView.update(state,dt);else updateStatuses();
     renderer.render(scene,camera);canvas.dataset.drawCalls=String(renderer.info.render.calls);canvas.dataset.triangles=String(renderer.info.render.triangles);
   }
-  function caveViewFor(id){
-    let view=caveViews.get(id);if(view)return view;
-    view=createCaveView(state.seed,id,scene);const origin=caveOrigin(state.seed,id);
+  function caveViewFor(id,zone){
+    const key=`${id}:${zone}`;let view=caveViews.get(key);if(view)return view;
+    view=createCaveView(state.seed,id,scene,zone);const origin=caveOrigin(state.seed,id,zone);
     view.root.position.set(origin.x,origin.y,origin.z);view.root.rotation.y=origin.angle;
     // compile() skips hidden objects, so the cave is visible only for the duration of this call.
     renderer.compileAsync(view.root,camera,scene).catch(()=>{});view.root.visible=false;
-    caveViews.set(id,view);return view;
+    caveViews.set(key,view);return view;
   }
   function dispose(){disposed=true;lamps.dispose();caveViews.forEach(v=>v.dispose());vignette.remove();expedition.dispose();productionView.dispose();habitatView.dispose();statusLayer.remove();terrainView.dispose();grid.geometry.dispose();grid.material.dispose();actor?.dispose();reflection.dispose();canvas.removeEventListener('wheel',zoom);for(const o of structures.values()){o.ownedMaterials?.forEach(m=>m.dispose());scene.remove(o.ports);}geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());renderer.dispose();}
   resize();update(initialState,1);
