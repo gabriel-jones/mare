@@ -76,7 +76,8 @@ export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=n
   };
   return m;
  }
- const bone=mode==='studio'?keep(new THREE.MeshStandardMaterial({color:'#c9c2b2',roughness:.4})):keep(new THREE.MeshBasicMaterial({color:'#c9c2b2',fog:false}));
+ // Teeth are black needles; only a wet glint picks them out from the goo.
+ const bone=mode==='studio'?keep(new THREE.MeshStandardMaterial({color:'#060607',roughness:.12,envMapIntensity:1.6})):keep(new THREE.MeshBasicMaterial({color:'#0b0b0d',fog:false}));
  if(mode!=='studio')bone.onBeforeCompile=shader=>{
   Object.assign(shader.uniforms,sight,{uToCave:toCave});
   shader.vertexShader=shader.vertexShader.replace('#include <common>','#include <common>\nuniform mat4 uToCave;varying vec3 vCave;').replace('#include <project_vertex>','#include <project_vertex>\nvCave=(uToCave*modelMatrix*vec4(transformed,1.0)).xyz;');
@@ -152,7 +153,7 @@ export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=n
  const splat=(x,z,r,life=8)=>{const s=splatState[nextSplat];nextSplat=(nextSplat+1)%SPLATS;Object.assign(s,{x,z,r,age:0,life});};
  const drip=(p,size=.02+Math.random()*.02,v=null)=>{const d=dropState[nextDrop];nextDrop=(nextDrop+1)%DROPS;d.p.copy(p);if(v)d.v.copy(v);else d.v.set((Math.random()-.5)*.2,-.2,(Math.random()-.5)*.2);d.alive=true;d.size=size;};
 
- const pos=new THREE.Vector3(),vel=new THREE.Vector3(),last=new THREE.Vector3(),pose={height:1.05,pitch:0,roll:0,open:0,yaw:0};let started=false,clock=0,stretch=0,lastState='idle',go=true,goT=0,aftershock=0;
+ const pos=new THREE.Vector3(),vel=new THREE.Vector3(),last=new THREE.Vector3(),pose={height:1.05,pitch:0,roll:0,open:0,yaw:0};let started=false,clock=0,biteT=0,bite=1,stretch=0,lastState='idle',go=true,goT=0,aftershock=0;
  const jerk={t:0,want:{yaw:0,pitch:0,roll:0,y:0,open:0},now:{yaw:0,pitch:0,roll:0,y:0,open:0}};
  const m4=new THREE.Matrix4(),q=new THREE.Quaternion(),up=new THREE.Vector3(0,1,0),tmp=new THREE.Vector3(),tmp2=new THREE.Vector3(),dummy=new THREE.Object3D();
  const toParent=(local,out)=>out.copy(local).applyMatrix4(body.matrix);
@@ -199,7 +200,7 @@ export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=n
   // While grabbing it climbs the player and clamps its open mouth over the helmet, its body hunched on top.
   const toCrawler=new THREE.Vector2(c.x-player.x,c.z-player.z);if(toCrawler.lengthSq()<1e-4)toCrawler.set(-Math.sin(c.facing),-Math.cos(c.facing));toCrawler.normalize();
   let tx=c.x,tz=c.z;
-  if(state==='grab'){const gnaw=.03*Math.sin(clock*11);tx=player.x+toCrawler.x*(.3+gnaw);tz=player.z+toCrawler.y*(.3+gnaw);}
+  if(state==='grab'){const gnaw=.05*(Math.random()*2-1)*Math.random();tx=player.x+toCrawler.x*(.3+gnaw);tz=player.z+toCrawler.y*(.3+gnaw);}
   if(!started){started=true;pos.set(tx,0,tz);last.copy(pos);pose.yaw=c.facing;body.position.set(tx,REST_HEIGHT.idle,tz);body.updateMatrix();legs.forEach(l=>{home(l,l.foot);});}
   // A shot knocks it back hard: the body is thrown away from the player and wrenched off balance.
   if(state==='hit'&&lastState!=='hit'){pos.x+=toCrawler.x*.45;pos.z+=toCrawler.y*.45;jerk.t=.12;Object.assign(jerk.want,{yaw:(Math.random()-.5)*.9,pitch:-.6,roll:(Math.random()-.5)*1.1,y:.18,open:.8});jerk.now.y=.12;
@@ -215,8 +216,8 @@ export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=n
   // Twitches: the body snaps between small held offsets all the time; in the seizure they are huge and constant.
   jerk.t-=dt;
   if(jerk.t<=0){
-   const r=()=>Math.random()*2-1,big=seize>.05,amount=big?seize:state==='shriek'||state==='grab'?.6:1;
-   jerk.t=big?.035+Math.random()*.09:(state==='stalk'||state==='close'?.08+Math.random()*.4:.12+Math.random()*.6);
+   const r=()=>Math.random()*2-1,big=seize>.05,amount=big?seize:state==='grab'?1.6:state==='shriek'?.6:1;
+   jerk.t=big?.035+Math.random()*.09:state==='grab'?.03+Math.random()*.07:(state==='stalk'||state==='close'?.08+Math.random()*.4:.12+Math.random()*.6);
    Object.assign(jerk.want,big?{yaw:r()*.5*amount,pitch:r()*.55*amount,roll:r()*.8*amount,y:Math.random()*.22*amount,open:Math.random()*amount}:
     {yaw:r()*.16*amount,pitch:r()*.1*amount,roll:r()*.08*amount,y:r()*.035*amount,open:Math.random()<.12?.15+Math.random()*.2:0});
   }
@@ -229,8 +230,10 @@ export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=n
   const speedLean=new THREE.Vector3(vel.x,0,vel.z).applyAxisAngle(up,-pose.yaw);
   // Dead, it flips onto its back; flung, it tumbles.
   if(state==='thrown')pose.roll+=dt*16;else{pose.roll=Math.atan2(Math.sin(pose.roll),Math.cos(pose.roll));pose.roll+=((state==='hit'?.35*Math.sin(c.t*20):0)+(dead?Math.PI*.92:0)+THREE.MathUtils.clamp(-speedLean.x*.03,-.2,.2)-pose.roll)*(1-Math.exp(-dt*(dead?7:8)));}
-  const wantOpen=Math.max((OPEN[state]??0)*(state==='shriek'?.85+.15*Math.sin(clock*30):state==='grab'?.88+.12*Math.sin(clock*11):1),jerk.now.open);
-  pose.open+=(wantOpen-pose.open)*(1-Math.exp(-dt*(wantOpen>pose.open?20:8)));
+  // Clamped on, the jaws chomp at random: snapping half shut, then gaping wider than they ever open on the floor.
+  biteT-=dt;if(biteT<=0){biteT=.03+Math.random()*.08;bite=Math.random()<.35?.45+Math.random()*.2:.95+Math.random()*.35;}
+  const wantOpen=Math.max((OPEN[state]??0)*(state==='shriek'?.85+.15*Math.sin(clock*30):state==='grab'?bite:1),jerk.now.open);
+  pose.open+=(wantOpen-pose.open)*(1-Math.exp(-dt*(state==='grab'?45:wantOpen>pose.open?20:8)));
   body.position.set(pos.x,pose.height+tremble+jerk.now.y,pos.z);
   body.rotation.set(0,0,0);body.rotateY(pose.yaw+jerk.now.yaw);body.rotateX(THREE.MathUtils.clamp(pose.pitch+jerk.now.pitch-speedLean.z*.02,-1.2,1.2));body.rotateZ(pose.roll+jerk.now.roll);body.updateMatrix();
   if(shells.ShellL)shells.ShellL.rotation.y=-pose.open*.55;if(shells.ShellR)shells.ShellR.rotation.y=pose.open*.55;
@@ -252,8 +255,11 @@ export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=n
    if(state==='grab'&&c.t>.04*(j*2+(s>0?1:0))){
     // Wrapped round the torso: front legs reach round to the chest, rear legs clamp the thighs; needles curl along the body and squeeze.
     // Front legs lock round the back of the helmet until their tips nearly meet; the rest clamp the neck and chest.
-    const back=Math.atan2(toCrawler.x,toCrawler.y),around=back-s*[2.95,2.45,2.55,1.9][j],h=[1.92,1.68,1.42,1.12][j];
-    const squeeze=[.31,.33,.37,.39][j]+.02*Math.sin(clock*9+i*1.7);
+    // They never settle: each leg jabs to a new grip every few frames, and now and then one tears loose and stabs back in.
+    leg.spasmT-=dt;if(leg.spasmT<=0){const tear=Math.random()<.08;leg.spasmT=tear?.07+Math.random()*.06:.025+Math.random()*.045;
+     leg.spasm.set((Math.random()*2-1)*.4,(Math.random()*2-1)*.1+(tear?.28:0),(Math.random()*2-1)*.05+(tear?.4:0));}
+    const back=Math.atan2(toCrawler.x,toCrawler.y),around=back-s*[2.95,2.45,2.55,1.9][j]+leg.spasm.x,h=[1.92,1.68,1.42,1.12][j]+leg.spasm.y+Math.sin(clock*47+i*2.3)*.025;
+    const squeeze=[.31,.33,.37,.39][j]+leg.spasm.z+Math.sin(clock*61+i*1.7)*.02;
     const foot=new THREE.Vector3(player.x+Math.sin(around)*squeeze,h,player.z+Math.cos(around)*squeeze);
     const behind=around+s*.95;leg.wrapAnkle=new THREE.Vector3(player.x+Math.sin(behind)*(squeeze+.12),h+.1,player.z+Math.cos(behind)*(squeeze+.12));
     leg.wrapPole=new THREE.Vector3(Math.sin(behind),.5,Math.cos(behind));
@@ -284,7 +290,7 @@ export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=n
     // A lifted leg snaps toward its hold.
     if(leg.step<=0)leg.free=true;
     if(leg.free){
-     const rate=state==='slash'||state==='lunge'||state==='thrown'||dead?35:state==='grab'?22:16;
+     const rate=state==='slash'||state==='lunge'||state==='thrown'||dead?35:state==='grab'?48:16;
      leg.foot.lerp(target,1-Math.exp(-dt*rate));leg.foot.y=Math.max(.02,leg.foot.y);
      if(leg.wrapAnkle){if(!wasWrapped)leg.wrapFrom.copy(leg.ankle);leg.wrapAnkle=leg.wrapFrom.lerp(leg.wrapAnkle,1-Math.exp(-dt*rate));}
     }else leg.wrapAnkle=null;

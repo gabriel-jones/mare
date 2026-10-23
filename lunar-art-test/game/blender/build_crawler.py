@@ -18,7 +18,7 @@ def mat(name, c, rough, metal=0, coat=0):
     if coat and 'Coat Weight' in n.inputs: n.inputs['Coat Weight'].default_value = coat; n.inputs['Coat Roughness'].default_value = .03
     return m
 INK = mat('Crawler • ink', (.006, .006, .007), .08, 0, 1)
-BONE = mat('Crawler • bone', (.72, .69, .62), .35)
+BONE = mat('Crawler • bone', (.006, .006, .007), .12)
 MAW = mat('Crawler • maw', (.008, .004, .004), .2)
 
 LENGTH, WIDTH, HEIGHT = .62, .42, .4

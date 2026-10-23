@@ -193,13 +193,6 @@ export function createCaveView(seed,id,parent,zone=0){
    vec3 glow=(vec3(.78,.8,.84)*(beam*.55+.05*(1.0-smoothstep(1.0,6.0,r)))*uFlicker+caveGlow(vCaveLocal)*.5)*(.4+.6*vSeed);gl_FragColor=vec4(glow*a,1.0);}`}));
  const dust=new THREE.Points(dustGeo,dustMat);dust.frustumCulled=false;root.add(dust);
 
- // Something pale at the edge of the light. It is never there when you look straight at it.
- const shapeMat=keep(new THREE.MeshBasicMaterial({color:'#5d646c',transparent:true,opacity:0,depthWrite:false,fog:false}));
- const shapeGeos=[keep(new THREE.SphereGeometry(1,10,6)),keep(new THREE.BoxGeometry(.07,.07,1))];
- const shape=new THREE.Group();root.add(shape);shape.visible=false;
- const body=new THREE.Mesh(shapeGeos[0],shapeMat);body.scale.set(.42,.3,.85);body.position.y=.55;shape.add(body);
- for(let i=0;i<6;i++){const side=i<3?-1:1,k=i%3,leg=new THREE.Mesh(shapeGeos[1],shapeMat);leg.position.set(side*.5,.3,(k-1)*.45);leg.rotation.order='YXZ';leg.rotation.set(.55,side*Math.PI/2-(k-1)*.45*side,0);shape.add(leg);}
- const presence={state:'gone',timer:8+Math.random()*10,fade:0,x:0,z:0,fleeX:0,fleeZ:0};
  let flicker=0,flickerSeed=0;
 
  const roofPixels=new Uint8Array(64*64),roofMap=keep(new THREE.DataTexture(roofPixels,64,64,THREE.RedFormat));roofMap.minFilter=THREE.LinearFilter;roofMap.magFilter=THREE.LinearFilter;roofMap.needsUpdate=true;
@@ -231,33 +224,6 @@ export function createCaveView(seed,id,parent,zone=0){
   if(ventCount){ventGeo.attributes.position.needsUpdate=true;ventGeo.attributes.aLife.needsUpdate=true;}
   vents.visible=cave.vents.some(v=>seen.has(`${v.x},${v.z}`));
  }
- function updatePresence(p,dt,depth){
-  const fx=Math.sin(p.facing),fz=Math.cos(p.facing);
-  if(presence.state==='gone'){
-   presence.timer-=dt*(1+depth*2);if(presence.timer>0)return;
-   presence.timer=18+Math.random()*20;
-   // A walkable cell at the very edge of sight, in line of sight but outside the beam.
-   const cx=Math.round(p.x/CAVE_CELL),cz=Math.round(p.z/CAVE_CELL);
-   const spots=cave.tiles.filter(c=>{if(!cave.cells.has(c.key))return false;const dx=c.x*2-p.x,dz=c.z*2-p.z,r=Math.hypot(dx,dz);return r>9.5&&r<12.5&&(dx*fx+dz*fz)/r<.2&&!flaresHere.some(f=>Math.hypot(f.x-c.x*2,f.z-c.z*2)<FLARE.radius+3)&&lineVisible(cave,cx,cz,c.x,c.z);});
-   if(!spots.length)return;
-   const spot=spots[Math.floor(Math.random()*spots.length)];
-   Object.assign(presence,{state:'watching',fade:0,x:spot.x*2,z:spot.z*2});
-   shape.position.set(presence.x,0,presence.z);shape.rotation.y=Math.atan2(p.x-presence.x,p.z-presence.z);shape.visible=true;
-   flicker=.5;
-   return;
-  }
-  const dx=presence.x-p.x,dz=presence.z-p.z,r=Math.hypot(dx,dz),lit=(dx*fx+dz*fz)/r>.6||r<8||flaresHere.some(f=>Math.hypot(f.x-presence.x,f.z-presence.z)<FLARE.radius+2);
-  if(presence.state==='watching'){
-   presence.fade=Math.min(1,presence.fade+dt*.5);
-   if(lit){presence.state='fleeing';presence.fleeX=dx/r;presence.fleeZ=dz/r;flicker=Math.max(flicker,.35);shape.rotation.y=Math.atan2(presence.fleeX,presence.fleeZ);}
-  }else{
-   presence.fade=Math.max(0,presence.fade-dt*3.5);presence.x+=presence.fleeX*dt*9;presence.z+=presence.fleeZ*dt*9;
-   if(presence.fade<=0){presence.state='gone';shape.visible=false;}
-  }
-  shape.position.set(presence.x,0,presence.z);
-  shapeMat.opacity=presence.fade*.55;
-  shape.children.forEach((leg,i)=>{if(i)leg.position.y=.3+Math.sin(time*(presence.state==='fleeing'?40:3)+i*2)*.04;});
- }
  function update(state,dt){
   const p=state.player;time+=dt;
   if(!loaded){seen=new Set(state.exploredCaves?.[memory]||[]);loaded=true;}
@@ -266,7 +232,7 @@ export function createCaveView(seed,id,parent,zone=0){
   relicItems.forEach((r,i)=>{const big=r.kind==='heart';dummy.position.set(r.x*2,(big?1.9:1.05)+Math.sin(time*1.3+i)*.08,r.z*2);dummy.rotation.set(0,time*(big?.4:.9)+i,0);dummy.scale.setScalar(cellKnown(r.key)&&!gone(r)?RELIC[r.kind].size*(big?1+.06*Math.sin(time*2.4):1):0);dummy.updateMatrix();relics.setMatrixAt(i,dummy.matrix);const shown=cellKnown(r.key)&&!gone(r);dummy.position.set(r.x*2,r.kind==='heart'?.06:.52,r.z*2);dummy.rotation.set(0,0,0);dummy.scale.setScalar(shown?(big?7:3.2)*(.92+.08*Math.sin(time*2+i)):0);dummy.updateMatrix();halos.setMatrixAt(i,dummy.matrix);});relics.instanceMatrix.needsUpdate=true;halos.instanceMatrix.needsUpdate=true;
   sight.uPlayer.value.set(p.x,p.z);sight.uFacing.value.set(Math.sin(p.facing),Math.cos(p.facing));
   const depth=Math.min(1,(zone+Math.min(1,Math.max(0,p.z/90)))/CAVE_ZONES);
-  // The headlamp stutters when something is near, and now and then on its own deeper down.
+  // The headlamp stutters now and then on its own deeper down.
   if(Math.random()<dt*.03*depth)flicker=Math.max(flicker,.3);
   flicker=Math.max(0,flicker-dt);
   if(flicker>0){if(Math.random()<.35)flickerSeed=Math.random();sight.uFlicker.value=flickerSeed<.45?.12+flickerSeed:1;}else sight.uFlicker.value=1;
@@ -276,7 +242,7 @@ export function createCaveView(seed,id,parent,zone=0){
   }
   dustGeo.attributes.position.needsUpdate=true;
   glyphMat.opacity=.55+.25*Math.sin(time*.9);pitMat.color.setRGB(.14+.03*Math.sin(time*.5),.012,.004);
-  updatePresence(p,dt,depth);updateVents(dt);updateGlow(p);ease(dt);
+  updateVents(dt);updateGlow(p);ease(dt);
   clock+=dt;if(clock<.09&&Math.abs(lastFacing-p.facing)<.18&&Math.hypot(lastX-p.x,lastZ-p.z)<.5)return;
   clock=0;lastFacing=p.facing;lastX=p.x;lastZ=p.z;
   visible=visibleCaveCells(cave,p.x,p.z,p.facing,flaresHere.map(f=>({x:f.x,z:f.z,r:FLARE.radius})));
