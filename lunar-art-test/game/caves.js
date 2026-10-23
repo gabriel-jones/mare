@@ -42,6 +42,7 @@ export function caveLayout(seed,id=0,zone=0){
   heart:zone===CAVE_ZONES-1?{x:last.x,z:last.z}:null};
  decorate(layout,random(seed*31+id*977+zone*7919+3));
  placeLoot(layout,last,random(seed*17+id*3571+zone*613+11));
+ poison(layout);
  layout.tiles=[...layout.open].map(key=>{const [x,z]=key.split(',').map(Number);return {key,x,z,type:layout.types.get(key)??'floor'};});
  cache.set(key,layout);return layout;
 }
@@ -129,6 +130,16 @@ function placeLoot(layout,last,rng){
  layout.loot=[...new Map(loot.map(l=>[l.key,l])).values()];
 }
 
+/** Gas vents seep into the floor around them: toxic pools that hurt to stand in, but never block the way. */
+function poison(layout){
+ const {types,cells}=layout,keep=new Set(layout.loot.map(l=>caveKey(l.x,l.z)));
+ for(const p of [layout.start,layout.up,layout.down,layout.heart])if(p)for(let dx=-1;dx<=1;dx++)for(let dz=-1;dz<=1;dz++)keep.add(caveKey(p.x+dx,p.z+dz));
+ for(const v of layout.vents)for(let dx=-1;dx<=1;dx++)for(let dz=-1;dz<=1;dz++){
+  const k=caveKey(v.x+dx,v.z+dz),h=Math.sin((v.x+dx)*12.9898+(v.z+dz)*78.233)*43758.5453;
+  if(cells.has(k)&&!types.has(k)&&!keep.has(k)&&h-Math.floor(h)<.7)types.set(k,'toxic');
+ }
+}
+
 export function caveWalkable(seed,id,x,z,radius=.3,zone=0){const cave=caveLayout(seed,id,zone);return [[-radius,-radius],[radius,-radius],[-radius,radius],[radius,radius]].every(([dx,dz])=>cave.cells.has(caveKey(Math.round((x+dx)/CAVE_CELL),Math.round((z+dz)/CAVE_CELL))));}
 /** Light reaches a cell if every cell before it on the line lets light through; the cell itself may be solid. */
 export function lineVisible(cave,x0,z0,x1,z1){
@@ -138,8 +149,10 @@ export function lineVisible(cave,x0,z0,x1,z1){
 }
 /** Sight underground: everything in line of sight within SIGHT_RADIUS, and further along the headlamp beam. */
 export const SIGHT_RADIUS=14,BEAM_RANGE=20;
-export function visibleCaveCells(cave,x,z,facing){
+export function visibleCaveCells(cave,x,z,facing,lights=[]){
  const cx=Math.round(x/CAVE_CELL),cz=Math.round(z/CAVE_CELL),visible=new Set(),fx=Math.sin(facing),fz=Math.cos(facing);
  for(const cell of cave.tiles){const dx=cell.x*CAVE_CELL-x,dz=cell.z*CAVE_CELL-z,distance=Math.hypot(dx,dz);if(distance>BEAM_RANGE)continue;if(distance>SIGHT_RADIUS&&(dx*fx+dz*fz)/distance<.55)continue;if(lineVisible(cave,cx,cz,cell.x,cell.z))visible.add(cell.key);}
+ // Thrown flares light their own pool, wherever the player is looking.
+ for(const l of lights){const lx=Math.round(l.x/CAVE_CELL),lz=Math.round(l.z/CAVE_CELL);for(const cell of cave.tiles)if(!visible.has(cell.key)&&Math.hypot(cell.x*CAVE_CELL-l.x,cell.z*CAVE_CELL-l.z)<=l.r&&lineVisible(cave,lx,lz,cell.x,cell.z))visible.add(cell.key);}
  return visible;
 }

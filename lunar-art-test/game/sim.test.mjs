@@ -382,3 +382,32 @@ test('a xeno lab turns finds into research and a resonance reactor powers the ni
  assert.equal(placeBlueprint(s,'reactor',8,2).ok,true);const reactor=s.buildings.at(-1);reactor.progress=1;reactor.built=true;
  s.time=DAY_DURATION*.75;tick(s,0);assert.equal(s.power.generation,REACTOR_POWER);
 });
+test('vents and toxic pools hurt, the surface heals, and blacking out leaves the pack where you fell',async()=>{
+ const {caveLayout}=await import('./caves.js'),P=await import('./peril.js');
+ let found=null;for(let id=0;id<3&&!found;id++)for(let zone=0;zone<3&&!found;zone++){const t=caveLayout(1847,id,zone).tiles.find(t=>t.type==='vent');if(t)found={id,zone,t};}
+ assert.ok(found,'some cave has a vent');
+ const s=createState();s.inventory=createInventory({metal:20,titanium:5});
+ s.player={x:found.t.x*2,z:found.t.z*2,y:0,satiety:100,cave:found.id,...(found.zone?{zone:found.zone}:{})};
+ assert.equal(P.stepPeril(s,1).hazard,'vent');assert.equal(s.player.health,100-P.HEALTH.vent);
+ assert.ok(caveLayout(1847,found.id,found.zone).tiles.some(t=>t.type==='toxic'),'vents seep into toxic pools');
+ const where={x:s.player.x,z:s.player.z};let r;for(let i=0;i<20&&!r?.blackout;i++)r=P.stepPeril(s,1);
+ assert.equal(r.blackout,true);assert.equal(s.player.cave,undefined);assert.equal(s.player.health,100);assert.equal(count(s.inventory,'metal'),0);
+ assert.equal(s.drops.length,1);assert.deepEqual({x:s.drops[0].x,z:s.drops[0].z},where);
+ const saved=deserialize(serialize(s));assert.deepEqual(saved.drops,s.drops);
+ // Back to where the pack lies, and it all comes back.
+ Object.assign(s.player,{x:where.x+.5,z:where.z,cave:found.id});if(found.zone)s.player.zone=found.zone;
+ assert.equal(P.dropAction(s).verb,"Recover your pack · 25 items");assert.equal(P.recoverDrop(s).ok,true);assert.equal(count(s.inventory,'titanium'),5);assert.equal(s.drops.length,0);
+ // Healing only happens above ground, after a moment without harm.
+ delete s.player.cave;delete s.player.zone;s.player.health=50;s.player.calm=0;P.stepPeril(s,2);assert.equal(s.player.health,50);P.stepPeril(s,4);assert.ok(s.player.health>50);
+});
+test('flares are made from metal, thrown short of walls underground, and light their surroundings',async()=>{
+ const {caveLayout,visibleCaveCells}=await import('./caves.js'),P=await import('./peril.js');
+ const s=createState();s.inventory=createInventory({metal:3});
+ assert.equal(P.craftFlares(s).ok,true);assert.equal(count(s.inventory,'flare'),3);assert.equal(P.craftFlares(s).ok,false,'needs more metal');
+ assert.equal(P.throwFlare(s).ok,false,'not on the surface');
+ s.player={x:0,z:4,y:0,satiety:100,cave:0,facing:Math.PI/2};
+ assert.equal(P.throwFlare(s).ok,true);const f=s.flares[0];assert.ok(f.x<4&&f.x>=0,'stops before the side wall');
+ const cave=caveLayout(s.seed,0),dark=visibleCaveCells(cave,0,30,Math.PI),lit=visibleCaveCells(cave,0,30,Math.PI,[{x:0,z:40,r:P.FLARE.radius}]);
+ assert.ok(lit.size>dark.size);
+ P.stepPeril(s,P.FLARE.life+1);assert.equal(s.flares.length,0);
+});

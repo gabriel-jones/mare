@@ -7,6 +7,7 @@ import { LIFE, STARTING, ensureLifeState, hunger, lifeDemand, roomStatus, stepLi
 import { createRover, ensureBuildingState, productionDemand, stepProduction, MINING_RADIUS, MAX_MINING_AREAS, REGOLITH_PER_CELL, ROVER, PROCESSOR_INPUT_CAP, PROCESSOR_OUTPUT_CAP, BELT_SPACING, MELT, FAB, ASSEMBLY, RECIPES, KIT, cycleRecipe, robotTopology } from './production.js';
 import { createResearch, createShip, buildRobot, lockedReason, restoreResearch, restoreShip, spaceDemand, stepSpace, studyFinds, touchesPad, REACTOR_POWER } from './space.js';
 import { restoreDelve } from './delve.js';
+import { restorePeril } from './peril.js';
 import { haulerDemand, restoreHauler, stepHaulers } from './hauler.js';
 import { createMission, processorUnlocked, restoreMission, stepMission } from './mission.js';
 export { CELL_SIZE, DEFS, footprint } from './defs.js';
@@ -427,6 +428,7 @@ export function deserialize(text) {
     state.satellites = raw.satellites;
   }
   restoreDelve(state, raw);
+  restorePeril(state, raw);
   if (new Set(state.robots.map(r => r.id)).size !== state.robots.length) throw new Error('Invalid robots.');
   tick(state, 0);
   return state;

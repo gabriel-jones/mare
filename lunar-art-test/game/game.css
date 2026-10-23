@@ -59,6 +59,14 @@ button:focus-visible { outline:2px solid #edbd79;outline-offset:4px; }
 .context-hint { bottom:96px;gap:7px; }
 .hint-gap { width:10px; }
 .resource-dot.water { background:#6fb3e4;border-radius:50% 50% 50% 0;transform:rotate(-45deg); }
+.construction[data-underground=true] > :not(.context-hint) { display:none !important; }
+.health-resource .health-meter { display:inline-block;width:54px;height:5px;border-radius:3px;background:#ffffff1f;overflow:hidden; }
+.health-meter i { display:block;height:100%;background:#9cc8e8;transform-origin:left;transition:transform .2s; }
+.health-resource[data-tone=worn] .health-meter i { background:var(--amber); }
+.health-resource[data-tone=critical] .health-meter i { background:#ef7e6a; }
+.health-resource[data-tone=critical] strong { color:#ef7e6a; }
+body[data-hurt=true]::after { content:'';position:fixed;inset:0;pointer-events:none;z-index:5;box-shadow:inset 0 0 160px 40px #b3200f88;animation:hurt-pulse .5s ease-in-out infinite alternate; }
+@keyframes hurt-pulse { from { opacity:.55; } to { opacity:1; } }
 .food-resource .food-meter { display:inline-block;width:54px;height:5px;border-radius:3px;background:#ffffff1f;overflow:hidden; }
 .food-meter i { display:block;height:100%;background:#9fd39b;transform-origin:left;transition:transform .3s; }
 .food-resource[data-tone=hungry] .food-meter i { background:var(--amber); }

@@ -25,6 +25,7 @@ export const ITEM_INFO = Object.freeze({
   rareearth: { name: 'Rare-earth crystal', stack: 10 },
   artifact: { name: 'Alien artifact', stack: 5 },
   heart: { name: 'Heart of the Deep', stack: 1 },
+  flare: { name: 'Flare', stack: 12 },
 });
 const allSides = [0, 1, 2, 3].map(dir => ({ x: 0, z: 0, dir }));
 // `layer`: 'floor' squares form rooms, 'interior' objects stand on finished floor of the `needs` room type,

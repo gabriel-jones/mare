@@ -1,6 +1,7 @@
 import { crossCavePortal } from './travel.js';
 import { ZONE_NAMES } from './caves.js';
 import { lootAction, takeLoot } from './delve.js';
+import { stepPeril, dropAction, recoverDrop, craftFlares, throwFlare, HURT_TEXT, BLACKOUT } from './peril.js';
 import {DEFS,createState,validatePlacement,placeBlueprint,construct,tick,serialize,deserialize,cancelBlueprint,deconstruct,setMiningArea,miningAreaReason,removeMiningArea,assignRover,rotateBelt,playerObstructs,interact,removalCheck,PROCESSOR_LOCKED} from './sim.js';
 import {DIRS,ITEM_INFO,footprint} from './defs.js';
 import {movePlayer,nearestBlueprint,buildingCenter,resetLocomotion,interpolatePose,RUN_SPEED} from './controller.js';
@@ -59,6 +60,7 @@ function nearby(){
 }
 /** The nearest finished object E would act on: a ripe grow bed, a galley, or a crate holding goods. */
 function nearbyUse(){
+ const pack=dropAction(state);if(pack)return pack;
  if(state.player.cave!=null){const find=lootAction(state);return find&&{...find,cave:true};}
  let best=null,distance=2.8;
  for(const b of state.buildings){
@@ -111,7 +113,8 @@ function placePaint(){
 }
 function useNearby(){
  const use=nearbyUse();
- if(use?.cave){const r=takeLoot(state);notify(r.reason);if(r.say)ui.say(r.say);}
+ if(use?.drop)notify(recoverDrop(state).reason);
+ else if(use?.cave){const r=takeLoot(state);notify(r.reason);if(r.say)ui.say(r.say);}
  else if(use)notify(interact(state,use.building.id).reason);
 }
 /** The selected slot if it holds food, otherwise the most filling food carried. */
@@ -196,6 +199,15 @@ function commandPlace(){
  if(r.ok){targetId=r.id;notify(`${DEFS[selectedType].name} blueprint`);}else notify(r.reason);
  refreshGhost();
 }
+let hazardNow=null;
+function updatePeril(dt){
+ const r=stepPeril(state,dt);
+ if(r?.blackout){resetPlayer();portalCooldown=1.2;select(null);hover=null;targetId=null;hazardNow=null;document.body.dataset.hurt='false';notify(r.items?`You blacked out ${r.where}. Your pack is still there.`:'You blacked out.');ui.say(BLACKOUT);return;}
+ const hazard=r?.hazard??null;
+ if(hazard&&hazard!==hazardNow)notify(HURT_TEXT[hazard]);
+ if(hazard!==hazardNow)document.body.dataset.hurt=String(!!hazard);
+ hazardNow=hazard;
+}
 let portalCooldown=0;
 function updatePortals(dt){
  portalCooldown=Math.max(0,portalCooldown-dt);if(portalCooldown>0)return;
@@ -211,6 +223,7 @@ function fixedUpdate(dt){
  previousPose={...state.player};
  movePlayer(state,dx,dz,dt,DEFS);
  updatePortals(dt);
+ updatePeril(dt);
  if((state.player.y??0)>0||jumpVelocity>0){jumpVelocity-=1.62*dt;state.player.y=Math.max(0,(state.player.y??0)+jumpVelocity*dt);if(state.player.y===0)jumpVelocity=0;}
  constructing=false;constructionReason='';
  const mission=keys.has('e')?missionAction(state):null,ship=keys.has('e')&&!mission?shipAction(state):null;
@@ -266,7 +279,7 @@ async function start(){
    const k=e.key.toLowerCase();
    if(k==='o'&&!e.repeat){e.preventDefault();orbit.toggle();return;}
    if(orbit.open){if(k==='escape')orbit.close();return;}
-   if(['w','a','s','d','e','f',' ','r','b','g','escape'].includes(k)||SHORTCUTS[k]||/^[0-9]$/.test(k))e.preventDefault();
+   if(['w','a','s','d','e','f','q','x',' ','r','b','g','escape'].includes(k)||SHORTCUTS[k]||/^[0-9]$/.test(k))e.preventDefault();
    keys.add(k);if(e.repeat)return;
    if(k===' '&&!(state.player.y>0)){jumpVelocity=1.8;}
    if(k==='escape')select(null);
@@ -279,6 +292,8 @@ async function start(){
    else if(ship&&!ship.hold)notify(loadSatellite(state).reason);
    else if(k==='e'&&!mission&&!ship&&!nearby())useNearby();
    if(k==='f')eatSelected();
+   if(k==='q')notify(throwFlare(state).reason);
+   if(k==='x')notify(craftFlares(state).reason);
    if(k==='delete'||k==='backspace')cancel();
    if(/^[0-9]$/.test(k)){selectedSlot=(Number(k)+9)%10;ui.update(state,view());}
    if(SHORTCUTS[k])select(selectedType===SHORTCUTS[k]?null:SHORTCUTS[k]);

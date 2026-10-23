@@ -2,6 +2,7 @@ import {terrainData} from './terrain.js';
 import * as THREE from 'three';
 import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 import {caveLayout,visibleCaveCells,lineVisible,CAVE_CELL,SIGHT_RADIUS,BEAM_RANGE,CAVE_ZONES} from './caves.js';
+import {FLARE,MAX_DROPS} from './peril.js';
 
 const LIGHTS=8;
 /**
@@ -27,7 +28,7 @@ vec3 caveGlow(vec2 p){
 
 /** Light colours for crystals, vents and the daylight shaft. */
 const GLOW={cyan:new THREE.Color(.25,.8,1),violet:new THREE.Color(.62,.36,1),vent:new THREE.Color(.45,.9,.3),sky:new THREE.Color(.6,.72,.95)};
-const TILE_COLORS={floor:'#8b918b',spire:'#8b918b',pillar:'#857b6c',ice:'#a8c4d6',vent:'#5d6552',bridge:'#7b8079',shaftUp:'#8b918b'};
+const TILE_COLORS={floor:'#8b918b',spire:'#8b918b',pillar:'#857b6c',ice:'#a8c4d6',vent:'#5d6552',toxic:'#55672f',bridge:'#7b8079',shaftUp:'#8b918b'};
 
 export const caveMemoryKey=(id,zone=0)=>zone?`${id}:${zone}`:String(id);
 
@@ -138,7 +139,26 @@ export function createCaveView(seed,id,parent,zone=0){
  const haloMat=keep(new THREE.MeshBasicMaterial({map:keep(new THREE.CanvasTexture(haloCanvas)),transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,fog:false}));
  const halos=new THREE.InstancedMesh(keep(new THREE.PlaneGeometry(1,1).rotateX(-Math.PI/2)),haloMat,Math.max(1,relicItems.length));halos.count=relicItems.length;halos.frustumCulled=false;halos.renderOrder=2;root.add(halos);
  relicItems.forEach((r,i)=>halos.setColorAt(i,RELIC[r.kind].color.clone().multiplyScalar(.55)));if(!relicItems.length)halos.setColorAt(0,new THREE.Color(0,0,0));
- let taken=new Set(),takenCount=-1;
+ // Burning flares and the packs left behind by a blackout. Both are drawn whether or not the cell has been seen.
+ const flareMat=keep(new THREE.MeshBasicMaterial({color:new THREE.Color(1,.18,.06),fog:false}));
+ const flareSticks=new THREE.InstancedMesh(keep(new THREE.CylinderGeometry(.05,.05,.5,6).rotateZ(Math.PI/2.4)),flareMat,FLARE.limit);flareSticks.count=0;flareSticks.frustumCulled=false;root.add(flareSticks);
+ const flareHalos=new THREE.InstancedMesh(halos.geometry,haloMat,FLARE.limit+MAX_DROPS);flareHalos.count=0;flareHalos.frustumCulled=false;flareHalos.renderOrder=2;root.add(flareHalos);
+ for(let i=0;i<FLARE.limit+MAX_DROPS;i++)flareHalos.setColorAt(i,new THREE.Color(0,0,0));
+ const packMat=keep(new THREE.MeshBasicMaterial({color:'#e07a2e',fog:false}));
+ const packs=new THREE.InstancedMesh(keep(new THREE.BoxGeometry(.5,.32,.65).translate(0,.16,0)),packMat,MAX_DROPS);packs.count=0;packs.frustumCulled=false;root.add(packs);
+ const FLARE_GLOW=new THREE.Color(1,.3,.1),PACK_GLOW=new THREE.Color(.3,.75,1);
+ let flaresHere=[],dropsHere=[];
+ function updateFlares(state){
+  flaresHere=(state.flares??[]).filter(f=>f.cave===id&&(f.zone??0)===zone);
+  dropsHere=(state.drops??[]).filter(d=>d.cave===id&&(d.zone??0)===zone);
+  flaresHere.forEach((f,i)=>{dummy.position.set(f.x,.06,f.z);dummy.rotation.set(0,f.x*3+f.z,0);dummy.scale.setScalar(1);dummy.updateMatrix();flareSticks.setMatrixAt(i,dummy.matrix);
+   const burn=Math.min(1,f.t/4)*(.85+.15*Math.sin(time*31+i*7)*Math.sin(time*13+i));dummy.position.y=.1;dummy.rotation.set(0,0,0);dummy.scale.setScalar(5.5*burn);dummy.updateMatrix();flareHalos.setMatrixAt(i,dummy.matrix);flareHalos.setColorAt(i,FLARE_GLOW);});
+  dropsHere.forEach((d,i)=>{dummy.position.set(d.x,0,d.z);dummy.rotation.set(0,d.id,0);dummy.scale.setScalar(1);dummy.updateMatrix();packs.setMatrixAt(i,dummy.matrix);
+   const blink=Math.sin(time*4)>.2?1:.25;dummy.position.y=.08;dummy.scale.setScalar(2.4*blink);dummy.updateMatrix();flareHalos.setMatrixAt(flaresHere.length+i,dummy.matrix);flareHalos.setColorAt(flaresHere.length+i,PACK_GLOW);});
+  flareSticks.count=flaresHere.length;packs.count=dropsHere.length;flareHalos.count=flaresHere.length+dropsHere.length;
+  flareSticks.instanceMatrix.needsUpdate=packs.instanceMatrix.needsUpdate=flareHalos.instanceMatrix.needsUpdate=true;if(flareHalos.instanceColor)flareHalos.instanceColor.needsUpdate=true;
+ }
+ let taken=new Set(),takenCount=-1,flareCount=0;
  const gone=item=>item.loot&&taken.has(item.loot);
 
  // Vents breathe a faint green gas.
@@ -199,7 +219,8 @@ export function createCaveView(seed,id,parent,zone=0){
   for(const g of groups){const a=g.seen.array;let moving=false;for(let i=0;i<g.items.length;i++){const target=visible.has(g.items[i].key)?1:0,d=target-a[i];if(Math.abs(d)>.002){a[i]+=d*k;moving=true;}else a[i]=target;}if(moving)g.seen.needsUpdate=true;}
  }
  function updateGlow(p){
-  const near=glowSources.filter(s=>(s.always||seen.has(s.key))&&!(s.loot&&taken.has(s.loot))).map(s=>({s,d:Math.hypot(s.x-p.x,s.z-p.z)})).sort((a,b)=>a.d-b.d).slice(0,LIGHTS);
+  const burning=[...flaresHere.map((f,i)=>({x:f.x,z:f.z,color:FLARE_GLOW,strength:1.5*Math.min(1,f.t/4)*(.8+.2*Math.sin(time*23+i*5))})),...dropsHere.map(d=>({x:d.x,z:d.z,color:PACK_GLOW,strength:Math.sin(time*4)>.2?.45:.1}))];
+  const near=[...burning.map(s=>({s,d:0})),...glowSources.filter(s=>(s.always||seen.has(s.key))&&!(s.loot&&taken.has(s.loot))).map(s=>({s,d:Math.hypot(s.x-p.x,s.z-p.z)})).sort((a,b)=>a.d-b.d)].slice(0,LIGHTS);
   for(let i=0;i<LIGHTS;i++){const n=near[i];if(n){sight.uGlow.value[i].set(n.s.x,n.s.z,n.s.strength*(n.s.key&&cave.types.get(n.s.key)==='vent'?.8+.2*Math.sin(time*2+i):n.s.pulse?.75+.25*Math.sin(time*2.4):1));sight.uGlowColor.value[i].copy(n.s.color);}else sight.uGlow.value[i].set(0,0,0);}
  }
  function updateVents(dt){
@@ -214,7 +235,7 @@ export function createCaveView(seed,id,parent,zone=0){
    presence.timer=18+Math.random()*20;
    // A walkable cell at the very edge of sight, in line of sight but outside the beam.
    const cx=Math.round(p.x/CAVE_CELL),cz=Math.round(p.z/CAVE_CELL);
-   const spots=cave.tiles.filter(c=>{if(!cave.cells.has(c.key))return false;const dx=c.x*2-p.x,dz=c.z*2-p.z,r=Math.hypot(dx,dz);return r>9.5&&r<12.5&&(dx*fx+dz*fz)/r<.2&&lineVisible(cave,cx,cz,c.x,c.z);});
+   const spots=cave.tiles.filter(c=>{if(!cave.cells.has(c.key))return false;const dx=c.x*2-p.x,dz=c.z*2-p.z,r=Math.hypot(dx,dz);return r>9.5&&r<12.5&&(dx*fx+dz*fz)/r<.2&&!flaresHere.some(f=>Math.hypot(f.x-c.x*2,f.z-c.z*2)<FLARE.radius+3)&&lineVisible(cave,cx,cz,c.x,c.z);});
    if(!spots.length)return;
    const spot=spots[Math.floor(Math.random()*spots.length)];
    Object.assign(presence,{state:'watching',fade:0,x:spot.x*2,z:spot.z*2});
@@ -222,7 +243,7 @@ export function createCaveView(seed,id,parent,zone=0){
    flicker=.5;
    return;
   }
-  const dx=presence.x-p.x,dz=presence.z-p.z,r=Math.hypot(dx,dz),lit=(dx*fx+dz*fz)/r>.6||r<8;
+  const dx=presence.x-p.x,dz=presence.z-p.z,r=Math.hypot(dx,dz),lit=(dx*fx+dz*fz)/r>.6||r<8||flaresHere.some(f=>Math.hypot(f.x-presence.x,f.z-presence.z)<FLARE.radius+2);
   if(presence.state==='watching'){
    presence.fade=Math.min(1,presence.fade+dt*.5);
    if(lit){presence.state='fleeing';presence.fleeX=dx/r;presence.fleeZ=dz/r;flicker=Math.max(flicker,.35);shape.rotation.y=Math.atan2(presence.fleeX,presence.fleeZ);}
@@ -237,6 +258,7 @@ export function createCaveView(seed,id,parent,zone=0){
  function update(state,dt){
   const p=state.player;time+=dt;
   if(!loaded){seen=new Set(state.exploredCaves?.[memory]||[]);loaded=true;}
+  updateFlares(state);if(flaresHere.length!==flareCount){flareCount=flaresHere.length;clock=1;lastFacing=-100;}
   const takenList=state.caveLoot?.[memory]??[];if(takenList.length!==takenCount){taken=new Set(takenList);takenCount=takenList.length;clock=1;lastFacing=-100;}
   relicItems.forEach((r,i)=>{const big=r.kind==='heart';dummy.position.set(r.x*2,(big?1.9:1.05)+Math.sin(time*1.3+i)*.08,r.z*2);dummy.rotation.set(0,time*(big?.4:.9)+i,0);dummy.scale.setScalar(cellKnown(r.key)&&!gone(r)?RELIC[r.kind].size*(big?1+.06*Math.sin(time*2.4):1):0);dummy.updateMatrix();relics.setMatrixAt(i,dummy.matrix);const shown=cellKnown(r.key)&&!gone(r);dummy.position.set(r.x*2,r.kind==='heart'?.06:.52,r.z*2);dummy.rotation.set(0,0,0);dummy.scale.setScalar(shown?(big?7:3.2)*(.92+.08*Math.sin(time*2+i)):0);dummy.updateMatrix();halos.setMatrixAt(i,dummy.matrix);});relics.instanceMatrix.needsUpdate=true;halos.instanceMatrix.needsUpdate=true;
   sight.uPlayer.value.set(p.x,p.z);sight.uFacing.value.set(Math.sin(p.facing),Math.cos(p.facing));
@@ -254,7 +276,7 @@ export function createCaveView(seed,id,parent,zone=0){
   updatePresence(p,dt,depth);updateVents(dt);updateGlow(p);ease(dt);
   clock+=dt;if(clock<.09&&Math.abs(lastFacing-p.facing)<.18&&Math.hypot(lastX-p.x,lastZ-p.z)<.5)return;
   clock=0;lastFacing=p.facing;lastX=p.x;lastZ=p.z;
-  visible=visibleCaveCells(cave,p.x,p.z,p.facing);
+  visible=visibleCaveCells(cave,p.x,p.z,p.facing,flaresHere.map(f=>({x:f.x,z:f.z,r:FLARE.radius})));
   // Crystals shine far beyond the headlamp, so they are spotted from anywhere in line of sight.
   const cx=Math.round(p.x/CAVE_CELL),cz=Math.round(p.z/CAVE_CELL);
   for(const c of [...crystalItems,...relicItems])if(!seen.has(c.key)&&Math.hypot(c.x*2-p.x,c.z*2-p.z)<34&&lineVisible(cave,cx,cz,c.x,c.z))seen.add(c.key);
@@ -264,5 +286,5 @@ export function createCaveView(seed,id,parent,zone=0){
   place(p);
   document.body.dataset.caveVisible=String(visible.size);document.body.dataset.caveExplored=String(seen.size);document.body.style.setProperty('--cave-depth',depth.toFixed(3));
  }
- return {root,roofMap,cave,update,dispose(){parent.remove(root);disposables.forEach(d=>d.dispose());crystals.dispose();glyphs.dispose();relics.dispose();halos.dispose();groups.forEach(g=>g.mesh.dispose());}};
+ return {root,roofMap,cave,update,dispose(){parent.remove(root);disposables.forEach(d=>d.dispose());crystals.dispose();glyphs.dispose();relics.dispose();halos.dispose();flareSticks.dispose();flareHalos.dispose();packs.dispose();groups.forEach(g=>g.mesh.dispose());}};
 }

@@ -43,6 +43,7 @@ const ITEM_ICONS = {
   rareearth: '<path d="m12 2 4 6-4 14-4-14Z"/><path d="M8 8h8M5 10l3-2m11 2-3-2"/>',
   artifact: '<path d="M9 21h6l-1-4h-4Zm1-4V9l2-6 2 6v8"/><path d="M12 9v2m-2 2h4"/>',
   heart: '<path d="M12 21c-5-3-8-7-8-11a4 4 0 0 1 8-1 4 4 0 0 1 8 1c0 4-3 8-8 11Z"/><path d="m9 11 2 2-1 3m4-6-1 4 2 2"/>',
+  flare: '<path d="m8 21 7-12M14 10l2-3 2 1-1 3Z"/><path d="M17 4c1-1 1-2 .5-3M20 6c1 0 2-.5 2.5-1.5M19.5 2.5 21 1"/>',
   core: '<path d="M7 4h10v16H7Z"/><path d="M10 8h4v8h-4ZM4 7h3m-3 5h3m-3 5h3m10-10h3m-3 5h3m-3 5h3"/>',
 };
 const LOCK = '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>';
@@ -69,6 +70,7 @@ export function createUI(root, callbacks = {}) {
       <span title="Water reserve: grow beds drink it; recyclers reclaim it"><i class="resource-dot water"></i><span>Water</span><strong data-value="water">0</strong></span>
       <span class="power-resource" title="Power generation / demand">⚡<strong data-value="power">0</strong><small>kW</small></span>
       <span title="Battery charge"><span class="battery-symbol"></span><strong data-value="battery">0 / 0</strong><small>kJ</small></span>
+      <span class="health-resource" title="Suit integrity. Vents and toxic pools wear it down; it recovers on the surface. At zero you black out."><span>Suit</span><span class="health-meter"><i></i></span><strong data-value="health">100%</strong></span>
       <span class="food-resource" title="How fed you are. Hungry below 35%: slower walking and building."><span>Food</span><span class="food-meter"><i></i></span><strong data-value="food">100%</strong></span>
     </div>
     <section class="objective" aria-label="Ship AI" aria-live="polite">
@@ -98,7 +100,7 @@ export function createUI(root, callbacks = {}) {
     <div class="notification" role="status" aria-live="polite" hidden></div>`;
   const fields = Object.fromEntries([...root.querySelectorAll('[data-value]')].map(el => [el.dataset.value, el]));
   const menu = root.querySelector('.build-menu'), toggle = root.querySelector('.build-toggle'), tools = root.querySelector('.selection-tools'), label = root.querySelector('.selected-name'), reasonLabel = root.querySelector('.selected-reason'), notice = root.querySelector('.notification'), hint = root.querySelector('.context-hint');
-  const rotateButton = root.querySelector('[data-action=rotate]'), foodMeter = root.querySelector('.food-meter i'), food = root.querySelector('.food-resource');
+  const rotateButton = root.querySelector('[data-action=rotate]'), foodMeter = root.querySelector('.food-meter i'), food = root.querySelector('.food-resource'), healthMeter = root.querySelector('.health-meter i'), health = root.querySelector('.health-resource');
   const items = [...root.querySelectorAll('[data-build]')], slots = [...root.querySelectorAll('[data-slot]')];
   const panel = root.querySelector('.objective'), panelMessage = panel.querySelector('.objective-message'), panelTask = panel.querySelector('.objective-task strong'), panelStep = panel.querySelector('.objective-step'), panelDistance = panel.querySelector('.objective-distance');
   let noticeTimer, hintKey = '', objectiveKey = '', aiNote = null, freshTimer;
@@ -147,7 +149,7 @@ export function createUI(root, callbacks = {}) {
     toggleRobots() { setRobots(robotsPanel.hidden); },
     update(state, view = {}) {
       const selected = view.selectedType || null;
-      root.querySelector('.construction').hidden = state.player.cave != null;
+      root.querySelector('.construction').dataset.underground = String(state.player.cave != null);
       const now = performance.now();
       if (!robotsPanel.hidden && now - robotsAt > 250) { robotsAt = now; renderRobots(state); }
       const badge = root.querySelector('.orbit-badge'), sats = state.satellites ?? 0;
@@ -161,6 +163,9 @@ export function createUI(root, callbacks = {}) {
       fields.food.textContent = status.label ?? `${Math.round(satiety)}%`;
       foodMeter.style.transform = `scaleX(${satiety / 100})`;
       food.dataset.tone = satiety <= 0 ? 'starving' : status.label ? 'hungry' : 'fed';
+      const suit = state.player.health ?? 100;
+      fields.health.textContent = `${Math.ceil(suit)}%`; healthMeter.style.transform = `scaleX(${suit / 100})`;
+      health.dataset.tone = suit < 30 ? 'critical' : suit < 70 ? 'worn' : 'sound';
       slots.forEach((el, i) => {
         const slot = state.inventory[i], active = i === view.selectedSlot, k = slot ? `${slot.item}:${slot.count}` : '';
         el.classList.toggle('selected', active); el.setAttribute('aria-pressed', String(active));
@@ -180,6 +185,11 @@ export function createUI(root, callbacks = {}) {
       const lines = [];
       if (view.missionUse) lines.push(`<kbd>E</kbd> ${view.missionUse.verb}${view.missionUse.hold && view.missionUse.progress > 0 ? ` <span class="hint-progress"><i style="transform:scaleX(${view.missionUse.progress})"></i></span>` : ''}`);
       else if (view.use && !view.nearbyBuilding) lines.push(`<kbd>E</kbd> ${view.use.verb}`);
+      if (state.player.cave != null) {
+        const flares = count(state.inventory, 'flare');
+        if (flares) lines.push(`<kbd>Q</kbd> Throw flare · ${flares}`);
+        else if (count(state.inventory, 'metal') >= 2) lines.push('<kbd>X</kbd> Make 3 flares · 2 metal');
+      }
       if (edible && (status.label || satiety < 70)) lines.push(`<kbd>F</kbd> Eat ${held.item === 'meal' ? 'meal' : 'raw potato'}`);
       const next = lines.join('<span class="hint-gap"></span>');
       if (next !== hintKey) { hintKey = next; hint.innerHTML = next; hint.hidden = !next; }
