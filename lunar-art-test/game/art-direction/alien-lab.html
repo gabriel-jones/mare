@@ -84,7 +84,7 @@ const specimen=createCrawlerView(crawlerGLTF,studio,{mode:'studio'});
 const reference=createAstronaut({...astronautGLTF,scene:SkeletonUtils.clone(astronautGLTF.scene)});studio.add(reference.root);
 /** Each pose runs the real behaviour states on a stand-in crawler: walks circle the stage, attacks loop. */
 const POSES={idle:{},stalk:{walk:2.2},skitter:{walk:6.5},shriek:{loop:[['shriek',2.2]]},attack:{loop:[['stalk',1.2],['shriek',.9],['lunge',.42],['recover',1.4]]},
- grab:{loop:[['grab',4]]},slash:{loop:[['slash',.45],['idle',1]]},recoil:{loop:[['recoil',.55],['idle',1.5]]},hit:{loop:[['hit',.35],['idle',1]]},dead:{loop:[['dead',5],['idle',2]]}};
+ grab:{loop:[['grab',4]]},slash:{loop:[['slash',.45],['idle',1]]},recoil:{loop:[['recoil',.55],['idle',1.5]]},hit:{loop:[['hit',.35],['idle',1]]},dead:{loop:[['dead',6.5],['idle',2]]}};
 const stand={x:0,z:0,facing:0,state:'idle',t:0,speed:0};
 let pose=params.get('pose')??'idle',speed=1,lap=0,phase=0,phaseT=0;
 const poseButtons=new Map();
