@@ -1,5 +1,6 @@
 import { crossCavePortal } from './travel.js';
 import { ZONE_NAMES } from './caves.js';
+import { lootAction, takeLoot } from './delve.js';
 import {DEFS,createState,validatePlacement,placeBlueprint,construct,tick,serialize,deserialize,cancelBlueprint,deconstruct,setMiningArea,miningAreaReason,removeMiningArea,assignRover,rotateBelt,playerObstructs,interact,removalCheck,PROCESSOR_LOCKED} from './sim.js';
 import {DIRS,ITEM_INFO,footprint} from './defs.js';
 import {movePlayer,nearestBlueprint,buildingCenter,resetLocomotion,interpolatePose,RUN_SPEED} from './controller.js';
@@ -58,7 +59,7 @@ function nearby(){
 }
 /** The nearest finished object E would act on: a ripe grow bed, a galley, or a crate holding goods. */
 function nearbyUse(){
- if(state.player.cave!=null)return null;
+ if(state.player.cave!=null){const find=lootAction(state);return find&&{...find,cave:true};}
  let best=null,distance=2.8;
  for(const b of state.buildings){
   if(!b.built)continue;
@@ -72,8 +73,8 @@ function nearbyUse(){
 function view(){
  const nearest=state.player.cave==null?nearestBlueprint(state,DEFS,100):null,c=nearest?buildingCenter(nearest,DEFS):null;
  const guidance=nearest?`${DEFS[nearest.type].name} blueprint: ${Math.ceil(Math.hypot(c.x-state.player.x,c.z-state.player.z))}m away. Walk within 5m, then hold E.`:null;
- const goal=objective(state),distance=goal.target?Math.round(Math.hypot(goal.target.x-state.player.x,goal.target.z-state.player.z)):null;
- return {objective:{...goal,distance},missionUse:missionAction(state)??shipAction(state),locked:{...(processorUnlocked(state)?{}:{processor:PROCESSOR_LOCKED}),...(lockedReason(state,'roverbay')?{roverbay:lockedReason(state,'roverbay')}:{})},selectedType,rotation,placementReason,constructionReason,nearbyBuilding:nearby(),use:nearbyUse(),selectedSlot,foodSlot:foodSlot(),guidance,constructing,night:Math.sin(state.time/240*Math.PI*2+Math.PI/3)<=0,paused:false,saveStatus:saveStatus+(speed>1?' · Time ×12':''),timeScale:speed};
+ const goal=objective(state),distance=goal.target&&state.player.cave==null?Math.round(Math.hypot(goal.target.x-state.player.x,goal.target.z-state.player.z)):null;
+ return {objective:{...goal,distance},missionUse:missionAction(state)??shipAction(state),locked:{...(processorUnlocked(state)?{}:{processor:PROCESSOR_LOCKED}),...Object.fromEntries(Object.keys(DEFS).map(type=>[type,lockedReason(state,type)]).filter(([,reason])=>reason))},selectedType,rotation,placementReason,constructionReason,nearbyBuilding:nearby(),use:nearbyUse(),selectedSlot,foodSlot:foodSlot(),guidance,constructing,night:Math.sin(state.time/240*Math.PI*2+Math.PI/3)<=0,paused:false,saveStatus:saveStatus+(speed>1?' · Time ×12':''),timeScale:speed};
 }
 function point(event){hover=world?.pick(event.clientX,event.clientY);canvas.dataset.hoverCell=hover?`${hover.x},${hover.z}`:'';if(!hover){world?.clearGhost();return;}if(beltPath)extendBeltPath(hover);if(paintPath)extendPaintPath(hover);targetId=hover.buildingId??null;canvas.dataset.targetId=String(targetId??'');if(erasing)eraseAt();refreshGhost();}
 const MAX_PAINT=120;
@@ -110,7 +111,8 @@ function placePaint(){
 }
 function useNearby(){
  const use=nearbyUse();
- if(use)notify(interact(state,use.building.id).reason);
+ if(use?.cave){const r=takeLoot(state);notify(r.reason);if(r.say)ui.say(r.say);}
+ else if(use)notify(interact(state,use.building.id).reason);
 }
 /** The selected slot if it holds food, otherwise the most filling food carried. */
 function foodSlot(){

@@ -1,11 +1,12 @@
 import { caveWalkable, caveLayout, CAVE_ZONES } from './caves.js';
 import { surfaceHeightAt, terrainReason } from './terrain.js';
-import { CELL_SIZE, DEFS, DIRS, ITEMS, dims, footprint } from './defs.js';
+import { CELL_SIZE, DEFS, DIRS, ITEMS, ITEM_INFO, dims, footprint } from './defs.js';
 import { airlockApron, habitatLayout, isRoom, trapsPlayer } from './habitat.js';
 import * as inv from './inventory.js';
 import { LIFE, STARTING, ensureLifeState, hunger, lifeDemand, roomStatus, stepLife, useLife } from './life.js';
 import { createRover, ensureBuildingState, productionDemand, stepProduction, MINING_RADIUS, MAX_MINING_AREAS, REGOLITH_PER_CELL, ROVER, PROCESSOR_INPUT_CAP, PROCESSOR_OUTPUT_CAP, BELT_SPACING, MELT, FAB, ASSEMBLY, RECIPES, KIT, cycleRecipe, robotTopology } from './production.js';
-import { createResearch, createShip, buildRobot, lockedReason, restoreResearch, restoreShip, spaceDemand, stepSpace, touchesPad } from './space.js';
+import { createResearch, createShip, buildRobot, lockedReason, restoreResearch, restoreShip, spaceDemand, stepSpace, studyFinds, touchesPad, REACTOR_POWER } from './space.js';
+import { restoreDelve } from './delve.js';
 import { haulerDemand, restoreHauler, stepHaulers } from './hauler.js';
 import { createMission, processorUnlocked, restoreMission, stepMission } from './mission.js';
 export { CELL_SIZE, DEFS, footprint } from './defs.js';
@@ -97,7 +98,7 @@ export function validatePlacement(state, type, x, z, rotation = 0) {
   }
   const placeReason = roomReason(state, type, x, z, rotation);
   if (placeReason) return { ok: false, reason: placeReason };
-  for (const [item, amount] of Object.entries(DEFS[type].cost)) if (inv.count(state.inventory, item) < amount) return { ok: false, reason: `Not enough ${item}.` };
+  for (const [item, amount] of Object.entries(DEFS[type].cost)) if (inv.count(state.inventory, item) < amount) return { ok: false, reason: `Not enough ${ITEM_INFO[item]?.name.toLowerCase() ?? item}.` };
   return { ok: true, reason: 'Click to place blueprint.' };
 }
 /** Machines are numbered per type in build order; a number is only reused after the newest of its type is removed. */
@@ -199,6 +200,7 @@ export function interact(state, id) {
     return { ok: true, reason: 'Satellite collected. Carry it to the Starship.' };
   }
   if (b.type === 'dock' || b.type === 'roverbay') return buildRobot(state, id);
+  if (b.type === 'xenolab') return studyFinds(state, id);
   return useLife(state, b);
 }
 /** Turns an existing belt (blueprint or finished) to face `rotation`; items on it are kept. */
@@ -253,6 +255,7 @@ export function tick(state, dt) {
   for (const b of state.buildings) {
     if (!b.built) continue;
     if (b.type === 'solar') generation += 8 * daylight;
+    if (b.type === 'reactor') generation += REACTOR_POWER;
     if (b.type === 'battery') capacity += 180;
   }
   const previous = Math.min(capacity, Math.max(0, state.power.stored));
@@ -423,6 +426,7 @@ export function deserialize(text) {
     if (!wholeCount(raw.satellites, 1000)) throw new Error('Invalid satellites.');
     state.satellites = raw.satellites;
   }
+  restoreDelve(state, raw);
   if (new Set(state.robots.map(r => r.id)).size !== state.robots.length) throw new Error('Invalid robots.');
   tick(state, 0);
   return state;

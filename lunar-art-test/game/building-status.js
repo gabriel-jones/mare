@@ -1,7 +1,7 @@
 import { daylightAt } from './sim.js';
 import { DEFS } from './defs.js';
 import { HAULER } from './hauler.js';
-import { ELECTROLYSIS, LAUNCH, electrolyserReady, touchesPad } from './space.js';
+import { ELECTROLYSIS, LAUNCH, REACTOR_POWER, electrolyserReady, touchesPad } from './space.js';
 import { processorReady, melterReady, fabricatorReady, assemblerReady, currentPart, ASSEMBLY, FAB, remainingRegolith, roverHasWork, hasMelter, miningCells, dockSpace, total, ROVER, RECIPE, MELT, PROCESSOR_INPUT_CAP } from './production.js';
 import { LIFE, roomStatus } from './life.js';
 
@@ -25,6 +25,8 @@ export function buildingStatus(building,state){
   const charge=state.power.capacity>0?Math.max(0,Math.min(1,state.power.stored/state.power.capacity)):0;
   return {text:`Charge ${Math.round(charge*100)}%`,read:`${Math.round(state.power.stored)} / ${Math.round(state.power.capacity)} KJ`,tone:charge<=.15?'low':'charge',fill:charge,...(state.power.generation>state.power.demand&&charge<1?{glyph:'charging'}:{})};
  }
+ if(building.type==='reactor')return {text:`${REACTOR_POWER} kW`,read:`RESONANCE STABLE · ${REACTOR_POWER} KW`,tone:'charge',fill:1};
+ if(building.type==='xenolab')return {text:'Studying',read:`RESEARCH BANK ${Math.floor(state.research.bank)} PTS`,tone:'inactive'};
  if(building.type==='hopper'){
   const ice=Math.floor(building.inv?.ice??0),regolith=Math.floor(building.inv?.regolith??0),amount=total(building.inv),cap=DEFS.hopper.capacity;
   const read=ice?`REGOLITH ${regolith} · ICE ${ice} / ${cap}`:`REGOLITH ${regolith} / ${cap}`;

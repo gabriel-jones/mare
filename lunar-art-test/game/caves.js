@@ -41,6 +41,7 @@ export function caveLayout(seed,id=0,zone=0){
   // The deepest chamber of the last zone is reserved for what the caves are hiding.
   heart:zone===CAVE_ZONES-1?{x:last.x,z:last.z}:null};
  decorate(layout,random(seed*31+id*977+zone*7919+3));
+ placeLoot(layout,last,random(seed*17+id*3571+zone*613+11));
  layout.tiles=[...layout.open].map(key=>{const [x,z]=key.split(',').map(Number);return {key,x,z,type:layout.types.get(key)??'floor'};});
  cache.set(key,layout);return layout;
 }
@@ -73,7 +74,7 @@ function decorate(layout,rng){
  rooms.forEach((room,i)=>{
   if(i===0)return;
   const deep=zone/(2),r=rng();
-  const theme=r<.3?'spires':r<.48?'crystal':r<.6?'ice':r<.72+.1*deep?'ruin':r<.86?'vents':'chasm';
+  const theme=r<.3?'spires':r<.48?'crystal':r<.6?'ice':r<.72+.1*deep?'ruin':r<.86?'vents':'chasm';room.theme=theme;
   const inside=interior(room);if(!inside.length)return;
   if(theme==='spires'||(theme==='chasm'&&room.rx<3)){
    let n=2+Math.floor(rng()*4);
@@ -99,6 +100,33 @@ function decorate(layout,rng){
  for(const k of blocked)cells.delete(k);
  layout.sight=new Set([...layout.open].filter(k=>!['spire','pillar'].includes(types.get(k))));
  Object.assign(layout,{types,spires,pillars,crystals,glyphs,vents});
+}
+
+/**
+ * What the caves give back, each entry taken once: titanium seams in the walls (richer deeper down), the rare-earth
+ * crystals themselves, artifacts left in ruins, glyphs that tell the story, one reactor schematic in every second
+ * zone and the heart at the bottom. `key` names an entry within its zone.
+ */
+function placeLoot(layout,last,rng){
+ const {cells,rooms,zone,types}=layout,loot=[],used=new Set();
+ const free=k=>cells.has(k)&&!['shaftDown','shaftUp','vent','bridge'].includes(types.get(k))&&!used.has(k);
+ const add=(kind,x,z,dx=0,dz=0,extra={})=>{used.add(caveKey(x,z));loot.push({key:`${kind}@${x},${z},${dx},${dz}`,kind,x,z,dx,dz,...extra});};
+ const walls=room=>{const out=[];for(let dx=-room.rx;dx<=room.rx;dx++)for(let dz=-room.rz;dz<=room.rz;dz++){const x=room.x+dx,z=room.z+dz;if(!free(caveKey(x,z)))continue;for(const [ex,ez] of [[1,0],[-1,0],[0,1],[0,-1]])if(!layout.open.has(caveKey(x+ex,z+ez)))out.push({x,z,dx:ex,dz:ez});}return out;};
+ const inRoom=(room,c)=>Math.abs(c.x-room.x)<=room.rx&&Math.abs(c.z-room.z)<=room.rz;
+ const others=rooms.slice(1);
+ for(let n=[2,4,5][zone]??5,k=0;n>0&&k<40;k++){const room=others[Math.floor(rng()*others.length)],w=walls(room);if(!w.length)continue;const c=w[Math.floor(rng()*w.length)];add('ore',c.x,c.z,c.dx,c.dz,{amount:3+zone*2});n--;}
+ // The upper zone's crystals are dull and brittle; harvestable rare earth starts in the Hollows.
+ if(zone>0)layout.crystals.forEach(c=>{used.add(caveKey(c.x,c.z));loot.push({key:`crystal@${c.x},${c.z},${c.dx},${c.dz}`,kind:'crystal',x:c.x,z:c.z,dx:c.dx,dz:c.dz,amount:1+zone});});
+ for(const room of rooms.filter(r=>r.theme==='ruin')){
+  if(free(caveKey(room.x,room.z)))add('artifact',room.x,room.z);
+  const glyph=layout.glyphs.find(g=>inRoom(room,g));if(glyph)loot.push({key:`tablet@${glyph.x},${glyph.z},${glyph.dx},${glyph.dz}`,kind:'tablet',x:glyph.x,z:glyph.z,dx:glyph.dx,dz:glyph.dz});
+ }
+ // Every zone tells some of the story, and below the surface there is always something to bring back.
+ if(!loot.some(l=>l.kind==='tablet')){const room=others[Math.floor(rng()*others.length)],w=walls(room);if(w.length){const g=w[Math.floor(rng()*w.length)];layout.glyphs.push(g);loot.push({key:`tablet@${g.x},${g.z},${g.dx},${g.dz}`,kind:'tablet',x:g.x,z:g.z,dx:g.dx,dz:g.dz});}}
+ if(zone>0&&!loot.some(l=>l.kind==='artifact'))for(let k=0;k<20;k++){const room=others[Math.floor(rng()*others.length)];if(free(caveKey(room.x,room.z))){add('artifact',room.x,room.z);break;}}
+ if(zone===1){const spot=[...cells].map(k=>k.split(',').map(Number)).filter(([x,z])=>inRoom(last,{x,z})&&Math.hypot(x-last.x,z-last.z)>=2&&free(caveKey(x,z))).sort((a,b)=>a[0]-b[0]||a[1]-b[1]);if(spot.length){const [x,z]=spot[Math.floor(rng()*spot.length)];add('blueprint',x,z);}}
+ if(layout.heart)add('heart',layout.heart.x,layout.heart.z);
+ layout.loot=[...new Map(loot.map(l=>[l.key,l])).values()];
 }
 
 export function caveWalkable(seed,id,x,z,radius=.3,zone=0){const cave=caveLayout(seed,id,zone);return [[-radius,-radius],[radius,-radius],[-radius,radius],[radius,radius]].every(([dx,dz])=>cave.cells.has(caveKey(Math.round((x+dx)/CAVE_CELL),Math.round((z+dz)/CAVE_CELL))));}

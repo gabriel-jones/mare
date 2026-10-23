@@ -10,16 +10,22 @@ export const ELECTROLYSIS = Object.freeze({ time: 2, power: 3, waterFloor: 20 })
 export const RESEARCH_PER_SATELLITE = 4; // points per minute
 export const TECHS = Object.freeze({
   roverbay: { name: 'Rover bay', cost: 24, description: 'A bay that builds extra mining rovers.' },
+  reactor: { name: 'Resonance reactor', cost: 40, schematic: true, description: 'Steady power from a rare-earth lattice, day and night.' },
 });
+/** Research points a xeno lab gets from studying each find. */
+export const STUDY = Object.freeze({ artifact: 12, heart: 60 });
+export const REACTOR_POWER = 10;
 export const ROBOT_COST = Object.freeze({ hauler: { metal: 25, silicon: 10 }, miner: { metal: 30, silicon: 12 } });
 export const ROBOT_LIMIT = Object.freeze({ hauler: 3, miner: 4 });
 
 export const createShip = () => ({ status: 'pad', t: 0, fuel: 0, payload: 0, hold: 0 });
 export const createResearch = () => ({ bank: 0, selected: 'roverbay', progress: {}, done: [] });
 export const techDone = (state, id) => state.research.done.includes(id);
+export const hasSchematic = (state, id) => !TECHS[id]?.schematic || (state.blueprints ?? []).includes(id);
 /** Why a research-gated building can't be placed yet, or null. */
 export function lockedReason(state, type) {
   const tech = DEFS[type]?.research;
+  if (tech && !hasSchematic(state, tech)) return `Locked: find the ${TECHS[tech].name.toLowerCase()} schematic deep in the caves.`;
   return tech && !techDone(state, tech) ? `Locked: research the ${TECHS[tech].name} in orbit first (O).` : null;
 }
 
@@ -70,6 +76,7 @@ const dist = (b, o) => Math.hypot(b.x - o.x, b.z - o.z);
 export function selectResearch(state, id) {
   if (id != null && !TECHS[id]) return { ok: false, reason: 'Unknown technology.' };
   if (id != null && techDone(state, id)) return { ok: false, reason: `${TECHS[id].name} is already researched.` };
+  if (id != null && !hasSchematic(state, id)) return { ok: false, reason: `Find the ${TECHS[id].name.toLowerCase()} schematic in the caves first.` };
   state.research.selected = id;
   return { ok: true, reason: id ? `Researching ${TECHS[id].name}.` : 'Research paused.' };
 }
@@ -126,7 +133,19 @@ export function machineAction(state, b) {
   if (b.type === 'assembler' && b.out.satellite >= 1) return { verb: 'Take the satellite' };
   if (b.type === 'dock') return { verb: `Build a hauler · ${costText(ROBOT_COST.hauler)}` };
   if (b.type === 'roverbay') return { verb: `Build a mining rover · ${costText(ROBOT_COST.miner)}` };
+  if (b.type === 'xenolab') { const points = studyValue(state); return points ? { verb: `Study finds · +${points} research` } : null; }
   return null;
+}
+const studyValue = state => Object.entries(STUDY).reduce((sum, [item, n]) => sum + inv.count(state.inventory, item) * n, 0);
+/** E at a xeno lab hands over every artifact carried and banks their research points. */
+export function studyFinds(state, id) {
+  const b = state.buildings.find(b => b.id === id && b.built && b.type === 'xenolab');
+  if (!b) return { ok: false, reason: 'No xeno lab here.' };
+  const points = studyValue(state);
+  if (!points) return { ok: false, reason: 'Bring artifacts from the caves to study.' };
+  for (const item of Object.keys(STUDY)) inv.remove(state.inventory, item, inv.count(state.inventory, item));
+  state.research.bank += points;
+  return { ok: true, reason: `Studied · +${points} research points. Spend them in orbit (O).` };
 }
 export const costText = cost => Object.entries(cost).map(([item, n]) => `${n} ${item}`).join(' and ');
 export function createHauler(id, home) {

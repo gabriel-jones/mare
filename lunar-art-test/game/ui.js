@@ -25,6 +25,8 @@ const ICONS = {
   tank: '<circle cx="8" cy="12" r="5"/><circle cx="17" cy="13" r="4"/><path d="M3 21h18M8 17v4m9-4v4"/>',
   dock: '<path d="M4 21V7h16v14M4 7l2-3h12l2 3"/><path d="M9 15h6v3H9ZM12 10v5"/>',
   roverbay: '<path d="M3 21V9l9-5 9 5v12"/><path d="M6 21v-4h12v4M8 17v-2l2-2h4l2 2v2"/>',
+  xenolab: '<path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3"/><path d="M7.5 15h9"/><circle cx="12" cy="18" r="1"/>',
+  reactor: '<circle cx="12" cy="12" r="3"/><path d="m12 3 2 4h-4Zm7.8 13.5-4.4-.4 2.2-3.9ZM4.2 16.5l2.2-3.9 2.2 3.9Z"/><circle cx="12" cy="12" r="9"/>',
   mine: '<path d="M4 4h16v16H4z" stroke-dasharray="3 2"/><path d="m8 15 3-5 2 2 1.5-2L17 15Z"/>',
   dismantle: '<path d="M5 19 15 9m-1-4 5 5-2 2-5-5Z"/><path d="m4 4 4 4M8 4 4 8"/>',
 };
@@ -37,6 +39,10 @@ const ITEM_ICONS = {
   wing: '<path d="M3 8h18v8H3ZM9 8v8m6-8v8M3 12h18"/>',
   chip: '<path d="M7 7h10v10H7Z"/><path d="M10 3v4m4-4v4m-4 10v4m4-4v4M3 10h4m-4 4h4m10-4h4m-4 4h4"/>',
   satellite: '<path d="M9 9h6v6H9ZM2 10h5v4H2Zm15 0h5v4h-5ZM7 12h2m6 0h2M12 9V5m-2 0h4"/>',
+  titanium: '<path d="M4 17 7 8l6-3 7 5-2 8-8 2Z"/><path d="m7 8 5 4 8-2m-8 2-2 8"/>',
+  rareearth: '<path d="m12 2 4 6-4 14-4-14Z"/><path d="M8 8h8M5 10l3-2m11 2-3-2"/>',
+  artifact: '<path d="M9 21h6l-1-4h-4Zm1-4V9l2-6 2 6v8"/><path d="M12 9v2m-2 2h4"/>',
+  heart: '<path d="M12 21c-5-3-8-7-8-11a4 4 0 0 1 8-1 4 4 0 0 1 8 1c0 4-3 8-8 11Z"/><path d="m9 11 2 2-1 3m4-6-1 4 2 2"/>',
   core: '<path d="M7 4h10v16H7Z"/><path d="M10 8h4v8h-4ZM4 7h3m-3 5h3m-3 5h3m10-10h3m-3 5h3m-3 5h3"/>',
 };
 const LOCK = '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>';
@@ -46,10 +52,10 @@ const TOOLS = {
   dismantle: { name: 'Dismantle', key: 'z', description: 'Click or drag over structures and blueprints to take them down. Materials are returned.' },
 };
 // Palette sections, in menu order.
-const GROUPS = [['Power & industry', ['solar', 'battery', 'hopper', 'conveyor', 'processor', 'melter', 'storage']], ['Rooms', ['habitat', 'greenhouse', 'airlock']], ['Fittings', ['growbed', 'galley', 'recycler']], ['Space', ['fabricator', 'assembler', 'electrolyser', 'tank', 'dock', 'roverbay']], ['Tools', ['mine', 'dismantle']]];
+const GROUPS = [['Power & industry', ['solar', 'battery', 'hopper', 'conveyor', 'processor', 'melter', 'storage']], ['Rooms', ['habitat', 'greenhouse', 'airlock']], ['Fittings', ['growbed', 'galley', 'recycler']], ['Space', ['fabricator', 'assembler', 'electrolyser', 'tank', 'dock', 'roverbay']], ['Deep', ['xenolab', 'reactor']], ['Tools', ['mine', 'dismantle']]];
 const svg = (paths, width = 1.5) => `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
 const number = (value) => Math.round(Number(value) || 0).toLocaleString();
-const costText = def => def.cost ? Object.entries(def.cost).map(([item, n]) => `${n} ${item}`).join(', ') : 'Free';
+const costText = def => def.cost ? Object.entries(def.cost).map(([item, n]) => `${n} ${ITEM_INFO[item]?.name.toLowerCase() ?? item}`).join(', ') : 'Free';
 const slotKey = i => String((i + 1) % 10);
 const ORBIT_ICON = '<circle cx="12" cy="12" r="4"/><ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(-25 12 12)"/><circle cx="20" cy="8" r="1.2"/>';
 const ROVER_ICON = '<path d="M3 15h18v-4l-3-4H9l-2 4H3zM7 11h11M12 7V4h3"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>';

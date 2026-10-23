@@ -21,6 +21,10 @@ export const ITEM_INFO = Object.freeze({
   wing: { name: 'Solar wing', stack: 10 },
   chip: { name: 'Compute chip', stack: 10 },
   satellite: { name: 'AI satellite', stack: 1 },
+  titanium: { name: 'Titanium ore', stack: 40 },
+  rareearth: { name: 'Rare-earth crystal', stack: 10 },
+  artifact: { name: 'Alien artifact', stack: 5 },
+  heart: { name: 'Heart of the Deep', stack: 1 },
 });
 const allSides = [0, 1, 2, 3].map(dir => ({ x: 0, z: 0, dir }));
 // `layer`: 'floor' squares form rooms, 'interior' objects stand on finished floor of the `needs` room type,
@@ -46,9 +50,11 @@ export const DEFS = Object.freeze({
   tank: { name: 'Propellant tank', w: 2, d: 2, cost: { metal: 30, silicon: 4 }, buildTime: 5, capacity: 100, nearPad: true, description: 'Holds hydrolox propellant. Must touch the landing pad to fuel the Starship.' },
   dock: { name: 'Robot dock', w: 2, d: 2, cost: { metal: 30, silicon: 10 }, buildTime: 5, description: 'Builds hauler robots (press E) and recharges them. Haulers carry parts, materials and satellites between machines.' },
   roverbay: { name: 'Rover bay', w: 2, d: 2, cost: { metal: 40, silicon: 15 }, buildTime: 6, research: 'roverbay', description: 'Builds extra mining rovers (press E). Unlocked by research.' },
+  xenolab: { name: 'Xeno lab', w: 2, d: 2, cost: { metal: 35, silicon: 12, titanium: 6 }, buildTime: 6, description: 'Studies alien artifacts from the caves (press E) and turns them into research points. Needs titanium ore from underground.' },
+  reactor: { name: 'Resonance reactor', w: 2, d: 2, cost: { metal: 30, titanium: 12, rareearth: 4 }, buildTime: 8, research: 'reactor', description: 'An alien design: a rare-earth lattice that gives a steady 10 kW, day and night. Needs its schematic from the caves, then research.' },
 });
 /** Stencil codes for machine callouts: `MLT-02` is the second ice melter built. */
-export const CODES = Object.freeze({ solar: 'SOL', battery: 'BAT', hopper: 'HOP', habitat: 'HAB', greenhouse: 'GRN', airlock: 'ALK', growbed: 'BED', galley: 'GAL', recycler: 'RCY', conveyor: 'BLT', processor: 'PRC', melter: 'MLT', storage: 'CRT', fabricator: 'FAB', assembler: 'ASM', electrolyser: 'ELY', tank: 'TNK', dock: 'DCK', roverbay: 'RVB' });
+export const CODES = Object.freeze({ solar: 'SOL', battery: 'BAT', hopper: 'HOP', habitat: 'HAB', greenhouse: 'GRN', airlock: 'ALK', growbed: 'BED', galley: 'GAL', recycler: 'RCY', conveyor: 'BLT', processor: 'PRC', melter: 'MLT', storage: 'CRT', fabricator: 'FAB', assembler: 'ASM', electrolyser: 'ELY', tank: 'TNK', dock: 'DCK', roverbay: 'RVB', xenolab: 'XEN', reactor: 'RCT' });
 export const tagOf = b => `${CODES[b.type] ?? 'UNT'}-${String(b.serial ?? 0).padStart(2, '0')}`;
 export const ROOM_TYPES = Object.freeze(Object.keys(DEFS).filter(type => DEFS[type].layer === 'floor'));
 

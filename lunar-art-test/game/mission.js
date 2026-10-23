@@ -1,4 +1,4 @@
-import { missionSite } from './terrain.js';
+import { missionSite, terrainData } from './terrain.js';
 import * as inv from './inventory.js';
 import { LAUNCH } from './space.js';
 
@@ -27,8 +27,13 @@ export const STEPS = Object.freeze([
   { id: 'fuel', objective: 'Fuel the Starship', message: "Our tanks are dry. Build an electrolyser to split water into hydrogen and oxygen, and a propellant tank beside the landing pad. The tank fills the ship.", target: 'ship', done: s => s.ship.fuel >= LAUNCH.fuel || launched(s) },
   { id: 'launch', objective: 'Load a satellite and launch', message: 'Fuelled. Haulers bring satellites to the pad, or carry one yourself. When one is aboard, hold E beside the Starship to launch.', target: 'ship', done: launched },
   { id: 'research', objective: 'Research the rover bay', message: "Satellite deployed. Open the orbital view (O) and choose what to research. Every satellite in orbit speeds it up. The rover bay comes first.", done: s => s.research.done.includes('roverbay') },
+  // From here the colony needs what only the caves hold.
+  { id: 'caves', objective: 'Bring 6 titanium ore up from a cave', message: "Rover bay unlocked: build one and press E for another rover. Our next machines need titanium, and the surface regolith has none. Those hills have cave mouths. Chip ore from the seams and carry it back. Take it slow down there.", target: 'cave', done: s => has(s, 'xenolab') || inv.count(s.inventory, 'titanium') >= 6 },
+  { id: 'xenolab', objective: 'Build a xeno lab', message: "Titanium. And carvings, you said? Build a xeno lab (Deep menu). Bring it anything strange you find down there and it turns it into research.", done: s => has(s, 'xenolab') },
+  { id: 'schematic', objective: 'Find a schematic in the Hollows', message: "If whoever carved those walls left anything we can use, it'll be deeper. Find the pit with the ladder and climb down to the Hollows.", target: 'cave', done: s => (s.blueprints ?? []).includes('reactor') },
+  { id: 'reactor', objective: 'Research and build the resonance reactor', message: "Research the reactor from orbit (O); artifacts studied at the xeno lab count too. It'll want titanium and rare-earth crystals from the Hollows.", done: s => has(s, 'reactor') },
 ]);
-export const FINALE = 'Rover bay unlocked: build one and press E for another mining rover. Every satellite you launch speeds up research.';
+export const FINALE = "Reactor online: ten kilowatts straight through the lunar night. The Deep is still down there, and so is whatever carved those walls.";
 export const SIGHTING = 'Movement on the crater rim? My sensors show nothing out there. Probably nothing.';
 
 export function createMission(legacy = false) {
@@ -52,7 +57,8 @@ export function objective(state) {
   const m = state.mission, step = STEPS[m.step];
   if (!step) return { done: true, message: FINALE, step: m.step, count: STEPS.length };
   const site = missionSite();
-  const target = { lander: site.lander, ship: SHIP, ice: site }[step.target] ?? null;
+  const cave = step.target === 'cave' && [...terrainData(state.seed).caves].sort((a, b) => distance(a, state.player) - distance(b, state.player))[0];
+  const target = { lander: site.lander, ship: SHIP, ice: site, cave }[step.target] || null;
   return { id: step.id, objective: step.objective, message: (m.legacy && step.legacy) || step.message, step: m.step, count: STEPS.length, target: target && { x: target.x, z: target.z } };
 }
 /** What pressing or holding E would do at the lander or the ship, or null. */

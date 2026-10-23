@@ -120,7 +120,7 @@ test('colonies saved before the crater mission keep building processors', () => 
   assert.equal(migrated.mission.legacy, true);
   assert.equal(validatePlacement(migrated, 'processor', 6, 3).ok, true);
   assert.match(objective(migrated).message, /./);
-  assert.equal(STEPS.length, 14);
+  assert.equal(STEPS.length, 18);
   assert.equal(STEPS[8].id, 'fabricate');
   assert.ok(DEFS.melter.inputs.length === 1);
 });

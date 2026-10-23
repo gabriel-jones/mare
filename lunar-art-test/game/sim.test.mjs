@@ -1,7 +1,7 @@
 import test from 'node:test';
 import {movePlayer,buildingCenter,nearestBlueprint,resetLocomotion,interpolatePose,WALK_SPEED,RUN_SPEED} from './controller.js';
 import assert from 'node:assert/strict';
-import {createState,DEFS,footprint,validatePlacement,placeBlueprint,construct,cancelBlueprint,tick,serialize,deserialize} from './sim.js';
+import {createState,DEFS,footprint,validatePlacement,placeBlueprint,construct,cancelBlueprint,tick,serialize,deserialize,interact,DAY_DURATION} from './sim.js';
 import {count,createInventory} from './inventory.js';
 function complete(state,type,x,z,rotation=0) {
   const result=placeBlueprint(state,type,x,z,rotation);
@@ -348,4 +348,37 @@ test('retired work lights vanish from old saves instead of breaking them',()=>{
  const s=createState();complete(s,'battery',0,0);
  const raw=JSON.parse(serialize(s));raw.buildings.push({...raw.buildings[0],id:99,type:'lamp',x:4,z:4,serial:1});
  assert.deepEqual(deserialize(JSON.stringify(raw)).buildings.map(b=>b.type),['battery']);
+});
+
+test('caves give titanium, rare earth, artifacts, lore and the reactor schematic, each taken once',async()=>{
+ const {caveLayout}=await import('./caves.js'),{lootAction,takeLoot,LORE}=await import('./delve.js'),{selectResearch,lockedReason}=await import('./space.js');
+ const s=createState();s.inventory=createInventory({metal:200,silicon:100});
+ const stand=(l,zone)=>{s.player={x:l.x*2,z:l.z*2,y:0,satiety:100,cave:0};if(zone)s.player.zone=zone;};
+ const top=caveLayout(s.seed,0,0),hollows=caveLayout(s.seed,0,1),deep=caveLayout(s.seed,0,2);
+ assert.ok(!top.loot.some(l=>l.kind==='crystal'),'no rare earth near the surface');
+ const ore=top.loot.find(l=>l.kind==='ore');stand(ore,0);
+ assert.match(lootAction(s).verb,/titanium/);assert.equal(takeLoot(s).ok,true);assert.equal(count(s.inventory,'titanium'),ore.amount);
+ assert.notEqual(lootAction(s)?.loot.key,ore.key,'a seam is only chipped once');
+ const tablet=top.loot.find(l=>l.kind==='tablet');stand(tablet,0);const read=takeLoot(s);assert.equal(read.say,LORE[0]);assert.equal(s.lore,1);
+ // The reactor stays locked until its schematic is found, then needs research.
+ assert.match(lockedReason(s,'reactor'),/schematic/);assert.equal(selectResearch(s,'reactor').ok,false);
+ stand(hollows.loot.find(l=>l.kind==='blueprint'),1);assert.equal(takeLoot(s).ok,true);assert.deepEqual(s.blueprints,['reactor']);
+ assert.match(lockedReason(s,'reactor'),/research/);assert.equal(selectResearch(s,'reactor').ok,true);
+ const crystal=hollows.loot.find(l=>l.kind==='crystal');stand(crystal,1);
+ assert.equal(takeLoot(s).ok,true);assert.equal(count(s.inventory,'rareearth'),2);
+ const heart=deep.loot.find(l=>l.kind==='heart');stand(heart,2);
+ assert.equal(takeLoot(s).ok,true);assert.equal(count(s.inventory,'heart'),1);
+ const saved=deserialize(serialize(s));assert.deepEqual(saved.caveLoot,s.caveLoot);assert.equal(saved.lore,1);assert.deepEqual(saved.blueprints,['reactor']);
+ // A full pack refuses what doesn't fit and leaves it in the cave.
+ s.inventory=createInventory({metal:2000});stand(caveLayout(s.seed,1,0).loot.find(l=>l.kind==='ore'),0);s.player.cave=1;
+ assert.equal(takeLoot(s).ok,false);assert.equal(s.caveLoot['1'],undefined);
+});
+test('a xeno lab turns finds into research and a resonance reactor powers the night',async()=>{
+ const {STUDY,REACTOR_POWER}=await import('./space.js');
+ const s=createState();s.inventory=createInventory({metal:200,silicon:100,titanium:30,rareearth:8,artifact:2,heart:1});s.player={x:0,z:20,y:0,satiety:100};
+ assert.equal(placeBlueprint(s,'xenolab',3,3).ok,true);const lab=s.buildings.at(-1);lab.progress=1;lab.built=true;
+ assert.equal(interact(s,lab.id).ok,true);assert.equal(s.research.bank,STUDY.artifact*2+STUDY.heart);assert.equal(count(s.inventory,'artifact'),0);
+ s.blueprints=['reactor'];s.research.done.push('reactor');
+ assert.equal(placeBlueprint(s,'reactor',8,2).ok,true);const reactor=s.buildings.at(-1);reactor.progress=1;reactor.built=true;
+ s.time=DAY_DURATION*.75;tick(s,0);assert.equal(s.power.generation,REACTOR_POWER);
 });

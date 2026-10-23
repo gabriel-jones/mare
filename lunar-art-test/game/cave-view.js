@@ -113,7 +113,33 @@ export function createCaveView(seed,id,parent,zone=0){
  const glyphTexture=keep(new THREE.CanvasTexture(glyphCanvas));
  const glyphMat=keep(new THREE.MeshBasicMaterial({map:glyphTexture,color:'#4fd6bd',transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,fog:false}));
  const glyphItems=cave.glyphs.map(g=>({...g,key:`${g.x},${g.z}`}));
+ const glyphColor=new THREE.Color();
  const glyphs=new THREE.InstancedMesh(keep(new THREE.PlaneGeometry(1.4,1.05)),glyphMat,Math.max(1,glyphItems.length));glyphs.count=glyphItems.length;glyphs.frustumCulled=false;root.add(glyphs);
+
+ // Finds. Titanium seams only show in the lamp; relics glow on their own and are spotted from afar like crystals.
+ const loot=cave.loot,lootByCrystal=new Map(loot.filter(l=>l.kind==='crystal').map(l=>[`${l.x},${l.z},${l.dx},${l.dz}`,l.key]));
+ crystalItems.forEach(c=>c.loot=lootByCrystal.get(`${c.x},${c.z},${c.dx},${c.dz}`));
+ const tabletKeys=new Map(loot.filter(l=>l.kind==='tablet').map(l=>[`${l.x},${l.z},${l.dx},${l.dz}`,l.key]));
+ glyphItems.forEach(g=>g.loot=tabletKeys.get(`${g.x},${g.z},${g.dx},${g.dz}`));
+ glyphItems.forEach((g,i)=>glyphs.setColorAt(i,glyphColor.setScalar(g.loot?1:.4)));if(!glyphItems.length)glyphs.setColorAt(0,glyphColor.setScalar(0));
+ const seamParts=[[0,0,0,.34],[.3,.22,.05,.22],[-.28,-.18,.04,.26],[.12,-.32,.03,.18],[-.1,.36,.02,.2]].map(([x,y,z,r],i)=>new THREE.OctahedronGeometry(r,0).rotateZ(i).rotateX(i*.7).translate(x,y,z).toNonIndexed());
+ const seamGeo=shade(mergeGeometries(seamParts));seamParts.forEach(g=>g.dispose());
+ const seams=loot.filter(l=>l.kind==='ore').map(l=>({...l,key:`${l.x},${l.z}`,loot:l.key}));
+ litGroup(seamGeo,rockMat,seams,l=>{dummy.position.set(l.x*2+l.dx*.68,.75+Math.sin(l.x+l.z)*.25,l.z*2+l.dz*.68);dummy.rotation.set(0,Math.atan2(l.dx,l.dz),0);dummy.scale.set(1.2,1,1.2);},()=>'#d58a46');
+ const RELIC={artifact:{color:new THREE.Color(1,.2,.04),size:.46,light:.6},blueprint:{color:new THREE.Color(.1,.75,1),size:.42,light:.6},heart:{color:new THREE.Color(1,.04,.02),size:1.15,light:1.2}};
+ const relicItems=loot.filter(l=>RELIC[l.kind]).map(l=>({key:`${l.x},${l.z}`,loot:l.key,kind:l.kind,x:l.x,z:l.z}));
+ const pedestalGeo=new THREE.CylinderGeometry(.42,.55,.5,7);pedestalGeo.translate(0,.25,0);
+ litGroup(shade(jitter(pedestalGeo,.03,.03)),rockMat,relicItems,r=>{dummy.position.set(r.x*2,0,r.z*2);dummy.rotation.set(0,r.x+r.z,0);dummy.scale.setScalar(r.kind==='heart'?2:1);},r=>r.kind==='heart'?'#5b4a46':'#857b6c');
+ const relicMat=keep(new THREE.MeshBasicMaterial({color:'#ffffff',fog:false}));
+ const relics=new THREE.InstancedMesh(keep(new THREE.OctahedronGeometry(1,0).scale(.6,1,.6)),relicMat,Math.max(1,relicItems.length));relics.count=relicItems.length;relics.frustumCulled=false;root.add(relics);
+ relicItems.forEach((r,i)=>relics.setColorAt(i,RELIC[r.kind].color));if(!relicItems.length)relics.setColorAt(0,new THREE.Color(0,0,0));
+ const haloCanvas=document.createElement('canvas');haloCanvas.width=haloCanvas.height=64;
+ {const g=haloCanvas.getContext('2d'),fill=g.createRadialGradient(32,32,0,32,32,32);fill.addColorStop(0,'rgba(255,255,255,.9)');fill.addColorStop(.35,'rgba(255,255,255,.35)');fill.addColorStop(1,'rgba(255,255,255,0)');g.fillStyle=fill;g.fillRect(0,0,64,64);}
+ const haloMat=keep(new THREE.MeshBasicMaterial({map:keep(new THREE.CanvasTexture(haloCanvas)),transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,fog:false}));
+ const halos=new THREE.InstancedMesh(keep(new THREE.PlaneGeometry(1,1).rotateX(-Math.PI/2)),haloMat,Math.max(1,relicItems.length));halos.count=relicItems.length;halos.frustumCulled=false;halos.renderOrder=2;root.add(halos);
+ relicItems.forEach((r,i)=>halos.setColorAt(i,RELIC[r.kind].color.clone().multiplyScalar(.55)));if(!relicItems.length)halos.setColorAt(0,new THREE.Color(0,0,0));
+ let taken=new Set(),takenCount=-1;
+ const gone=item=>item.loot&&taken.has(item.loot);
 
  // Vents breathe a faint green gas.
  const VENT_PUFFS=26,ventCount=cave.vents.length*VENT_PUFFS,ventPositions=new Float32Array(Math.max(1,ventCount)*3),ventLife=new Float32Array(Math.max(1,ventCount));
@@ -156,24 +182,25 @@ export function createCaveView(seed,id,parent,zone=0){
  const roofPixels=new Uint8Array(64*64),roofMap=keep(new THREE.DataTexture(roofPixels,64,64,THREE.RedFormat));roofMap.minFilter=THREE.LinearFilter;roofMap.magFilter=THREE.LinearFilter;roofMap.needsUpdate=true;
  let visible=new Set(),seen=new Set(),loaded=false,clock=1,lastFacing=-100,lastX=-100,lastZ=-100,time=0;
  const glowSources=[
-  ...crystalItems.map(c=>({key:c.key,x:c.x*2+c.dx*.8,z:c.z*2+c.dz*.8,color:GLOW[c.hue],strength:.55*c.size})),
+  ...relicItems.map(r=>({key:r.key,loot:r.loot,x:r.x*2,z:r.z*2,color:RELIC[r.kind].color,strength:RELIC[r.kind].light,pulse:r.kind==='heart'})),
+  ...crystalItems.map(c=>({key:c.key,loot:c.loot,x:c.x*2+c.dx*.8,z:c.z*2+c.dz*.8,color:GLOW[c.hue],strength:.55*c.size})),
   ...cave.vents.map(v=>({key:`${v.x},${v.z}`,x:v.x*2,z:v.z*2,color:GLOW.vent,strength:.28})),
   ...(cave.up?[{key:`${cave.up.x},${cave.up.z}`,x:cave.up.x*2,z:cave.up.z*2,color:GLOW.sky,strength:.75,always:true}]:[]),
  ];
 
  function place(p){
-  for(const g of groups){g.items.forEach((item,i)=>{g.place(item,p);if(!cellKnown(item.key))dummy.scale.setScalar(0);dummy.updateMatrix();g.mesh.setMatrixAt(i,dummy.matrix);});g.mesh.instanceMatrix.needsUpdate=true;}
-  crystalItems.forEach((c,i)=>{const wall=c.dx||c.dz;dummy.position.set(c.x*2+c.dx*.78,wall?.2:0,c.z*2+c.dz*.78);dummy.rotation.set(-c.dz*.5,(c.x*7+c.z*3)%6,c.dx*.5);dummy.scale.setScalar(cellKnown(c.key)?c.size:0);dummy.updateMatrix();crystals.setMatrixAt(i,dummy.matrix);});crystals.instanceMatrix.needsUpdate=true;
+  for(const g of groups){g.items.forEach((item,i)=>{g.place(item,p);if(!cellKnown(item.key)||(item.kind==='ore'&&gone(item)))dummy.scale.setScalar(0);dummy.updateMatrix();g.mesh.setMatrixAt(i,dummy.matrix);});g.mesh.instanceMatrix.needsUpdate=true;}
+  crystalItems.forEach((c,i)=>{const wall=c.dx||c.dz;dummy.position.set(c.x*2+c.dx*.78,wall?.2:0,c.z*2+c.dz*.78);dummy.rotation.set(-c.dz*.5,(c.x*7+c.z*3)%6,c.dx*.5);dummy.scale.setScalar(cellKnown(c.key)&&!gone(c)?c.size:0);dummy.updateMatrix();crystals.setMatrixAt(i,dummy.matrix);});crystals.instanceMatrix.needsUpdate=true;
   pitItems.forEach((t,i)=>{dummy.position.set(t.x*2,-1.1,t.z*2);dummy.rotation.set(0,0,0);dummy.scale.setScalar(cellKnown(t.key)?1:0);dummy.updateMatrix();pits.setMatrixAt(i,dummy.matrix);});pits.instanceMatrix.needsUpdate=true;
-  glyphItems.forEach((g,i)=>{dummy.position.set(g.x*2+g.dx*.66,1.75,g.z*2+g.dz*.66);dummy.rotation.set(0,Math.atan2(-g.dx,-g.dz),0);dummy.scale.setScalar(cellKnown(g.key)?1:0);dummy.updateMatrix();glyphs.setMatrixAt(i,dummy.matrix);});glyphs.instanceMatrix.needsUpdate=true;
+  glyphItems.forEach((g,i)=>{dummy.position.set(g.x*2+g.dx*.66,1.75,g.z*2+g.dz*.66);dummy.rotation.set(0,Math.atan2(-g.dx,-g.dz),0);dummy.scale.setScalar(cellKnown(g.key)?1:0);dummy.updateMatrix();glyphs.setMatrixAt(i,dummy.matrix);glyphs.setColorAt(i,glyphColor.setScalar(g.loot&&!gone(g)?1:.4));});glyphs.instanceMatrix.needsUpdate=true;if(glyphs.instanceColor)glyphs.instanceColor.needsUpdate=true;
  }
  function ease(dt){
   const k=1-Math.exp(-dt*6);
   for(const g of groups){const a=g.seen.array;let moving=false;for(let i=0;i<g.items.length;i++){const target=visible.has(g.items[i].key)?1:0,d=target-a[i];if(Math.abs(d)>.002){a[i]+=d*k;moving=true;}else a[i]=target;}if(moving)g.seen.needsUpdate=true;}
  }
  function updateGlow(p){
-  const near=glowSources.filter(s=>s.always||seen.has(s.key)).map(s=>({s,d:Math.hypot(s.x-p.x,s.z-p.z)})).sort((a,b)=>a.d-b.d).slice(0,LIGHTS);
-  for(let i=0;i<LIGHTS;i++){const n=near[i];if(n){sight.uGlow.value[i].set(n.s.x,n.s.z,n.s.strength*(n.s.key&&cave.types.get(n.s.key)==='vent'?.8+.2*Math.sin(time*2+i):1));sight.uGlowColor.value[i].copy(n.s.color);}else sight.uGlow.value[i].set(0,0,0);}
+  const near=glowSources.filter(s=>(s.always||seen.has(s.key))&&!(s.loot&&taken.has(s.loot))).map(s=>({s,d:Math.hypot(s.x-p.x,s.z-p.z)})).sort((a,b)=>a.d-b.d).slice(0,LIGHTS);
+  for(let i=0;i<LIGHTS;i++){const n=near[i];if(n){sight.uGlow.value[i].set(n.s.x,n.s.z,n.s.strength*(n.s.key&&cave.types.get(n.s.key)==='vent'?.8+.2*Math.sin(time*2+i):n.s.pulse?.75+.25*Math.sin(time*2.4):1));sight.uGlowColor.value[i].copy(n.s.color);}else sight.uGlow.value[i].set(0,0,0);}
  }
  function updateVents(dt){
   cave.vents.forEach((v,j)=>{for(let k=0;k<VENT_PUFFS;k++){const i=j*VENT_PUFFS+k;ventLife[i]+=dt*(.25+(k%5)*.04);if(ventLife[i]>1)ventLife[i]-=1;const l=ventLife[i],a=k*2.4;ventPositions.set([v.x*2+Math.cos(a)*l*.6,.1+l*2.4,v.z*2+Math.sin(a)*l*.6],i*3);}});
@@ -210,6 +237,8 @@ export function createCaveView(seed,id,parent,zone=0){
  function update(state,dt){
   const p=state.player;time+=dt;
   if(!loaded){seen=new Set(state.exploredCaves?.[memory]||[]);loaded=true;}
+  const takenList=state.caveLoot?.[memory]??[];if(takenList.length!==takenCount){taken=new Set(takenList);takenCount=takenList.length;clock=1;lastFacing=-100;}
+  relicItems.forEach((r,i)=>{const big=r.kind==='heart';dummy.position.set(r.x*2,(big?1.9:1.05)+Math.sin(time*1.3+i)*.08,r.z*2);dummy.rotation.set(0,time*(big?.4:.9)+i,0);dummy.scale.setScalar(cellKnown(r.key)&&!gone(r)?RELIC[r.kind].size*(big?1+.06*Math.sin(time*2.4):1):0);dummy.updateMatrix();relics.setMatrixAt(i,dummy.matrix);const shown=cellKnown(r.key)&&!gone(r);dummy.position.set(r.x*2,r.kind==='heart'?.06:.52,r.z*2);dummy.rotation.set(0,0,0);dummy.scale.setScalar(shown?(big?7:3.2)*(.92+.08*Math.sin(time*2+i)):0);dummy.updateMatrix();halos.setMatrixAt(i,dummy.matrix);});relics.instanceMatrix.needsUpdate=true;halos.instanceMatrix.needsUpdate=true;
   sight.uPlayer.value.set(p.x,p.z);sight.uFacing.value.set(Math.sin(p.facing),Math.cos(p.facing));
   const depth=Math.min(1,(zone+Math.min(1,Math.max(0,p.z/90)))/CAVE_ZONES);
   // The headlamp stutters when something is near, and now and then on its own deeper down.
@@ -228,12 +257,12 @@ export function createCaveView(seed,id,parent,zone=0){
   visible=visibleCaveCells(cave,p.x,p.z,p.facing);
   // Crystals shine far beyond the headlamp, so they are spotted from anywhere in line of sight.
   const cx=Math.round(p.x/CAVE_CELL),cz=Math.round(p.z/CAVE_CELL);
-  for(const c of crystalItems)if(!seen.has(c.key)&&Math.hypot(c.x*2-p.x,c.z*2-p.z)<34&&lineVisible(cave,cx,cz,c.x,c.z))seen.add(c.key);
+  for(const c of [...crystalItems,...relicItems])if(!seen.has(c.key)&&Math.hypot(c.x*2-p.x,c.z*2-p.z)<34&&lineVisible(cave,cx,cz,c.x,c.z))seen.add(c.key);
   let changed=false;for(const key of visible)if(!seen.has(key)){seen.add(key);changed=true;}
   if(changed){state.exploredCaves??={};state.exploredCaves[memory]=[...seen];}
   roofPixels.fill(0);for(const key of seen){const [x,z]=key.split(',').map(Number);if(!visible.has(key)&&Math.hypot(x*2-p.x,z*2-p.z)>6)continue;const index=(z+3)*64+x+32;if(index>=0&&index<roofPixels.length)roofPixels[index]=255;}roofMap.needsUpdate=true;
   place(p);
   document.body.dataset.caveVisible=String(visible.size);document.body.dataset.caveExplored=String(seen.size);document.body.style.setProperty('--cave-depth',depth.toFixed(3));
  }
- return {root,roofMap,cave,update,dispose(){parent.remove(root);disposables.forEach(d=>d.dispose());crystals.dispose();glyphs.dispose();groups.forEach(g=>g.mesh.dispose());}};
+ return {root,roofMap,cave,update,dispose(){parent.remove(root);disposables.forEach(d=>d.dispose());crystals.dispose();glyphs.dispose();relics.dispose();halos.dispose();groups.forEach(g=>g.mesh.dispose());}};
 }

@@ -88,7 +88,7 @@ test('expedition assets keep the salvageable core and the melter heater as separ
  }
 });
 test('every machine carries a status lamp, and the battery, melter and hopper carry their gauges',()=>{
- const machines={solar:[],battery:['Cell1','Cell2','Cell3','Cell4','Cell5'],hopper:['Level'],processor:[],storage:[],rover:[],melter:['Level'],growbed:[],galley:[],recycler:[],fabricator:[],assembler:[],electrolyser:[],tank:['Level'],dock:[],roverbay:[],hauler:[]};
+ const machines={solar:[],battery:['Cell1','Cell2','Cell3','Cell4','Cell5'],hopper:['Level'],processor:[],storage:[],rover:[],melter:['Level'],growbed:[],galley:[],recycler:[],fabricator:[],assembler:[],electrolyser:[],tank:['Level'],dock:[],roverbay:[],hauler:[],xenolab:[],reactor:[]};
  for(const [name,gauges] of Object.entries(machines)){
   const {json:d}=glb(name),names=d.nodes.map(n=>n.name.replace(/\.\d+$/,''));
   for(const part of ['Lamp',...gauges])assert.ok(names.includes(part),`${name}: ${part} node`);
@@ -106,7 +106,7 @@ test('interior fittings stay light and keep their animated parts separable',()=>
  }
 });
 test('space kit stays within budget; the hauler keeps wheels and its cargo crate separate',()=>{
- for(const [name,budget] of [['fabricator',1400],['assembler',1500],['electrolyser',1500],['tank',2200],['dock',1000],['roverbay',1000],['hauler',1300],['satellite',700]]){
+ for(const [name,budget] of [['fabricator',1400],['assembler',1500],['electrolyser',1500],['tank',2200],['dock',1000],['roverbay',1000],['hauler',1300],['satellite',700],['xenolab',1400],['reactor',2400]]){
   const {json:d}=glb(name);assert.ok(!d.nodes.some(n=>/Camera|Light/.test(n.name||'')),`${name}: no preview objects`);
   const triangles=d.meshes.reduce((sum,mesh)=>sum+mesh.primitives.reduce((s,p)=>s+d.accessors[p.indices].count/3,0),0);
   assert.ok(triangles<=budget,`${name}: ${triangles} triangles`);

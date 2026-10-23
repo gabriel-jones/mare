@@ -153,12 +153,12 @@ export function createOrbitView(callbacks = {}) {
   }
   let techKey = '';
   function renderTechs(state) {
-    const r = state.research, key = JSON.stringify([r.selected, r.done]);
+    const r = state.research, key = JSON.stringify([r.selected, r.done, state.blueprints ?? []]);
     if (key !== techKey) {
       techKey = key;
       techs.innerHTML = Object.entries(TECHS).map(([id, t]) => {
-        const done = r.done.includes(id), active = r.selected === id;
-        return `<button type="button" class="orbit-tech" data-tech="${id}" data-state="${done ? 'done' : active ? 'active' : 'idle'}" ${done ? 'disabled' : ''}><strong>${t.name}</strong><small>${done ? 'Researched · build it from the Space menu' : t.description}</small><span class="orbit-bar"><i></i></span><em data-tech-field="${id}"></em></button>`;
+        const done = r.done.includes(id), active = r.selected === id, hidden = t.schematic && !(state.blueprints ?? []).includes(id);
+        return `<button type="button" class="orbit-tech" data-tech="${id}" data-state="${done ? 'done' : active ? 'active' : 'idle'}" ${done || hidden ? 'disabled' : ''}><strong>${t.name}</strong><small>${done ? 'Researched · build it from the menu (B)' : hidden ? 'Needs a schematic from deep in the caves.' : t.description}</small><span class="orbit-bar"><i></i></span><em data-tech-field="${id}"></em></button>`;
       }).join('');
     }
     for (const [id, t] of Object.entries(TECHS)) {
