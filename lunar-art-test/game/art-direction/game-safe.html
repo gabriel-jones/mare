@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Game (sandboxed storage) • debug</title>
+<base href="../">
+<link rel="stylesheet" href="./game.css">
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#090f1a}#game{display:block;position:fixed;inset:0;width:100%;height:100%;outline:none;touch-action:none}</style>
+<script type="importmap">{"imports":{"three":"../node_modules/three/build/three.module.js","three/addons/":"../node_modules/three/examples/jsm/"}}</script>
+<script>
+// The real game against an in-memory copy of storage: it reads the colony saves but can never write them back.
+(()=>{const real=window.localStorage,mem=new Map();for(let i=0;i<real.length;i++){const k=real.key(i);mem.set(k,real.getItem(k));}
+ const store={getItem:k=>mem.has(k)?mem.get(k):null,setItem:(k,v)=>{mem.set(k,String(v));},removeItem:k=>{mem.delete(k);},clear:()=>mem.clear(),key:i=>[...mem.keys()][i]??null,get length(){return mem.size;}};
+ Object.defineProperty(window,'localStorage',{value:store,configurable:true});
+ window.sandboxed=window.localStorage===store;window.bootErrors=[];
+ addEventListener('error',e=>bootErrors.push(String(e.error?.stack||e.message)));addEventListener('unhandledrejection',e=>bootErrors.push(String(e.reason?.stack||e.reason)));
+ const err=console.error;console.error=(...a)=>{bootErrors.push(a.map(String).join(' ').slice(0,800));err(...a);};})();
+</script>
+</head>
+<body>
+<canvas id="game" tabindex="0"></canvas>
+<div id="ui"></div>
+<div id="boot" style="position:fixed;inset:0;display:grid;place-content:center;background:#0b1118;color:#e1e8e9;font:14px system-ui;z-index:100">Preparing lunar landing…</div>
+<script>if(!window.sandboxed)document.body.innerHTML='<p style="color:#fff">Storage sandbox failed; not starting.</p>';else{const s=document.createElement('script');s.type='module';s.src='./main.js';document.body.append(s);}</script>
+</body>
+</html>
