@@ -151,4 +151,19 @@ button:focus-visible { outline:2px solid #edbd79;outline-offset:4px; }
 .orbit-tech[data-state=done] { opacity:.75;cursor:default; }
 .orbit-bar { grid-column:1/-1;height:3px;border-radius:2px;background:#ffffff14;overflow:hidden; }
 .orbit-bar i { display:block;height:100%;background:#8fc4ff;transform-origin:left;transform:scaleX(0); }
+.orbit-nav { position:absolute;top:96px;left:26px;display:grid;gap:3px;width:150px; }
+.orbit-nav button { text-align:left;padding:7px 10px;border-radius:5px;border:1px solid transparent;background:transparent;color:#aeb8c6;font:500 12px Inter,ui-sans-serif,sans-serif;cursor:pointer; }
+.orbit-nav button:hover { background:#ffffff0d;color:#e8ecf2; }
+.orbit-nav button[aria-pressed=true] { border-color:#8fc4ff66;background:#8fc4ff1a;color:#e8ecf2; }
+.orbit-nav button[data-focus=system] { margin-bottom:6px;color:#8fc4ff; }
+.orbit-facts { position:absolute;left:26px;bottom:26px;min-width:220px;padding:12px 14px;border:1px solid #ffffff22;border-radius:7px;background:#0d131dd9;backdrop-filter:blur(12px);font-size:12px; }
+.orbit-facts dl { margin:0;display:grid;gap:5px; }
+.orbit-facts div { display:flex;justify-content:space-between;gap:16px; }
+.orbit-facts dt { color:#8e99a9; }
+.orbit-facts dd { margin:0;color:#e8ecf2; }
+.orbit-labels { position:absolute;inset:0;pointer-events:none;overflow:hidden; }
+.orbit-label { position:absolute;left:0;top:0;display:flex;align-items:center;gap:5px;padding:2px 6px;border:0;border-radius:4px;background:#0d131d99;color:#c9d3e0;font:500 11px Inter,ui-sans-serif,sans-serif;white-space:nowrap;cursor:pointer;pointer-events:auto; }
+.orbit-label:hover { color:#fff;background:#18233499; }
+.orbit-label i { width:5px;height:5px;border-radius:50%;background:#8fc4ff; }
+.orbit-label[hidden] { display:none; }
 body[data-orbit=open] .game-ui, body[data-orbit=open] .building-status-layer { visibility:hidden; }
