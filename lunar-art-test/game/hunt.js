@@ -1,6 +1,7 @@
 import {caveLayout,cavePassable,CAVE_CELL} from './caves.js';
 import {FLARE,flareNow} from './peril.js';
 import * as inv from './inventory.js';
+import {liveNests,silkBlocks} from './infest.js';
 import {CRAWLER,PISTOL,PLAYER_RADIUS,createCrawler,stepCrawler,struggle,hurtCrawler,createGun,stepGun,fireGun,reloadGun,shotEnd,createDodge,startDodge,stepDodge} from './crawler.js';
 
 /**
@@ -8,7 +9,16 @@ import {CRAWLER,PISTOL,PLAYER_RADIUS,createCrawler,stepCrawler,struggle,hurtCraw
  * The crawlers are not saved: whoever hunts a zone is rolled fresh each time the player enters it. The gun is
  * (state.player.gun). Damage lands on the suit's health, so a mauling ends in the usual blackout.
  */
+/**
+ * `count`: crawlers per zone with every nest alive. Each nest burnt out takes its share of them and slows the rest
+ * coming back; with every nest burnt one still prowls, slowest of all to return.
+ */
 export const NEST=Object.freeze({count:[1,2,3],farFrom:16,respawn:[60,110],bullet:90,startReserve:12});
+function brood(state,cave){
+ const p=state.player,total=cave.nests.length,live=liveNests(state,p.cave,p.zone??0);
+ if(!total)return {live,cap:NEST.count[cave.zone]??1,slow:1};
+ return {live,cap:Math.max(1,Math.round((NEST.count[cave.zone]??1)*live.length/total)),slow:live.length?total/live.length:3};
+}
 
 export function createHunt(){
  return {key:null,crawlers:[],respawns:[],shots:[],dodge:createDodge(),lampShort:0,events:[],clock:0};
@@ -39,9 +49,15 @@ function spawnSpot(cave,player,rng,exclude=[]){
  }
  return null;
 }
-function spawn(hunt,cave,state,rng){
- const at=spawnSpot(cave,state.player,rng,hunt.crawlers);if(!at)return null;
+/** Out of a live nest well away from the player, if there is one; otherwise from the far rooms. */
+function nestSpot(nests,player,exclude){
+ const spots=nests.map(n=>({x:n.x*CAVE_CELL,z:n.z*CAVE_CELL,nest:n.key})).filter(s=>Math.hypot(s.x-player.x,s.z-player.z)>=8&&!exclude.some(c=>Math.hypot(c.x-s.x,c.z-s.z)<4));
+ return spots.sort((a,b)=>Math.hypot(b.x-player.x,b.z-player.z)-Math.hypot(a.x-player.x,a.z-player.z))[0]??null;
+}
+function spawn(hunt,cave,state,rng,nests=[]){
+ const at=nestSpot(nests,state.player,hunt.crawlers)??spawnSpot(cave,state.player,rng,hunt.crawlers);if(!at)return null;
  const c=createCrawler(at.x,at.z,rng);c.facing=Math.atan2(state.player.x-at.x,state.player.z-at.z);
+ if(at.nest)c.nest=at.nest;
  hunt.crawlers.push(c);return c;
 }
 
@@ -56,15 +72,16 @@ export function stepHunt(hunt,state,dt,rng=Math.random){
  const zone=p.zone??0,key=`${p.cave}:${zone}`,cave=caveLayout(state.seed,p.cave,zone);
  if(hunt.key!==key){
   Object.assign(hunt,createHunt(),{events:hunt.events,key});
-  for(let i=0;i<(NEST.count[zone]??1);i++)spawn(hunt,cave,state,rng);
+  const b=brood(state,cave);for(let i=0;i<b.cap;i++)spawn(hunt,cave,state,rng,b.live);
  }
  hunt.clock+=dt;
  const gun=gunOf(state);stepGun(gun,dt);
  hunt.lampShort=Math.max(0,hunt.lampShort-dt);hunt.wrenching=Math.max(0,(hunt.wrenching??0)-dt);
  const dash=stepDodge(hunt.dodge,dt);
  if(dash.rolling){
-  if(cavePassable(cave,p.x+dash.x,p.z,PLAYER_RADIUS))p.x+=dash.x;
-  if(cavePassable(cave,p.x,p.z+dash.z,PLAYER_RADIUS))p.z+=dash.z;
+  const clear=(x,z)=>cavePassable(cave,x,z,PLAYER_RADIUS)&&!silkBlocks(state,x,z,PLAYER_RADIUS);
+  if(clear(p.x+dash.x,p.z))p.x+=dash.x;
+  if(clear(p.x,p.z+dash.z))p.z+=dash.z;
  }
  hunt.rolling=dash.rolling;
  const held=grabber(hunt);
@@ -76,7 +93,7 @@ export function stepHunt(hunt,state,dt,rng=Math.random){
   for(const e of stepCrawler(c,env,dt,rng)){
    if(e.type==='grab'||e.type==='slash'||e.type==='hurt')hurt(e.damage);
    if(e.type==='slash')hunt.lampShort=e.short;
-   if(e.type==='drag'){if(cavePassable(cave,p.x+e.dx,p.z+e.dz,PLAYER_RADIUS)){p.x+=e.dx;p.z+=e.dz;}continue;}
+   if(e.type==='drag'){if(cavePassable(cave,p.x+e.dx,p.z+e.dz,PLAYER_RADIUS)&&!silkBlocks(state,p.x+e.dx,p.z+e.dz,PLAYER_RADIUS)){p.x+=e.dx;p.z+=e.dz;}continue;}
    if(e.type==='hurt')continue;
    hunt.events.push({...e,crawler:c});
   }
@@ -92,11 +109,12 @@ export function stepHunt(hunt,state,dt,rng=Math.random){
   }else hunt.events.push({type:'impact',x:s.x,z:s.z,dir:s.dir,rock:true});
  }
  hunt.shots=hunt.shots.filter(s=>s.t>0);
- // The dead melt away; another moves in a while later.
- for(const c of hunt.crawlers)if(c.state==='dead'&&c.t>6.5){hunt.respawns.push(NEST.respawn[0]+(NEST.respawn[1]-NEST.respawn[0])*rng());}
+ // The dead melt away; another crawls out of a nest a while later, if the nests left can still breed one.
+ const b=brood(state,cave);
+ for(const c of hunt.crawlers)if(c.state==='dead'&&c.t>6.5){hunt.respawns.push((NEST.respawn[0]+(NEST.respawn[1]-NEST.respawn[0])*rng())*b.slow);}
  hunt.crawlers=hunt.crawlers.filter(c=>!(c.state==='dead'&&c.t>6.5));
  hunt.respawns=hunt.respawns.map(t=>t-dt);
- for(const t of hunt.respawns)if(t<=0){const c=spawn(hunt,cave,state,rng);if(c)hunt.events.push({type:'spawned',crawler:c});}
+ for(const t of hunt.respawns)if(t<=0&&hunt.crawlers.filter(c=>c.state!=='dead').length<b.cap){const c=spawn(hunt,cave,state,rng,b.live);if(c)hunt.events.push({type:'spawned',crawler:c,nest:c.nest??null});}
  hunt.respawns=hunt.respawns.filter(t=>t>0);
  if(hunt.events.length>200)hunt.events.splice(0,hunt.events.length-200);
 }

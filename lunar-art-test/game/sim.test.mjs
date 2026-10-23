@@ -255,8 +255,8 @@ test('every cave has three connected zones joined by shafts, with features that 
   const cave=caveLayout(seed,id,zone),start=`${cave.start.x},${cave.start.z}`,visited=new Set([start]),queue=[start];
   while(queue.length){const [x,z]=queue.pop().split(',').map(Number);for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]]){const k=`${x+dx},${z+dz}`;if(cave.cells.has(k)&&!visited.has(k)){visited.add(k);queue.push(k);}}}
   assert.equal(visited.size,cave.cells.size,`seed ${seed} cave ${id} zone ${zone} is one connected network`);
-  for(const t of cave.tiles)if(['pillar','chasm'].includes(t.type))assert.ok(!cave.cells.has(t.key),'pillars and chasms block walking');
-  for(const s of cave.solids){assert.ok(!cavePassable(cave,s.x,s.z),'a formation is solid');assert.ok(cave.sight.has(`${s.x/2},${s.z/2}`),'formations do not block sight');}
+  for(const t of cave.tiles)if(t.type==='chasm')assert.ok(!cave.cells.has(t.key),'chasms block walking');
+  for(const s of cave.solids){assert.ok(!cavePassable(cave,s.x,s.z),'a formation is solid');assert.ok(cave.sight.has(`${Math.round(s.x/2)},${Math.round(s.z/2)}`),'formations do not block sight');}
   assert.ok(cave.tiles.some(t=>t.type==='bridge')||!cave.tiles.some(t=>t.type==='chasm'),'chasms come with a bridge');
   assert.equal(!!cave.down,zone<CAVE_ZONES-1);assert.equal(!!cave.up,zone>0);assert.equal(!!cave.heart,zone===CAVE_ZONES-1);
   if(cave.down)assert.ok(cave.cells.has(`${cave.down.x},${cave.down.z}`)&&cave.cells.has(`${cave.down.x},${cave.down.z-1}`));
@@ -351,8 +351,8 @@ test('retired work lights vanish from old saves instead of breaking them',()=>{
  assert.deepEqual(deserialize(JSON.stringify(raw)).buildings.map(b=>b.type),['battery']);
 });
 
-test('caves give titanium, rare earth, artifacts, lore and the reactor schematic, each taken once',async()=>{
- const {caveLayout}=await import('./caves.js'),{lootAction,takeLoot,LORE}=await import('./delve.js'),{selectResearch,lockedReason}=await import('./space.js');
+test('caves give titanium, rare earth, artifacts and the reactor schematic, each taken once',async()=>{
+ const {caveLayout}=await import('./caves.js'),{lootAction,takeLoot}=await import('./delve.js'),{selectResearch,lockedReason}=await import('./space.js');
  const s=createState();s.inventory=createInventory({metal:200,silicon:100});
  const stand=(l,zone)=>{s.player={x:l.x*2,z:l.z*2,y:0,satiety:100,cave:0};if(zone)s.player.zone=zone;};
  const top=caveLayout(s.seed,0,0),hollows=caveLayout(s.seed,0,1),deep=caveLayout(s.seed,0,2);
@@ -360,7 +360,7 @@ test('caves give titanium, rare earth, artifacts, lore and the reactor schematic
  const ore=top.loot.find(l=>l.kind==='ore');stand(ore,0);
  assert.match(lootAction(s).verb,/titanium/);assert.equal(takeLoot(s).ok,true);assert.equal(count(s.inventory,'titanium'),ore.amount);
  assert.notEqual(lootAction(s)?.loot.key,ore.key,'a seam is only chipped once');
- const tablet=top.loot.find(l=>l.kind==='tablet');stand(tablet,0);const read=takeLoot(s);assert.equal(read.say,LORE[0]);assert.equal(s.lore,1);
+ assert.ok([0,1,2].every(z=>!caveLayout(s.seed,0,z).loot.some(l=>l.kind==='tablet')),'no glyph tablets: the old builders left machinery, not writing');
  // The reactor stays locked until its schematic is found, then needs research.
  assert.match(lockedReason(s,'reactor'),/schematic/);assert.equal(selectResearch(s,'reactor').ok,false);
  stand(hollows.loot.find(l=>l.kind==='blueprint'),1);assert.equal(takeLoot(s).ok,true);assert.deepEqual(s.blueprints,['reactor']);
@@ -369,7 +369,7 @@ test('caves give titanium, rare earth, artifacts, lore and the reactor schematic
  assert.equal(takeLoot(s).ok,true);assert.equal(count(s.inventory,'rareearth'),2);
  const heart=deep.loot.find(l=>l.kind==='heart');stand(heart,2);
  assert.equal(takeLoot(s).ok,true);assert.equal(count(s.inventory,'heart'),1);
- const saved=deserialize(serialize(s));assert.deepEqual(saved.caveLoot,s.caveLoot);assert.equal(saved.lore,1);assert.deepEqual(saved.blueprints,['reactor']);
+ const saved=deserialize(serialize(s));assert.deepEqual(saved.caveLoot,s.caveLoot);assert.deepEqual(saved.blueprints,['reactor']);
  // A full pack refuses what doesn't fit and leaves it in the cave.
  s.inventory=createInventory({metal:2000});stand(caveLayout(s.seed,1,0).loot.find(l=>l.kind==='ore'),0);s.player.cave=1;
  assert.equal(takeLoot(s).ok,false);assert.equal(s.caveLoot['1'],undefined);
@@ -411,6 +411,35 @@ test('flares are made from metal, thrown short of walls underground, and light t
  const cave=caveLayout(s.seed,0),dark=visibleCaveCells(cave,0,30,Math.PI),lit=visibleCaveCells(cave,0,30,Math.PI,[{x:0,z:40,r:P.FLARE.radius}]);
  assert.ok(lit.size>dark.size);
  P.stepPeril(s,P.FLARE.life+P.FLARE.release+2);assert.equal(s.flares.length,0);
+});
+test('the infestation thickens with depth; flares burn nests and silk, which regrow, and burnt nests thin the crawlers',async()=>{
+ const {caveLayout,cavePassable,INFESTATION}=await import('./caves.js'),I=await import('./infest.js'),P=await import('./peril.js'),H=await import('./hunt.js');
+ for(const seed of [42,1847,9191])for(let id=0;id<3;id++){
+  const per=[0,1,2].map(z=>caveLayout(seed,id,z));
+  per.forEach((c,z)=>{assert.equal(c.nests.length,INFESTATION.nests[z],`seed ${seed} cave ${id} zone ${z} nests`);assert.ok(c.silk.length<=INFESTATION.silk[z]);
+   for(const n of c.nests){assert.ok(c.cells.has(`${n.x},${n.z}`)&&!c.open.has(`${n.x+n.dx},${n.z+n.dz}`),'a nest is dug into a wall beside the floor');}
+   // With every silk wall standing, the shafts and the heart are still reachable from the start.
+   const silk=new Set(c.silk.map(s=>`${s.x},${s.z}`)),start=`${c.start.x},${c.start.z}`,seen=new Set([start]),queue=[start];
+   while(queue.length){const [x,zz]=queue.pop().split(',').map(Number);for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]]){const k=`${x+dx},${zz+dz}`;if(c.cells.has(k)&&!silk.has(k)&&!seen.has(k)){seen.add(k);queue.push(k);}}}
+   for(const p of [c.up,c.down,c.heart].filter(Boolean))assert.ok(seen.has(`${p.x},${p.z}`),'silk never seals the way through');
+  });
+ }
+ // Silk stops the player until a flare burns it, then grows back.
+ const s=createState();let id=0,zone=0,cave;
+ for(;id<3;id++){for(zone=0;zone<3;zone++){cave=caveLayout(s.seed,id,zone);if(cave.silk.length)break;}if(cave.silk.length)break;}
+ const web=cave.silk[0];s.player={x:web.x*2,z:web.z*2,y:0,satiety:100,cave:id,zone,facing:0};
+ assert.ok(I.silkBlocks(s,web.x*2,web.z*2),'silk blocks');
+ s.flares=[{cave:id,zone,x:web.x*2,z:web.z*2,t:30}];P.stepPeril(s,.1);
+ assert.ok(I.isBurnt(s,id,zone,web.key)&&!I.silkBlocks(s,web.x*2,web.z*2),'burnt through');
+ s.flares=[];const saved=deserialize(serialize(s));assert.ok(I.isBurnt(saved,id,zone,web.key),'saved');
+ P.stepPeril(s,I.INFEST.regrow.silk+1);assert.ok(I.silkBlocks(s,web.x*2,web.z*2),'regrown');
+ // Burnt nests breed fewer crawlers, but one always prowls.
+ const deep=caveLayout(s.seed,0,2);s.player={x:deep.start.x*2,z:deep.start.z*2,y:0,satiety:100,cave:0,zone:2,facing:0};s.burnt={};
+ const count=()=>{const h=H.createHunt();H.stepHunt(h,s,.01,()=>.5);return h.crawlers.length;};
+ assert.equal(count(),H.NEST.count[2]);
+ s.flares=deep.nests.map(n=>({cave:0,zone:2,...I.nestMouth(n),t:30}));P.stepPeril(s,.1);
+ assert.equal(I.liveNests(s,0,2).length,0);assert.equal(count(),1);
+ const h=H.createHunt();H.stepHunt(h,s,.01,()=>.5);assert.ok(h.crawlers.every(c=>cavePassable(deep,c.x,c.z)));
 });
 test('a flare is struck in hand, thrown at the aim point and burns where it lands',async()=>{
  const P=await import('./peril.js');const s=createState();s.inventory=createInventory({flare:2});

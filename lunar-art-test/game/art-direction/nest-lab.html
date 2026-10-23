@@ -21,6 +21,7 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import {createNestView} from '../nest-view.js';
+import {createSmoke} from '../smoke-view.js';
 import {createCrawlerView} from '../crawler-view.js';
 import {createAstronaut} from '../actor.js';
 
@@ -45,7 +46,7 @@ const lamp=new THREE.SpotLight('#cfe8ff',0,24,.42,.6,1.4);lamp.castShadow=true;c
 function lighting(dark){scene.environmentIntensity=dark?.03:.5;hemi.intensity=dark?.03:1;key.intensity=dark?0:2.4;rim.intensity=dark?.15:2;lamp.intensity=dark?60:0;scene.background.set(dark?'#020305':'#0b1018');$('light-studio').classList.toggle('on',!dark);$('light-lamp').classList.toggle('on',dark);}
 $('light-studio').onclick=()=>lighting(false);$('light-lamp').onclick=()=>lighting(true);lighting(false);
 
-const nest=createNestView(scene,{mode:'studio'});
+const smoke=createSmoke(scene),nest=createNestView(scene,{mode:'studio',smoke});
 // For scale and style: a crawler idling to one side and an astronaut who can walk up to the nest.
 const loader=new GLTFLoader();
 const [crawlerGLTF,astronautGLTF]=await Promise.all([loader.loadAsync('../assets/crawler.glb'),loader.loadAsync('../assets/astronaut-v3.glb')]);
@@ -70,10 +71,10 @@ function frame(now){
  astronaut.update({animation:moving?'aimwalk':'aimidle',gun:true,speed:moving?1.6:0},dt);
  alert+=((a.z<2.6?1:0)-alert)*(1-Math.exp(-dt*2));
  orbit.update();camera.getWorldDirection(toCamera).negate();
- nest.update(dt,{alert,toCamera});
+ nest.update(dt,{alert,toCamera});smoke.update(dt,toCamera);
  stand.t+=dt;specimen.update(stand,dt,{player:{x:a.x-specimenRoot.position.x,z:a.z-specimenRoot.position.z}});
  renderer.render(scene,camera);requestAnimationFrame(frame);
 }
-window.nestLab={scene,nest,lighting,camera,orbit,renderer};
+window.nestLab={scene,nest,smoke,lighting,camera,orbit,renderer};
 requestAnimationFrame(frame);
 </script></body></html>

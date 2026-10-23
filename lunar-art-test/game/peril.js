@@ -1,6 +1,7 @@
 import { caveLayout, caveWalkable, caveKey, CAVE_CELL, ZONE_NAMES } from './caves.js';
 import { CELL_SIZE, ITEM_INFO } from './defs.js';
 import * as inv from './inventory.js';
+import { stepInfest, silkBlocks } from './infest.js';
 
 /** The player's health, what hurts it underground, what happens at zero, and the flares that push back the dark. */
 export const HEALTH = Object.freeze({ max: 100, regen: 4, regenDelay: 5, vent: 14, toxic: 6 });
@@ -19,7 +20,10 @@ export function hazardAt(state) {
   return type === 'vent' || type === 'toxic' ? type : null;
 }
 
-/** Real-time step: hazards hurt, the surface heals after a pause, flares burn out. Returns what happened, if anything. */
+/**
+ * Real-time step: hazards hurt, the surface heals after a pause, flares burn out (and burn the nests and silk they lie
+ * by), burnt nests regrow. Returns what happened, if anything.
+ */
 export function stepPeril(state, dt) {
   const p = state.player;
   p.health ??= HEALTH.max;
@@ -34,6 +38,8 @@ export function stepPeril(state, dt) {
     if (f.age != null) f.age += dt;
     return (f.t -= dt) > 0;
   });
+  const fires = (state.flares ?? []).filter(f => f.cave === p.cave && (f.zone ?? 0) === (p.zone ?? 0)).map(f => flareNow(f, p)).filter(n => n.stage === 'down' && n.lit > 0);
+  stepInfest(state, dt, fires);
   if (p.health <= 0) return blackout(state);
   return hazard ? { hazard } : null;
 }
@@ -108,7 +114,7 @@ export function throwFlare(state, target = null) {
   const angle = aimed ? Math.atan2(target.x - p.x, target.z - p.z) : p.facing ?? 0, fx = Math.sin(angle), fz = Math.cos(angle);
   const want = aimed ? Math.min(FLARE.range, Math.hypot(target.x - p.x, target.z - p.z)) : FLARE.range * .7;
   let reach = 0;
-  for (let d = .25; d <= want; d += .25) { if (!caveWalkable(state.seed, p.cave, p.x + fx * d, p.z + fz * d, .1, zone)) break; reach = d; }
+  for (let d = .25; d <= want; d += .25) { if (!caveWalkable(state.seed, p.cave, p.x + fx * d, p.z + fz * d, .1, zone) || silkBlocks(state, p.x + fx * d, p.z + fz * d, .1)) break; reach = d; }
   inv.remove(state.inventory, 'flare', 1);
   state.flares ??= [];
   const flight = FLARE.flight + reach * .05;

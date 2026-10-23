@@ -43,7 +43,11 @@ function burrowGeometry(s0,s1,rings){
  return g;
 }
 
-export function createNestView(parent,{mode='studio',sight=null,toCave=null,viewDir=null}={}){
+/**
+ * `smoke` (smoke-view.js), if given, carries the same black tendrils the crawlers shed: a slow seep out of the throat,
+ * quicker when something is near, pouring out while it burns.
+ */
+export function createNestView(parent,{mode='studio',sight=null,toCave=null,viewDir=null,smoke=null}={}){
  const root=new THREE.Group(),owned=[],keep=x=>(owned.push(x),x);parent.add(root);
  const time={value:0},sag={value:new THREE.Vector3(0,.02,0)},pulse={value:0},ember={value:1},beat={value:0};
  const shared={uTime:time,uSag:sag,uPulse:pulse};
@@ -194,7 +198,18 @@ export function createNestView(parent,{mode='studio',sight=null,toCave=null,view
   for(let i=0;i<PUFFS;i++){if(puffAge[i]>=1)continue;puffAge[i]=Math.min(1,puffAge[i]+dt/puffLife[i]);const v=puffVel[i];v.multiplyScalar(Math.exp(-dt*.8));v.y+=.35*dt;
    puffPos[i*3]+=v.x*dt;puffPos[i*3+1]+=v.y*dt;puffPos[i*3+2]+=v.z*dt;}
   puffGeo.attributes.position.needsUpdate=puffGeo.attributes.aAge.needsUpdate=true;
+  if(smoke?.space&&dt>0&&root.visible){
+   const wisps=burning?(burnT<6?34*Math.max(.15,1-burnT/6):0):2.5+5*alert;
+   if(wispClock+dt*wisps>=1){root.updateWorldMatrix(true,false);smoke.space.updateWorldMatrix(true,false);spaceQ.copy(smoke.space.getWorldQuaternion(spaceQ)).invert();}
+   for(wispClock+=dt*wisps;wispClock>1;wispClock--){
+    const a=Math.random()*Math.PI*2,r=Math.random()*.3;
+    wispFrom.set(Math.cos(a)*r*1.1,CZ-.1+Math.sin(a)*r*.7,.15+Math.random()*.2);root.localToWorld(wispFrom);smoke.space.worldToLocal(wispFrom);
+    wispCarry.set((Math.random()-.5)*.8,.25,1).transformDirection(root.matrixWorld).applyQuaternion(spaceQ).multiplyScalar(burning?6:3);
+    smoke.emit(wispFrom,wispCarry,burning?.25:.1,burning?.35:.12);
+   }
+  }
  }
+ let wispClock=Math.random();const wispFrom=new THREE.Vector3(),wispCarry=new THREE.Vector3(),spaceQ=new THREE.Quaternion();
  return {
   root,update,
   /** Set it alight (a flare landed in it). */

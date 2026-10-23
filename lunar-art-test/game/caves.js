@@ -9,8 +9,9 @@ function random(seed){let n=seed>>>0;return()=>{n=(Math.imul(n,1664525)+10139042
 
 /**
  * One zone of one cave. `cells` is where the player can walk; `open` is everything carved (walls wrap it);
- * `sight` is what light passes through (open minus pillars, so you can see across chasms and past formations).
- * Each tile carries a `type`: floor, ice, vent, chasm, bridge, spire, pillar, shaftDown or shaftUp.
+ * `sight` is what light passes through (everything carved: you see across chasms, past formations and through silk).
+ * Each tile carries a `type`: floor, ice, vent, toxic, chasm, bridge, spire, shaftDown or shaftUp. The infestation
+ * (nests, silk, webs, growths, goo) is listed alongside; whether a nest or silk wall is burnt out lives in the save.
  * Spire cells stay walkable: only the formation itself is solid, a circle in `solids` (world x, z, radius), so there is
  * room to squeeze between two neighbours.
  */
@@ -45,14 +46,18 @@ export function caveLayout(seed,id=0,zone=0){
  decorate(layout,random(seed*31+id*977+zone*7919+3));
  placeLoot(layout,last,random(seed*17+id*3571+zone*613+11));
  poison(layout);
+ spinSilk(layout,random(seed*13+id*2027+zone*431+5));
  layout.tiles=[...layout.open].map(key=>{const [x,z]=key.split(',').map(Number);return {key,x,z,type:layout.types.get(key)??'floor'};});
  cache.set(key,layout);return layout;
 }
 
+/** The infestation thickens with depth: nests per zone, silk walls sealing side pockets, webs strung in corners. */
+export const INFESTATION=Object.freeze({nests:[2,4,6],silk:[1,2,3],webs:[3,6,10],growths:[2,5,9]});
+
 /** Seeded features per room, each kept only if every walkable cell stays reachable from the start. */
 function decorate(layout,rng){
  const {cells,rooms,zone}=layout,types=new Map(),blocked=new Set();
- const spires=[],pillars=[],crystals=[],glyphs=[],vents=[];
+ const spires=[],crystals=[],vents=[],nests=[],webs=[],growths=[],goo=[];
  const protect=new Set();
  const guard=(p,r=1)=>{if(!p)return;for(let dx=-r;dx<=r;dx++)for(let dz=-r;dz<=r;dz++)protect.add(caveKey(p.x+dx,p.z+dz));};
  guard(layout.start,1);guard(layout.up,1);guard(layout.down,1);guard(layout.heart,2);
@@ -77,7 +82,7 @@ function decorate(layout,rng){
  rooms.forEach((room,i)=>{
   if(i===0)return;
   const deep=zone/(2),r=rng();
-  const theme=r<.3?'spires':r<.48?'crystal':r<.6?'ice':r<.72+.1*deep?'ruin':r<.86?'vents':'chasm';room.theme=theme;
+  const theme=r<.3?'spires':r<.48?'crystal':r<.6?'ice':r<.72+.1*deep?'hive':r<.86?'vents':'chasm';room.theme=theme;
   const inside=interior(room);if(!inside.length)return;
   if(theme==='spires'||(theme==='chasm'&&room.rx<3)){
    let n=2+Math.floor(rng()*4);
@@ -93,24 +98,75 @@ function decorate(layout,rng){
   }else if(theme==='ice'){
    const center=pick(inside),radius=1+Math.floor(rng()*2);
    for(const c of inside)if(Math.hypot(c.x-center.x,c.z-center.z)<=radius+.3&&!types.has(c.key))types.set(c.key,'ice');
-  }else if(theme==='ruin'){
-   for(const c of inside)if((c.x-room.x)%2===0&&(c.z-room.z)%2===0&&(c.x!==room.x||c.z!==room.z)&&tryBlock([c.key],'pillar'))pillars.push({x:c.x,z:c.z});
-   const walls=boundary(room);for(let k=0;k<3&&walls.length;k++)glyphs.push(walls.splice(Math.floor(rng()*walls.length),1)[0]);
   }else if(theme==='vents'){
    const n=1+Math.floor(rng()*3);for(let k=0;k<n;k++){const c=pick(inside);if(!types.has(c.key)){types.set(c.key,'vent');vents.push({x:c.x,z:c.z});}}
   }
  });
  for(const k of blocked)if(types.get(k)!=='spire')cells.delete(k);
- layout.sight=new Set([...layout.open].filter(k=>types.get(k)!=='pillar'));
- // Formations are about .8 across at scale 1, flaring at the foot; the trunk is what stops you.
- const solids=[...spires.map(s=>({x:s.x*CAVE_CELL,z:s.z*CAVE_CELL,r:.62*s.r})),...crystals.filter(c=>!c.dx&&!c.dz).map(c=>({x:c.x*CAVE_CELL,z:c.z*CAVE_CELL,r:.45}))];
- Object.assign(layout,{types,spires,pillars,crystals,glyphs,vents,solids});
+ layout.sight=new Set(layout.open);
+ // Nests are burrows in a straight run of wall, three cells long, with room to stand in front. Hive rooms get theirs
+ // first; the rest of the zone's quota goes wherever a wall allows, a few cells apart.
+ const isOpen=(x,z)=>layout.open.has(caveKey(x,z)),walkable=(x,z)=>cells.has(caveKey(x,z));
+ const flatWall=w=>{const lx=w.dz,lz=w.dx,k=caveKey(w.x,w.z);
+  return !protect.has(k)&&!types.has(k)&&walkable(w.x-w.dx,w.z-w.dz)&&[-1,1].every(s=>walkable(w.x+lx*s,w.z+lz*s)&&!isOpen(w.x+lx*s+w.dx,w.z+lz*s+w.dz));};
+ const roomWalls=rooms.slice(1).map(room=>({room,walls:boundary(room).filter(flatWall)}));
+ const nestOk=w=>!nests.some(n=>Math.hypot(n.x-w.x,n.z-w.z)<4)&&!crystals.some(c=>c.x===w.x&&c.z===w.z);
+ const placeNest=w=>{nests.push({x:w.x,z:w.z,dx:w.dx,dz:w.dz,key:`nest@${w.x},${w.z},${w.dx},${w.dz}`});};
+ for(const {room,walls} of roomWalls)if(room.theme==='hive')for(let k=0;k<4&&walls.length&&nests.length<INFESTATION.nests[zone];k++){const w=walls.splice(Math.floor(rng()*walls.length),1)[0];if(nestOk(w)){placeNest(w);break;}}
+ const spare=roomWalls.flatMap(r=>r.walls);
+ for(let k=0;k<60&&nests.length<INFESTATION.nests[zone]&&spare.length;k++){const w=spare.splice(Math.floor(rng()*spare.length),1)[0];if(nestOk(w))placeNest(w);}
+ // Goo spills from every nest across the floor in front of it, and pools in hive rooms.
+ for(const n of nests)goo.push({x:n.x*CAVE_CELL+n.dx*.3,z:n.z*CAVE_CELL+n.dz*.3,r:1.6+rng()*.6,seed:rng()});
+ for(const room of rooms)if(room.theme==='hive'){const inside=interior(room);for(let k=0;k<2&&inside.length;k++){const c=pick(inside);goo.push({x:c.x*CAVE_CELL+(rng()-.5),z:c.z*CAVE_CELL+(rng()-.5),r:.9+rng()*.9,seed:rng()});}}
+ // Webs strung across inside corners, hive rooms first.
+ const corners=[];
+ for(const room of [...rooms.filter(r=>r.theme==='hive'),...rooms.filter(r=>r.theme!=='hive')])for(let dx=-room.rx;dx<=room.rx;dx++)for(let dz=-room.rz;dz<=room.rz;dz++){
+  const x=room.x+dx,z=room.z+dz;if(!walkable(x,z)||protect.has(caveKey(x,z)))continue;
+  for(const [ax,az,bx,bz] of [[1,0,0,1],[0,1,-1,0],[-1,0,0,-1],[0,-1,1,0]])if(!isOpen(x+ax,z+az)&&!isOpen(x+bx,z+bz)&&!corners.some(c=>c.x===x&&c.z===z))corners.push({x,z,ax,az,bx,bz,hive:room.theme==='hive'});
+ }
+ for(let k=0;k<corners.length&&webs.length<INFESTATION.webs[zone];k++){const c=corners[k];if(c.hive||rng()<.35)webs.push({x:c.x,z:c.z,ax:c.ax,az:c.az,bx:c.bx,bz:c.bz,size:.8+rng()*.6,seed:rng()});}
+ // Coral: branching growths at the foot of a wall, near the nests where there are any.
+ const footholds=boundary({x:0,z:27,rx:30,rz:30}).filter(w=>!nests.some(n=>n.x===w.x&&n.z===w.z&&n.dx===w.dx&&n.dz===w.dz)&&!crystals.some(c=>c.x===w.x&&c.z===w.z));
+ footholds.sort((a,b)=>Math.min(...nests.map(n=>Math.hypot(n.x-a.x,n.z-a.z)),99)-Math.min(...nests.map(n=>Math.hypot(n.x-b.x,n.z-b.z)),99)+(rng()-.5)*6);
+ for(let k=0;k<footholds.length&&growths.length<INFESTATION.growths[zone];k++){const w=footholds[k];if(!protect.has(caveKey(w.x,w.z))&&!growths.some(g=>Math.hypot(g.x-w.x,g.z-w.z)<2))growths.push({...w,size:.7+rng()*.7,seed:rng()});}
+ // Formations are about .8 across at scale 1, flaring at the foot; the trunk is what stops you. A nest's mound swells
+ // half a cell out of its wall.
+ const solids=[...spires.map(s=>({x:s.x*CAVE_CELL,z:s.z*CAVE_CELL,r:.62*s.r})),...crystals.filter(c=>!c.dx&&!c.dz).map(c=>({x:c.x*CAVE_CELL,z:c.z*CAVE_CELL,r:.45})),
+  ...nests.map(n=>({x:n.x*CAVE_CELL+n.dx*.6,z:n.z*CAVE_CELL+n.dz*.6,r:.5}))];
+ Object.assign(layout,{types,spires,crystals,vents,nests,webs,growths,goo,solids,protect});
+}
+
+/**
+ * Silk walls seal the one-cell corridors into side pockets that hold something (a find or a nest). Only the player is
+ * stopped, until a flare burns through; the way between the shafts and to the heart is never sealed.
+ */
+function spinSilk(layout,rng){
+ const {cells,types,protect}=layout,silk=[];
+ const startKey=caveKey(layout.start.x,layout.start.z);
+ const reach=blocked=>{const seen=new Set([startKey]),queue=[startKey];
+  while(queue.length){const [x,z]=queue.pop().split(',').map(Number);for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]]){const k=caveKey(x+dx,z+dz);if(cells.has(k)&&!blocked.has(k)&&!seen.has(k)){seen.add(k);queue.push(k);}}}
+  return seen;};
+ const must=[layout.up,layout.down,layout.heart].filter(Boolean).map(p=>caveKey(p.x,p.z));
+ const worth=[...layout.loot.map(l=>caveKey(l.x,l.z)),...layout.nests.map(n=>caveKey(n.x,n.z))];
+ const loot=new Set(layout.loot.map(l=>caveKey(l.x,l.z)));
+ const corridor=[...cells].filter(k=>{if(protect.has(k)||types.has(k)||loot.has(k))return false;const [x,z]=k.split(',').map(Number),o=(a,b)=>cells.has(caveKey(x+a,z+b));
+  return (o(1,0)&&o(-1,0)&&!o(0,1)&&!o(0,-1))||(o(0,1)&&o(0,-1)&&!o(1,0)&&!o(-1,0));}).sort((a,b)=>rng()-.5);
+ const blocked=new Set();let base=reach(blocked);
+ for(const k of corridor){
+  if(silk.length>=INFESTATION.silk[layout.zone])break;
+  if(!base.has(k))continue;
+  blocked.add(k);const after=reach(blocked);
+  const sealed=[...base].filter(c=>!after.has(c)&&c!==k);
+  if(sealed.length<5||must.some(m=>!after.has(m))||!worth.some(w=>sealed.includes(w))){blocked.delete(k);continue;}
+  const [x,z]=k.split(',').map(Number);silk.push({x,z,axis:cells.has(caveKey(x+1,z))?'x':'z',key:`silk@${x},${z}`,seed:rng()});base=after;
+ }
+ layout.silk=silk;
 }
 
 /**
  * What the caves give back, each entry taken once: titanium seams in the walls (richer deeper down), the rare-earth
- * crystals themselves, artifacts left in ruins, glyphs that tell the story, one reactor schematic in every second
- * zone and the heart at the bottom. `key` names an entry within its zone.
+ * crystals themselves, the old builders' machinery the hives have swallowed, one reactor schematic in every second zone
+ * and the heart at the bottom. `key` names an entry within its zone.
  */
 function placeLoot(layout,last,rng){
  const {cells,rooms,zone,types}=layout,loot=[],used=new Set();
@@ -119,15 +175,12 @@ function placeLoot(layout,last,rng){
  const walls=room=>{const out=[];for(let dx=-room.rx;dx<=room.rx;dx++)for(let dz=-room.rz;dz<=room.rz;dz++){const x=room.x+dx,z=room.z+dz;if(!free(caveKey(x,z)))continue;for(const [ex,ez] of [[1,0],[-1,0],[0,1],[0,-1]])if(!layout.open.has(caveKey(x+ex,z+ez)))out.push({x,z,dx:ex,dz:ez});}return out;};
  const inRoom=(room,c)=>Math.abs(c.x-room.x)<=room.rx&&Math.abs(c.z-room.z)<=room.rz;
  const others=rooms.slice(1);
+ if(layout.heart)used.add(caveKey(layout.heart.x,layout.heart.z));
  for(let n=[2,4,5][zone]??5,k=0;n>0&&k<40;k++){const room=others[Math.floor(rng()*others.length)],w=walls(room);if(!w.length)continue;const c=w[Math.floor(rng()*w.length)];add('ore',c.x,c.z,c.dx,c.dz,{amount:3+zone*2});n--;}
  // The upper zone's crystals are dull and brittle; harvestable rare earth starts in the Hollows.
  if(zone>0)layout.crystals.forEach(c=>{used.add(caveKey(c.x,c.z));loot.push({key:`crystal@${c.x},${c.z},${c.dx},${c.dz}`,kind:'crystal',x:c.x,z:c.z,dx:c.dx,dz:c.dz,amount:1+zone});});
- for(const room of rooms.filter(r=>r.theme==='ruin')){
-  if(free(caveKey(room.x,room.z)))add('artifact',room.x,room.z);
-  const glyph=layout.glyphs.find(g=>inRoom(room,g));if(glyph)loot.push({key:`tablet@${glyph.x},${glyph.z},${glyph.dx},${glyph.dz}`,kind:'tablet',x:glyph.x,z:glyph.z,dx:glyph.dx,dz:glyph.dz});
- }
- // Every zone tells some of the story, and below the surface there is always something to bring back.
- if(!loot.some(l=>l.kind==='tablet')){const room=others[Math.floor(rng()*others.length)],w=walls(room);if(w.length){const g=w[Math.floor(rng()*w.length)];layout.glyphs.push(g);loot.push({key:`tablet@${g.x},${g.z},${g.dx},${g.dz}`,kind:'tablet',x:g.x,z:g.z,dx:g.dx,dz:g.dz});}}
+ for(const room of rooms.filter(r=>r.theme==='hive'))if(free(caveKey(room.x,room.z)))add('artifact',room.x,room.z);
+ // Below the surface there is always something to bring back.
  if(zone>0&&!loot.some(l=>l.kind==='artifact'))for(let k=0;k<20;k++){const room=others[Math.floor(rng()*others.length)];if(free(caveKey(room.x,room.z))){add('artifact',room.x,room.z);break;}}
  if(zone===1){const spot=[...cells].map(k=>k.split(',').map(Number)).filter(([x,z])=>inRoom(last,{x,z})&&Math.hypot(x-last.x,z-last.z)>=2&&free(caveKey(x,z))).sort((a,b)=>a[0]-b[0]||a[1]-b[1]);if(spot.length){const [x,z]=spot[Math.floor(rng()*spot.length)];add('blueprint',x,z);}}
  if(layout.heart)add('heart',layout.heart.x,layout.heart.z);

@@ -8,6 +8,7 @@ import { createRover, ensureBuildingState, productionDemand, stepProduction, MIN
 import { createResearch, createShip, buildRobot, lockedReason, restoreResearch, restoreShip, spaceDemand, stepSpace, studyFinds, touchesPad, REACTOR_POWER } from './space.js';
 import { restoreDelve } from './delve.js';
 import { restorePeril } from './peril.js';
+import { restoreInfest } from './infest.js';
 import { haulerDemand, restoreHauler, stepHaulers } from './hauler.js';
 import { createMission, processorUnlocked, restoreMission, stepMission } from './mission.js';
 export { CELL_SIZE, DEFS, footprint } from './defs.js';
@@ -434,6 +435,7 @@ export function deserialize(text) {
   }
   restoreDelve(state, raw);
   restorePeril(state, raw);
+  restoreInfest(state, raw);
   if (new Set(state.robots.map(r => r.id)).size !== state.robots.length) throw new Error('Invalid robots.');
   tick(state, 0);
   return state;
