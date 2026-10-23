@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Infestation kit</title>
+<style>
+html,body{margin:0;height:100%;background:#030305;overflow:hidden;font:12px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;color:#d8d2c8}
+canvas{display:block;width:100vw;height:100vh}
+.bar{position:fixed;left:12px;top:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;z-index:2}
+.bar b{letter-spacing:.14em;margin-right:8px;color:#ff8a6a}
+button{font:inherit;color:#d8d2c8;background:rgba(20,18,22,.85);border:1px solid #3a3238;border-radius:5px;padding:5px 9px;cursor:pointer}
+button.on{border-color:#ff5a3a;color:#ffd2c2}
+.label{position:fixed;transform:translate(-50%,-100%);pointer-events:none;font-size:11px;color:#bfb6aa;text-shadow:0 0 4px #000;white-space:nowrap}
+</style>
+<script type="importmap">{"imports":{"three":"../../node_modules/three/build/three.module.js","three/addons/":"../../node_modules/three/examples/jsm/"}}</script></head>
+<body><canvas id="c"></canvas>
+<div class="bar"><b>INFESTATION KIT</b>
+<button id="light-lamp" class="on">Headlamp</button><button id="light-studio">Studio</button>
+<button id="cam-orbit" class="on">Orbit</button><button id="cam-game">Game camera</button>
+<button id="burn-silk">Burn silk wall</button><button id="burn-nest">Burn nest</button><button id="reset">Reset</button></div>
+<script type="module">
+import * as THREE from 'three';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
+import {loadInfestation} from '../infestation.js';
+
+const $=id=>document.getElementById(id),canvas=$('c');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true});renderer.setPixelRatio(Math.min(2,devicePixelRatio));
+renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+const scene=new THREE.Scene();scene.background=new THREE.Color('#020203');
+const pmrem=new THREE.PMREMGenerator(renderer);scene.environment=pmrem.fromScene(new RoomEnvironment(),.04).texture;
+const camera=new THREE.PerspectiveCamera(36,1,.05,200);camera.position.set(3,6,14);
+const orbit=new OrbitControls(camera,canvas);orbit.target.set(0,.8,1.2);orbit.enableDamping=true;
+const game=new THREE.OrthographicCamera(-8,8,8,-8,.1,400);
+let useGame=false;
+
+// The set: a rock floor, and a rough wall behind the wall pieces (the kit's back lies on z = 0).
+const rock=new THREE.MeshStandardMaterial({color:'#5c605e',roughness:.92});
+const floorGeo=new THREE.PlaneGeometry(40,20,80,40).rotateX(-Math.PI/2);{const p=floorGeo.attributes.position;for(let i=0;i<p.count;i++)p.setY(i,.04*Math.sin(p.getX(i)*2.1)*Math.cos(p.getZ(i)*1.7));floorGeo.computeVertexNormals();}
+const floor=new THREE.Mesh(floorGeo,rock);floor.receiveShadow=true;floor.position.z=5;scene.add(floor);
+const wallGeo=new THREE.PlaneGeometry(40,4,120,16);{const p=wallGeo.attributes.position;for(let i=0;i<p.count;i++)p.setZ(i,-.12*Math.abs(Math.sin(p.getX(i)*1.3+p.getY(i)*.7))-.08*Math.sin(p.getY(i)*3.1));wallGeo.computeVertexNormals();}
+const wall=new THREE.Mesh(wallGeo,rock);wall.position.set(0,2,-.02);wall.receiveShadow=true;scene.add(wall);
+
+const hemi=new THREE.HemisphereLight('#b8c4dc','#1a1618',0),key=new THREE.DirectionalLight('#fff0dc',0);key.position.set(-4,8,9);key.castShadow=true;key.shadow.mapSize.set(2048,2048);Object.assign(key.shadow.camera,{left:-14,right:14,top:10,bottom:-10});scene.add(hemi,key);
+// The headlamp: a cold spot from where the astronaut would stand, plus a little suit fill.
+const lamp=new THREE.SpotLight('#cfe8ff',0,24,.55,.6,1.4);lamp.castShadow=true;lamp.shadow.mapSize.set(1024,1024);const lampTarget=new THREE.Object3D();scene.add(lamp,lampTarget);lamp.target=lampTarget;
+const fill=new THREE.PointLight('#bddaff',0,7,2);scene.add(fill);
+let lampOn=true;
+function lighting(dark){lampOn=dark;scene.environmentIntensity=dark?.08:.6;hemi.intensity=dark?.02:1.1;key.intensity=dark?0:2.2;lamp.intensity=dark?160:0;fill.intensity=dark?6:0;renderer.toneMappingExposure=dark?1.1:1;$('light-lamp').classList.toggle('on',dark);$('light-studio').classList.toggle('on',!dark);}
+
+const kit=await loadInfestation(new GLTFLoader(),'../assets/infestation.glb');
+const placed=[];
+function put(name,x,z,rot=0,label=name){const o=kit.create(name);o.position.set(x,0,z);o.rotation.y=rot;scene.add(o);const el=document.createElement('div');el.className='label';el.textContent=label.replace('_',' ');document.body.append(el);placed.push({o,el,name});return o;}
+// Burnable pieces own their materials, so one can char without the rest.
+function own(o){const mats=new Map();o.traverse(m=>{if(m.isMesh){if(!mats.has(m.material)){const c=m.material.clone();c.onBeforeCompile=m.material.onBeforeCompile;c.customProgramCacheKey=m.material.customProgramCacheKey;mats.set(m.material,c);}m.material=mats.get(m.material);}});return [...mats.values()];}
+const nest=put('Nest',-8,0),silkWall=put('Silk_Wall',-4.6,0,0,'Silk wall'),gooWall=put('Goo_Wall',-1.6,0,0,'Goo wall'),web=put('Web_Drape',1.4,0,0,'Web drape');
+put('Relic_Heart',5,1.2,0,'Relic: heart (engine core)');
+put('Goo_Pool',-6,4.2);put('Coral_Bloom',-3.2,4.4,0,'Coral bloom');put('Shard_Cluster',-.8,4.2,0,'Shard cluster');put('Relic_Artifact',1.6,4.4,0,'Relic: artifact');put('Relic_Schematic',3.8,4.4,0,'Relic: schematic');
+const nestMats=own(nest),silkMats=own(silkWall);
+const legs=['Nest_Leg0','Nest_Leg1','Nest_Leg2'].map(n=>nest.getObjectByName(n)).filter(Boolean).map(o=>({o,base:o.quaternion.clone(),seed:Math.random()*9,twitch:0}));
+const heartCore=scene.getObjectByName('Relic_Heart_Core');
+
+// Embers for burning.
+const EMBERS=300,emberPos=new Float32Array(EMBERS*3),emberVel=new Float32Array(EMBERS*3),emberLife=new Float32Array(EMBERS);
+const emberGeo=new THREE.BufferGeometry();emberGeo.setAttribute('position',new THREE.BufferAttribute(emberPos,3));
+const embers=new THREE.Points(emberGeo,new THREE.PointsMaterial({color:'#ff8a3a',size:.06,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));embers.frustumCulled=false;scene.add(embers);
+let nextEmber=0;function ember(p){const i=nextEmber;nextEmber=(nextEmber+1)%EMBERS;emberPos.set([p.x,p.y,p.z],i*3);emberVel.set([(Math.random()-.5)*.6,.6+Math.random()*1.2,(Math.random()-.5)*.6],i*3);emberLife[i]=.6+Math.random()*1.2;}
+const burns=[];
+function burn(o,mats,kind){
+ const original=mats.map(m=>({m,color:m.color.clone(),opacity:m.opacity,rough:m.roughness}));
+ burns.push({o,mats:original,kind,t:0,points:(()=>{const pts=[];o.traverse(m=>{if(m.isMesh&&(kind==='silk'||/Silk|Rim/.test(m.name))){const p=m.geometry.attributes.position;for(let i=0;i<p.count;i+=Math.max(1,Math.floor(p.count/120)))pts.push(new THREE.Vector3().fromBufferAttribute(p,i).applyMatrix4(m.matrixWorld));}});return pts;})()});
+}
+const char=new THREE.Color('#1a0e08'),hot=new THREE.Color('#ff6a1a');
+function updateBurns(dt){
+ for(const b of burns){
+  b.t+=dt;const k=Math.min(1,b.t/1.6);
+  for(let i=0;i<4;i++)if(k<1)ember(b.points[Math.floor(Math.random()*b.points.length)]);
+  for(const {m,color,opacity,rough} of b.mats){
+   const silk=/Silk|Gauze/.test(m.name)||m.transparent;
+   if(b.kind==='silk'||silk){m.color.copy(color).lerp(hot,Math.min(1,k*3)).lerp(char,Math.max(0,k*2-1));m.transparent=true;m.opacity=opacity*(1-k);m.depthWrite=false;}
+   else if(m.isMeshPhysicalMaterial){m.color.copy(color).lerp(new THREE.Color('#141110'),k);m.roughness=rough+(.9-rough)*k;m.clearcoat=1-k;}
+   else if(m.vertexColors||m.isMeshBasicMaterial){m.color.setScalar(1-.85*k);}
+  }
+  if(b.kind==='silk'&&k>=1)b.o.visible=false;
+ }
+}
+const nestBurnt=()=>burns.some(b=>b.o===nest);
+$('burn-silk').onclick=()=>{if(!burns.some(b=>b.o===silkWall))burn(silkWall,silkMats,'silk');};
+$('burn-nest').onclick=()=>{if(!nestBurnt())burn(nest,nestMats,'nest');};
+$('reset').onclick=()=>location.reload();
+$('light-lamp').onclick=()=>lighting(true);$('light-studio').onclick=()=>lighting(false);
+$('cam-orbit').onclick=()=>{useGame=false;$('cam-orbit').classList.add('on');$('cam-game').classList.remove('on');};
+$('cam-game').onclick=()=>{useGame=true;$('cam-game').classList.add('on');$('cam-orbit').classList.remove('on');};
+lighting(true);
+
+function resize(){const w=innerWidth,h=innerHeight;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();const s=8;game.left=-s*w/h;game.right=s*w/h;game.top=s;game.bottom=-s;game.updateProjectionMatrix();}
+addEventListener('resize',resize);resize();
+let last=performance.now(),clock=0,walk=0;
+const tmp=new THREE.Vector3();
+function frame(now){
+ const dt=Math.min(.1,(now-last)/1000);last=now;clock+=dt;kit.update(clock);
+ // The astronaut's lamp sweeps slowly along the kit from a few metres out.
+ walk+=dt*.12;const ax=Math.sin(walk)*7,az=6.5;lamp.position.set(ax,1.6,az);lampTarget.position.set(ax+Math.sin(walk*2.3)*2.5,.4,0);fill.position.set(ax,2,az);
+ for(const l of legs){
+  if(nestBurnt()){l.o.quaternion.slerp(new THREE.Quaternion().setFromEuler(new THREE.Euler(-.9,0,0)),dt*2);continue;}
+  if(Math.random()<dt*1.2)l.twitch=.25+Math.random()*.25;l.twitch=Math.max(0,l.twitch-dt);
+  const j=l.twitch>0?.12:.02,e=new THREE.Euler(Math.sin(clock*7+l.seed)*j,Math.sin(clock*5.3+l.seed*2)*j,Math.sin(clock*9+l.seed)*j*.5);
+  l.o.quaternion.copy(l.base).multiply(new THREE.Quaternion().setFromEuler(e));
+ }
+ if(heartCore)heartCore.scale.setScalar(1+.06*Math.sin(clock*2.2)+.03*Math.sin(clock*5.1));
+ updateBurns(dt);
+ for(let i=0;i<EMBERS;i++){if(emberLife[i]<=0){emberPos[i*3+1]=-99;continue;}emberLife[i]-=dt;for(let a=0;a<3;a++)emberPos[i*3+a]+=emberVel[i*3+a]*dt;emberVel[i*3+1]-=.3*dt;}
+ emberGeo.attributes.position.needsUpdate=true;
+ if(useGame){game.position.set(26*4,34*4+.8,26*4+2);game.lookAt(0,.8,2);}else orbit.update();
+ const cam=useGame?game:camera;cam.updateMatrixWorld();
+ for(const p of placed){tmp.copy(p.o.position);tmp.y+=p.name==='Relic_Heart'?2.1:p.name.startsWith('Relic')||p.name==='Coral_Bloom'||p.name==='Shard_Cluster'||p.name==='Goo_Pool'?1:2.7;tmp.project(cam);p.el.style.display=tmp.z<1?'block':'none';p.el.style.left=`${(tmp.x*.5+.5)*innerWidth}px`;p.el.style.top=`${(-tmp.y*.5+.5)*innerHeight}px`;}
+ renderer.render(scene,cam);requestAnimationFrame(frame);
+}
+window.kitLab={scene,kit,lighting,camera,orbit};
+requestAnimationFrame(frame);
+</script></body></html>
