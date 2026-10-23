@@ -49,7 +49,8 @@ export function createTerrainView(seed,root,models=new Map()){
   `).replace('#include <opaque_fragment>',`
    vec2 delta=vPaintWorld.xz-max(0.0,vPaintWorld.y-uRoofHeight)*vec2(26.0/34.0)-uRoofOrigin;
    vec2 caveLocal=vec2(delta.x*uRoofRotation.y-delta.y*uRoofRotation.x,delta.x*uRoofRotation.x+delta.y*uRoofRotation.y);
-   vec2 roofUV=(caveLocal/2.0+vec2(32.5,3.5))/64.0;
+   // Noise breaks the cut's edge, which would otherwise step along the cave's cells.
+   vec2 roofUV=(caveLocal/2.0+(vec2(paintNoise(caveLocal*.7),paintNoise(caveLocal*.7+9.1))-.5)*.7+vec2(32.5,3.5))/64.0;
    float inMap=step(0.0,roofUV.x)*step(roofUV.x,1.0)*step(0.0,roofUV.y)*step(roofUV.y,1.0);
    float roof=texture2D(uRoofMap,roofUV).r*inMap*uRoofEnabled*step(uRoofHeight+.25,vPaintWorld.y);
    // Discarding keeps the material opaque, so entering a cave never forces a shader recompile.

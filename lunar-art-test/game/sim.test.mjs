@@ -250,12 +250,13 @@ test('seeded cave networks are connected, varied, and safe to save underground',
  s.player.zone=7;assert.throws(()=>deserialize(serialize(s)),/cave position/);
 });
 test('every cave has three connected zones joined by shafts, with features that never cut a path',async()=>{
- const {caveLayout,caveWalkable,CAVE_ZONES}=await import('./caves.js'),{crossCavePortal}=await import('./travel.js');
+ const {caveLayout,caveWalkable,cavePassable,CAVE_ZONES}=await import('./caves.js'),{crossCavePortal}=await import('./travel.js');
  for(const seed of [42,1847,9191])for(let id=0;id<3;id++)for(let zone=0;zone<CAVE_ZONES;zone++){
   const cave=caveLayout(seed,id,zone),start=`${cave.start.x},${cave.start.z}`,visited=new Set([start]),queue=[start];
   while(queue.length){const [x,z]=queue.pop().split(',').map(Number);for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]]){const k=`${x+dx},${z+dz}`;if(cave.cells.has(k)&&!visited.has(k)){visited.add(k);queue.push(k);}}}
   assert.equal(visited.size,cave.cells.size,`seed ${seed} cave ${id} zone ${zone} is one connected network`);
-  for(const t of cave.tiles)if(['spire','pillar','chasm'].includes(t.type))assert.ok(!cave.cells.has(t.key),'solid features and chasms block walking');
+  for(const t of cave.tiles)if(['pillar','chasm'].includes(t.type))assert.ok(!cave.cells.has(t.key),'pillars and chasms block walking');
+  for(const s of cave.solids){assert.ok(!cavePassable(cave,s.x,s.z),'a formation is solid');assert.ok(cave.sight.has(`${s.x/2},${s.z/2}`),'formations do not block sight');}
   assert.ok(cave.tiles.some(t=>t.type==='bridge')||!cave.tiles.some(t=>t.type==='chasm'),'chasms come with a bridge');
   assert.equal(!!cave.down,zone<CAVE_ZONES-1);assert.equal(!!cave.up,zone>0);assert.equal(!!cave.heart,zone===CAVE_ZONES-1);
   if(cave.down)assert.ok(cave.cells.has(`${cave.down.x},${cave.down.z}`)&&cave.cells.has(`${cave.down.x},${cave.down.z-1}`));

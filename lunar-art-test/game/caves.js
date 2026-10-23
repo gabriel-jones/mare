@@ -9,8 +9,10 @@ function random(seed){let n=seed>>>0;return()=>{n=(Math.imul(n,1664525)+10139042
 
 /**
  * One zone of one cave. `cells` is where the player can walk; `open` is everything carved (walls wrap it);
- * `sight` is what light passes through (open minus spires and pillars, so you can see across chasms).
+ * `sight` is what light passes through (open minus pillars, so you can see across chasms and past formations).
  * Each tile carries a `type`: floor, ice, vent, chasm, bridge, spire, pillar, shaftDown or shaftUp.
+ * Spire cells stay walkable: only the formation itself is solid, a circle in `solids` (world x, z, radius), so there is
+ * room to squeeze between two neighbours.
  */
 export function caveLayout(seed,id=0,zone=0){
  const key=`${seed}:${id}:${zone}`;if(cache.has(key))return cache.get(key);
@@ -98,9 +100,11 @@ function decorate(layout,rng){
    const n=1+Math.floor(rng()*3);for(let k=0;k<n;k++){const c=pick(inside);if(!types.has(c.key)){types.set(c.key,'vent');vents.push({x:c.x,z:c.z});}}
   }
  });
- for(const k of blocked)cells.delete(k);
- layout.sight=new Set([...layout.open].filter(k=>!['spire','pillar'].includes(types.get(k))));
- Object.assign(layout,{types,spires,pillars,crystals,glyphs,vents});
+ for(const k of blocked)if(types.get(k)!=='spire')cells.delete(k);
+ layout.sight=new Set([...layout.open].filter(k=>types.get(k)!=='pillar'));
+ // Formations are about .8 across at scale 1, flaring at the foot; the trunk is what stops you.
+ const solids=[...spires.map(s=>({x:s.x*CAVE_CELL,z:s.z*CAVE_CELL,r:.62*s.r})),...crystals.filter(c=>!c.dx&&!c.dz).map(c=>({x:c.x*CAVE_CELL,z:c.z*CAVE_CELL,r:.45}))];
+ Object.assign(layout,{types,spires,pillars,crystals,glyphs,vents,solids});
 }
 
 /**
@@ -110,7 +114,7 @@ function decorate(layout,rng){
  */
 function placeLoot(layout,last,rng){
  const {cells,rooms,zone,types}=layout,loot=[],used=new Set();
- const free=k=>cells.has(k)&&!['shaftDown','shaftUp','vent','bridge'].includes(types.get(k))&&!used.has(k);
+ const free=k=>cells.has(k)&&!['shaftDown','shaftUp','vent','bridge','spire'].includes(types.get(k))&&!used.has(k);
  const add=(kind,x,z,dx=0,dz=0,extra={})=>{used.add(caveKey(x,z));loot.push({key:`${kind}@${x},${z},${dx},${dz}`,kind,x,z,dx,dz,...extra});};
  const walls=room=>{const out=[];for(let dx=-room.rx;dx<=room.rx;dx++)for(let dz=-room.rz;dz<=room.rz;dz++){const x=room.x+dx,z=room.z+dz;if(!free(caveKey(x,z)))continue;for(const [ex,ez] of [[1,0],[-1,0],[0,1],[0,-1]])if(!layout.open.has(caveKey(x+ex,z+ez)))out.push({x,z,dx:ex,dz:ez});}return out;};
  const inRoom=(room,c)=>Math.abs(c.x-room.x)<=room.rx&&Math.abs(c.z-room.z)<=room.rz;
@@ -140,7 +144,12 @@ function poison(layout){
  }
 }
 
-export function caveWalkable(seed,id,x,z,radius=.3,zone=0){const cave=caveLayout(seed,id,zone);return [[-radius,-radius],[radius,-radius],[-radius,radius],[radius,radius]].every(([dx,dz])=>cave.cells.has(caveKey(Math.round((x+dx)/CAVE_CELL),Math.round((z+dz)/CAVE_CELL))));}
+export function caveWalkable(seed,id,x,z,radius=.3,zone=0){return cavePassable(caveLayout(seed,id,zone),x,z,radius);}
+/** Whether a body of `radius` fits at world (x, z): on walkable cells and clear of every formation. */
+export function cavePassable(cave,x,z,radius=.3){
+ return [[-radius,-radius],[radius,-radius],[-radius,radius],[radius,radius]].every(([dx,dz])=>cave.cells.has(caveKey(Math.round((x+dx)/CAVE_CELL),Math.round((z+dz)/CAVE_CELL))))
+  &&!(cave.solids??[]).some(s=>Math.hypot(x-s.x,z-s.z)<s.r+radius);
+}
 /** Light reaches a cell if every cell before it on the line lets light through; the cell itself may be solid. */
 export function lineVisible(cave,x0,z0,x1,z1){
  const sight=cave.sight??cave.cells;

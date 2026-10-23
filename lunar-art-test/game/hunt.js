@@ -1,7 +1,7 @@
-import {caveLayout,CAVE_CELL} from './caves.js';
+import {caveLayout,cavePassable,CAVE_CELL} from './caves.js';
 import {FLARE} from './peril.js';
 import * as inv from './inventory.js';
-import {CRAWLER,PISTOL,PLAYER_RADIUS,createCrawler,stepCrawler,struggle,hurtCrawler,walkable,createGun,stepGun,fireGun,reloadGun,shotEnd,createDodge,startDodge,stepDodge} from './crawler.js';
+import {CRAWLER,PISTOL,PLAYER_RADIUS,createCrawler,stepCrawler,struggle,hurtCrawler,createGun,stepGun,fireGun,reloadGun,shotEnd,createDodge,startDodge,stepDodge} from './crawler.js';
 
 /**
  * Crawlers in the caves, and the player's answer to them: the pistol, the dodge roll and breaking free of a grab.
@@ -32,7 +32,7 @@ function spawnSpot(cave,player,rng,exclude=[]){
  for(const minimum of [NEST.farFrom,NEST.farFrom*.6,6]){
   for(const r of rooms){
    const x=r.x*CAVE_CELL,z=r.z*CAVE_CELL;
-   if(Math.hypot(x-player.x,z-player.z)<minimum||!walkable(cave,x,z))continue;
+   if(Math.hypot(x-player.x,z-player.z)<minimum||!cavePassable(cave,x,z))continue;
    if(exclude.some(c=>Math.hypot(c.x-x,c.z-z)<4))continue;
    return {x,z};
   }
@@ -63,8 +63,8 @@ export function stepHunt(hunt,state,dt,rng=Math.random){
  hunt.lampShort=Math.max(0,hunt.lampShort-dt);hunt.wrenching=Math.max(0,(hunt.wrenching??0)-dt);
  const dash=stepDodge(hunt.dodge,dt);
  if(dash.rolling){
-  if(walkable(cave,p.x+dash.x,p.z,PLAYER_RADIUS))p.x+=dash.x;
-  if(walkable(cave,p.x,p.z+dash.z,PLAYER_RADIUS))p.z+=dash.z;
+  if(cavePassable(cave,p.x+dash.x,p.z,PLAYER_RADIUS))p.x+=dash.x;
+  if(cavePassable(cave,p.x,p.z+dash.z,PLAYER_RADIUS))p.z+=dash.z;
  }
  hunt.rolling=dash.rolling;
  const held=grabber(hunt);
@@ -76,7 +76,7 @@ export function stepHunt(hunt,state,dt,rng=Math.random){
   for(const e of stepCrawler(c,env,dt,rng)){
    if(e.type==='grab'||e.type==='slash'||e.type==='hurt')hurt(e.damage);
    if(e.type==='slash')hunt.lampShort=e.short;
-   if(e.type==='drag'){if(walkable(cave,p.x+e.dx,p.z+e.dz,PLAYER_RADIUS)){p.x+=e.dx;p.z+=e.dz;}continue;}
+   if(e.type==='drag'){if(cavePassable(cave,p.x+e.dx,p.z+e.dz,PLAYER_RADIUS)){p.x+=e.dx;p.z+=e.dz;}continue;}
    if(e.type==='hurt')continue;
    hunt.events.push({...e,crawler:c});
   }
