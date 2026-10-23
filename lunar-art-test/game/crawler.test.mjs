@@ -34,23 +34,24 @@ test('a crawler that senses the player stalks it from the dark, prefers its back
  assert.equal(c.anim,'stalk');
 });
 
-test('caught in the beam it darts sideways out of the light rather than fleeing', () => {
- const cave=hall(10),c=createCrawler(0,8);c.state='stalk';
+test('the beam enrages it: held in the light it never backs off, and comes for the player', () => {
+ const cave=hall(12),c=createCrawler(0,11);c.state='stalk';
  const env={cave,player:{x:0,z:0,facing:0,lamp:true}};
- const events=run(c,env,.1);
- assert.ok(!events.some(e=>e.type==='recoil'),'a glance does not drive it off');
- assert.equal(c.state,'evade');assert.equal(c.anim,'skitter');
- run(c,env,CRAWLER.evadeTime);
- assert.ok(Math.abs(c.x)>2,`off the beam's line, at x ${c.x.toFixed(1)}`);
+ const events=run(c,env,3);
+ assert.ok(!events.some(e=>e.type==='recoil'),'the headlamp does not drive it off');
+ assert.ok(events.some(e=>e.type==='shriek'||e.type==='lunge'),'it attacks');
+ const near=createCrawler(0,5);near.state='stalk';
+ assert.ok(run(near,env,.05).some(e=>e.type==='shriek'&&e.quick),'within reach in the beam it charges at once');
 });
 
-test('only a long burn in the beam makes it recoil and flee', () => {
- const cave=hall(10),c=createCrawler(0,8);Object.assign(c,{state:'stalk',burn:.99,evadeCool:9});
- const env={cave,player:{x:0,z:0,facing:0,lamp:true}};
+test('only a flare drives it back, and only for a moment', () => {
+ const cave=hall(10),c=createCrawler(0,-8);Object.assign(c,{state:'stalk',burn:1.5,evadeCool:9,patience:9});
+ const env={cave,player:{x:0,z:0,facing:Math.PI,lamp:true},flares:[{x:0,z:-8,r:3}]};
  const events=run(c,env,.1);
  assert.ok(events.some(e=>e.type==='recoil'));assert.equal(c.state,'recoil');assert.equal(c.anim,'recoil');
- run(c,env,CRAWLER.recoilTime+.6);assert.equal(c.state,'flee');assert.equal(c.anim,'skitter');
- assert.ok(Math.hypot(c.x,c.z)>8.5,'runs away from the light');
+ run(c,env,CRAWLER.recoilTime+.1);assert.equal(c.state,'flee');assert.equal(c.anim,'skitter');
+ run(c,{...env,flares:[]},CRAWLER.fleeTime+.1);
+ assert.equal(c.state,'stalk','back on the hunt, beam or not');
 });
 
 test('pinned in the beam up close, or shot, it turns on the player', () => {

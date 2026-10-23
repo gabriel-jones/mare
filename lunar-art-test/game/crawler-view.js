@@ -10,7 +10,7 @@ import {CRAWLER} from './crawler.js';
  */
 const LEGS=8,FEMUR=1.15,TIBIA=1,META=.55;
 const SIDE_ANGLES=[.5,1.2,1.95,2.6];
-const REST_HEIGHT={idle:1.05,lurk:1.05,stalk:.78,close:.7,skitter:1,evade:.72,flee:1.05,recover:.9,slash:1.2,recoil:1.4,hit:1,shriek:2.15,lunge:.62,grab:1.84,dead:.3};
+const REST_HEIGHT={emerge:.42,idle:1.05,lurk:1.05,stalk:.78,close:.7,skitter:1,evade:.72,flee:1.05,recover:.9,slash:1.2,recoil:1.4,hit:1,shriek:2.15,lunge:.62,grab:1.84,dead:.3};
 const OPEN={shriek:1,lunge:.85,grab:1,slash:.5};
 
 const legInfo=[...Array(LEGS)].map((_,i)=>{
@@ -230,7 +230,7 @@ export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=n
    for(let i=0;i<6;i++)drip(body.position.clone().add(new THREE.Vector3((Math.random()-.5)*.3,0,(Math.random()-.5)*.3)),.015+Math.random()*.02);}
   lastState=state;
   // Stop-start: it freezes, then darts to catch up, like a spider crossing a floor.
-  const fast=state==='skitter'||state==='flee'||state==='evade';
+  const fast=state==='skitter'||state==='flee'||state==='evade'||state==='emerge';
   goT-=dt;if(goT<=0){go=!go;goT=go?(fast?.05+Math.random()*.09:.07+Math.random()*.14):(fast?.03+Math.random()*.07:.08+Math.random()*.32);}
   const glide=state==='lunge'||state==='thrown'?30:state==='grab'?14:dead?6:go?24:.6;
   const k=1-Math.exp(-dt*glide);pos.x+=(tx-pos.x)*k;pos.z+=(tz-pos.z)*k;

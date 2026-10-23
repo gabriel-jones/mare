@@ -236,7 +236,7 @@ export function createHiveView(caveView,cave,{zone,toCave,viewDir,smoke,fire=nul
    for(let tries=0;tries<6;tries++){const q=s.sheet[Math.floor(Math.random()*s.sheet.length)],d=Math.hypot((q.u-ig.x)*sz.x,(q.v-ig.y)*sz.y);
     if(Math.abs(d-front+.05)<.35){fire.lick(q.p,size*(.7+Math.random()*.6),.75,1.6);if(Math.random()<.3)fire.ember(q.p,.2,2);break;}}}
  };
- function update(state,dt,flame=[]){
+ function update(state,dt,flame=[],wounds={}){
   time.value+=dt;const ph=time.value%BEAT;beat.value=Math.exp(-((ph/.09)**2))+.55*Math.exp(-(((ph-.3)/.1)**2));
   const p=state.player,id=p.cave;
   for(const s of nests){
@@ -247,7 +247,9 @@ export function createHiveView(caveView,cave,{zone,toCave,viewDir,smoke,fire=nul
    s.burnt=burnt;
    const d=Math.hypot(p.x-(s.n.x*C+s.n.dx),p.z-(s.n.z*C+s.n.dz));
    s.view.root.visible=caveView.known(`${s.n.x},${s.n.z}`);
-   s.view.update(dt,{alert:Math.max(0,Math.min(1,1-(d-2.5)/7))});
+   // Wounded, it convulses: beating hard and reaching out, more so the closer it is to bursting.
+   const w=wounds[s.n.key],hurt=w?Math.max(w.hit*2,.4*(1-w.hp/120)):0;
+   s.view.update(dt*(1+hurt*1.5),{alert:Math.max(hurt,Math.min(1,Math.max(0,1-(d-2.5)/7)))});
   }
   for(const s of silks){
    const burnt=isBurnt(state,id,zone,s.key),u=s.mesh.material.uniforms;

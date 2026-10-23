@@ -31,9 +31,10 @@ export function silkBlocks(state, x, z, radius = .3) {
 
 /**
  * Regrowth everywhere, and burning in the player's zone. `fires` are the burning flares lying on the floor there,
- * [{x, z}]. Returns what caught: [{kind: 'nest'|'silk', key}].
+ * [{x, z}]. Returns what caught: [{kind: 'nest'|'silk', key}]. With `nests: false` only silk catches; the flame jet
+ * wears nests down instead (hunt.js).
  */
-export function stepInfest(state, dt, fires = []) {
+export function stepInfest(state, dt, fires = [], { nests = true } = {}) {
   for (const [zk, entries] of Object.entries(state.burnt ?? {})) {
     for (const key of Object.keys(entries)) if ((entries[key] -= dt) <= 0) delete entries[key];
     if (!Object.keys(entries).length) delete state.burnt[zk];
@@ -43,9 +44,15 @@ export function stepInfest(state, dt, fires = []) {
   const zone = p.zone ?? 0, cave = caveLayout(state.seed, p.cave, zone), burnt = burntIn(state, p.cave, zone);
   const near = (x, z, r) => fires.some(f => Math.hypot(f.x - x, f.z - z) < r);
   const light = (kind, key) => { state.burnt ??= {}; (state.burnt[zoneKey(p.cave, zone)] ??= {})[key] = INFEST.regrow[kind]; caught.push({ kind, key }); };
-  for (const n of cave.nests) { const m = nestMouth(n); if (!(burnt[n.key] > 0) && near(m.x, m.z, INFEST.reach.nest)) light('nest', n.key); }
+  if (nests) for (const n of cave.nests) { const m = nestMouth(n); if (!(burnt[n.key] > 0) && near(m.x, m.z, INFEST.reach.nest)) light('nest', n.key); }
   for (const s of cave.silk) if (!(burnt[s.key] > 0) && near(s.x * CAVE_CELL, s.z * CAVE_CELL, INFEST.reach.silk)) light('silk', s.key);
   return caught;
+}
+
+/** A nest beaten down in the player's zone goes up in flames and stays burnt out until it regrows. */
+export function burnNest(state, key) {
+  const p = state.player; if (p.cave == null) return;
+  state.burnt ??= {}; (state.burnt[zoneKey(p.cave, p.zone ?? 0)] ??= {})[key] = INFEST.regrow.nest;
 }
 
 /** Keeps only entries that still name a nest or silk wall in their zone, with a sane time left. */

@@ -1,6 +1,6 @@
-import {caveLayout,cavePassable,caveKey,CAVE_CELL} from './caves.js';
+import {caveLayout,cavePassable,caveKey,lineVisible,CAVE_CELL} from './caves.js';
 import {FLARE,flareNow} from './peril.js';
-import {liveNests,silkBlocks,stepInfest} from './infest.js';
+import {burnNest,liveNests,nestMouth,silkBlocks,stepInfest} from './infest.js';
 import {burnGoo} from './goo.js';
 import {WEAPONS,stepArms,pullTrigger,burnTank} from './arms.js';
 import {CRAWLER,PLAYER_RADIUS,createCrawler,stepCrawler,struggle,hurtCrawler,scorchCrawler,shotEnd,createDodge,startDodge,stepDodge} from './crawler.js';
@@ -14,8 +14,10 @@ import {CRAWLER,PLAYER_RADIUS,createCrawler,stepCrawler,struggle,hurtCrawler,sco
 /**
  * `count`: crawlers per zone with every nest alive. Each nest burnt out takes its share of them and slows the rest
  * coming back; with every nest burnt one still prowls, slowest of all to return.
+ * Nests fight back: each has `hp`, worn down by rounds and the flame jet. Every `burst` of damage squeezes one or two
+ * more out of it (`brood`), and when it finally goes up in flames `final` more boil out. `limit` caps the living.
  */
-export const NEST=Object.freeze({count:[1,2,3],farFrom:16,respawn:[60,110],bullet:90});
+export const NEST=Object.freeze({count:[3,5,7],farFrom:16,respawn:[16,30],bullet:90,hp:120,burst:30,brood:[1,2],final:3,limit:14,mouth:.95});
 function brood(state,cave){
  const p=state.player,total=cave.nests.length,live=liveNests(state,p.cave,p.zone??0);
  if(!total)return {live,cap:NEST.count[cave.zone]??1,slow:1};
@@ -23,7 +25,7 @@ function brood(state,cave){
 }
 
 export function createHunt(){
- return {key:null,crawlers:[],respawns:[],shots:[],dodge:createDodge(),lampShort:0,events:[],clock:0};
+ return {key:null,crawlers:[],respawns:[],shots:[],dodge:createDodge(),lampShort:0,events:[],clock:0,wounds:{},liveKeys:null};
 }
 
 
@@ -49,6 +51,27 @@ function nestSpot(nests,player,exclude){
  const spots=nests.map(n=>({x:n.x*CAVE_CELL,z:n.z*CAVE_CELL,nest:n.key})).filter(s=>Math.hypot(s.x-player.x,s.z-player.z)>=8&&!exclude.some(c=>Math.hypot(c.x-s.x,c.z-s.z)<4));
  return spots.sort((a,b)=>Math.hypot(b.x-player.x,b.z-player.z)-Math.hypot(a.x-player.x,a.z-player.z))[0]??null;
 }
+const alive=hunt=>hunt.crawlers.filter(c=>c.state!=='dead').length;
+/** `count` crawlers squeeze out of nest `n` one after another, already hunting. */
+function hatch(hunt,state,n,count,rng){
+ const C=CAVE_CELL,p=state.player;
+ for(let i=0;i<count&&alive(hunt)<NEST.limit;i++){
+  const c=createCrawler(n.x*C+n.dx*.95,n.z*C+n.dz*.95,rng),side=(rng()-.5)*1.2;
+  Object.assign(c,{state:'emerge',t:-i*.5,nest:n.key,patience:0,emergeTo:{x:n.x*C-n.dx*1.1+n.dz*side,z:n.z*C-n.dz*1.1+n.dx*side}});
+  c.facing=Math.atan2(-n.dx,-n.dz);
+  hunt.crawlers.push(c);hunt.events.push({type:'spawned',crawler:c,nest:n.key,emerge:true});
+ }
+ for(const c of hunt.crawlers)if(c.state==='lurk')c.state='stalk';
+ if(Math.hypot(n.x*C-p.x,n.z*C-p.z)<30)for(const c of hunt.crawlers)if(c.state==='stalk'||c.state==='close')c.patience=Math.min(c.patience,.5);
+}
+/** Damage to a live nest in the player's zone: broods burst out as it weakens, and at zero it burns out. */
+function woundNest(hunt,state,cave,key,damage,rng){
+ const n=cave.nests.find(n=>n.key===key);if(!n||!liveNests(state,state.player.cave,state.player.zone??0).some(l=>l.key===key))return;
+ const w=hunt.wounds[key]??={hp:NEST.hp,next:NEST.hp-NEST.burst,hit:0};
+ w.hp-=damage;w.hit=.5;
+ while(w.hp<=w.next&&w.next>0){w.next-=NEST.burst;hatch(hunt,state,n,NEST.brood[0]+Math.floor(rng()*(NEST.brood[1]-NEST.brood[0]+1)),rng);}
+ if(w.hp<=0)burnNest(state,key);
+}
 function spawn(hunt,cave,state,rng,nests=[]){
  const at=nestSpot(nests,state.player,hunt.crawlers)??spawnSpot(cave,state.player,rng,hunt.crawlers);if(!at)return null;
  const c=createCrawler(at.x,at.z,rng);c.facing=Math.atan2(state.player.x-at.x,state.player.z-at.z);
@@ -67,7 +90,7 @@ export function stepHunt(hunt,state,dt,rng=Math.random){
  if(p.cave==null){
   if(hunt.key!==null)Object.assign(hunt,createHunt(),{events:hunt.events,trigger:hunt.trigger});
   const brood=state.brood??[];
-  hunt.clock+=dt;stepFlame(hunt,state,null,brood,dt,rng);land(hunt,brood,dt,rng);
+  hunt.clock+=dt;stepFlame(hunt,state,null,brood,dt,rng);land(hunt,state,null,brood,dt,rng);
   return;
  }
  const zone=p.zone??0,key=`${p.cave}:${zone}`,cave=caveLayout(state.seed,p.cave,zone);
@@ -76,6 +99,7 @@ export function stepHunt(hunt,state,dt,rng=Math.random){
   const b=brood(state,cave);for(let i=0;i<b.cap;i++)spawn(hunt,cave,state,rng,b.live);
  }
  hunt.clock+=dt;
+ for(const w of Object.values(hunt.wounds))w.hit=Math.max(0,w.hit-dt);
  stepFlame(hunt,state,cave,hunt.crawlers,dt,rng);
  hunt.lampShort=Math.max(0,hunt.lampShort-dt);hunt.wrenching=Math.max(0,(hunt.wrenching??0)-dt);
  const dash=stepDodge(hunt.dodge,dt);
@@ -101,9 +125,12 @@ export function stepHunt(hunt,state,dt,rng=Math.random){
    hunt.events.push({...e,crawler:c});
   }
  }
- land(hunt,hunt.crawlers,dt,rng);
+ land(hunt,state,cave,hunt.crawlers,dt,rng);
+ // A nest that goes up in flames, by any means, looses its last brood.
+ const b=brood(state,cave),live=new Set(b.live.map(n=>n.key));
+ if(hunt.liveKeys)for(const k of hunt.liveKeys)if(!live.has(k)){const n=cave.nests.find(n=>n.key===k);if(n)hatch(hunt,state,n,NEST.final,rng);delete hunt.wounds[k];}
+ hunt.liveKeys=live;
  // The dead melt away; another crawls out of a nest a while later, if the nests left can still breed one.
- const b=brood(state,cave);
  for(const c of hunt.crawlers)if(c.state==='dead'&&c.t>6.5){hunt.respawns.push((NEST.respawn[0]+(NEST.respawn[1]-NEST.respawn[0])*rng())*b.slow);}
  hunt.crawlers=hunt.crawlers.filter(c=>!(c.state==='dead'&&c.t>6.5));
  hunt.respawns=hunt.respawns.map(t=>t-dt);
@@ -113,10 +140,11 @@ export function stepHunt(hunt,state,dt,rng=Math.random){
 }
 
 /** Rounds in flight land after their travel time, on whichever of `targets` they were aimed at. */
-function land(hunt,targets,dt,rng){
+function land(hunt,state,cave,targets,dt,rng){
  for(const s of hunt.shots){
   s.t-=dt;if(s.t>0)continue;
-  if(s.target&&targets.includes(s.target)&&s.target.state!=='dead'){
+  if(s.nest&&cave){woundNest(hunt,state,cave,s.nest,s.damage,rng);hunt.events.push({type:'impact',x:s.x,z:s.z,dir:s.dir,nest:s.nest,weapon:s.weapon});}
+  else if(s.target&&targets.includes(s.target)&&s.target.state!=='dead'){
    const r=hurtCrawler(s.target,s.damage,rng);
    hunt.events.push({type:'impact',crawler:s.target,x:s.x,z:s.z,dir:s.dir,killed:r.killed,weapon:s.weapon});
    if(r.killed)hunt.events.push({type:'killed',crawler:s.target});
@@ -154,7 +182,10 @@ function stepFlame(hunt,state,cave,targets,dt,rng){
   const r=scorchCrawler(c,spec.damage*dt,rng);c.scorched=.4;
   if(r.killed)hunt.events.push({type:'killed',crawler:c,burnt:true});
  }
- if(cave)stepInfest(state,0,hunt.flame.points);else burnGoo(state,hunt.flame.points);
+ if(cave){
+  stepInfest(state,0,points,{nests:false});
+  for(const n of liveNests(state,p.cave,p.zone??0)){const m=nestMouth(n);if(points.some(f=>Math.hypot(f.x-m.x,f.z-m.z)<NEST.mouth+.6))woundNest(hunt,state,cave,n.key,spec.damage*dt,rng);}
+ }else burnGoo(state,points);
 }
 /** A nest scraped for goo: one more crawls out of it, cap or no, and the rest lose patience and close in. */
 export function rouse(hunt,state,nestKey,rng=Math.random){
@@ -174,9 +205,17 @@ export function fire(hunt,state){
  if(!r.ok)return r;
  const cave=below?caveLayout(state.seed,p.cave,p.zone??0):null,targets=below?hunt.crawlers:(state.brood??[]),dir={x:Math.sin(p.facing),z:Math.cos(p.facing)};
  const from={x:p.x+dir.x*.5,z:p.z+dir.z*.5},end=shotEnd(cave,from,dir,targets.filter(c=>c.state!=='dead'),r.spec);
- const distance=Math.hypot(end.x-from.x,end.z-from.z);
- const shot={t:distance/NEST.bullet,target:end.hit?.crawler??null,x:end.x,z:end.z,dir,damage:r.spec.damage,weapon:r.weapon};
- hunt.shots.push(shot);hunt.events.push({type:'shot',x:end.x,z:end.z,dir,hit:!!shot.target,target:shot.target,weapon:r.weapon});
+ let distance=Math.hypot(end.x-from.x,end.z-from.z),nest=null,at=end;
+ // A nest's mouth in the line of fire, nearer than any crawler, takes the round instead.
+ if(cave)for(const n of liveNests(state,p.cave,p.zone??0)){
+  const m=nestMouth(n),ox=m.x-from.x,oz=m.z-from.z,along=ox*dir.x+oz*dir.z;
+  if(along<0||along>Math.min(r.spec.range,distance+1.2)||Math.abs(ox*dir.z-oz*dir.x)>NEST.mouth)continue;
+  if(!lineVisible(cave,Math.round(from.x/CAVE_CELL),Math.round(from.z/CAVE_CELL),n.x,n.z))continue;
+  if(!nest||along<nest.along)nest={key:n.key,along,x:from.x+dir.x*along,z:from.z+dir.z*along};
+ }
+ if(nest&&(!end.hit||nest.along<end.hit.distance)){distance=nest.along;at=nest;}else nest=null;
+ const shot={t:distance/NEST.bullet,target:nest?null:end.hit?.crawler??null,nest:nest?.key??null,x:at.x,z:at.z,dir,damage:r.spec.damage,weapon:r.weapon};
+ hunt.shots.push(shot);hunt.events.push({type:'shot',x:at.x,z:at.z,dir,hit:!!shot.target,target:shot.target,weapon:r.weapon});
  return {ok:true,weapon:r.weapon};
 }
 /** Let go of the trigger: the flamethrower stops. */

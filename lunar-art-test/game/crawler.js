@@ -2,19 +2,20 @@
 import {CAVE_CELL,caveKey,lineVisible} from './caves.js';
 
 /**
- * A blind hunter that hates light. It circles at the edge of sight, prefers your back, and commits only when its
- * patience runs out: it rears and shrieks (the tell), then lunges in a straight line. Light burns it slowly: it darts
- * out of the beam, and only a long burn or a flare drives it off; pinned in the beam up close, or shot, it attacks. From behind it grabs and drags;
- * from the front it slashes the headlamp dark.
+ * A blind hunter that hates light, and answers it with rage. It circles close, prefers your back, and commits as soon
+ * as its short patience runs out: it rears and shrieks (the tell), then lunges in a straight line. The headlamp only
+ * makes it angrier: caught in the beam within reach it charges, otherwise it jinks aside and closes faster. Only a flare
+ * or the flame jet drives it back, and only for a moment. From behind it grabs and drags; from the front it slashes the
+ * headlamp dark, backs off a step, and comes again.
  */
 export const CRAWLER=Object.freeze({
  hp:60,radius:.55,reach:1.05,
- speed:{lurk:1.3,stalk:2.6,close:3.6,flee:8,drag:1.7},
- sense:24,ring:8,darkRing:4.5,patience:[3.5,6.5],
- lungeRange:[2.5,7],lungeSpeed:14,lungeTime:.42,shriekTime:.9,quickShriek:.55,recoverTime:1,
+ speed:{lurk:1.6,stalk:3.3,close:4.4,flee:8,drag:1.7,emerge:3.2},
+ sense:30,ring:5.5,darkRing:3.5,patience:[1.4,3],
+ lungeRange:[2,8],lungeSpeed:14,lungeTime:.42,shriekTime:.9,quickShriek:.55,recoverTime:1,
  throwDelay:.15,throwTime:.35,throwSpeed:7.5,
- burnRate:1.3,burnCool:.6,evadeTime:.5,evadeSpeed:6.5,evadeCooldown:1.1,provoked:5.5,
- recoilTime:.55,hitTime:.35,fleeTime:2.4,deathTime:1.4,
+ burnRate:1.3,burnCool:.6,evadeTime:.35,evadeSpeed:7,evadeCooldown:2.2,evadeChance:.3,provoked:8,angry:.85,
+ recoilTime:.45,hitTime:.3,fleeTime:1.1,deathTime:1.4,
  grabDamage:7,slashDamage:16,shortTime:5,escapePerPress:.13,escapeDecay:.35,escapePerShot:.3,
  beamRange:11,beamCone:.86,auraRange:2.2,
  vulnerable:2,
@@ -23,7 +24,7 @@ export const PISTOL=Object.freeze({damage:12,range:16,magazine:6,reload:1.4,cool
 export const DODGE=Object.freeze({time:.42,distance:3.6,cooldown:.85,invulnerable:.34});
 export const PLAYER_RADIUS=.32;
 
-const ANIM={lurk:'stalk',stalk:'stalk',close:'stalk',evade:'skitter',shriek:'shriek',lunge:'lunge',recover:'idle',grab:'grab',slash:'lunge',recoil:'recoil',flee:'skitter',hit:'hit',dead:'death'};
+const ANIM={emerge:'skitter',lurk:'stalk',stalk:'stalk',close:'stalk',evade:'skitter',shriek:'shriek',lunge:'lunge',recover:'idle',grab:'grab',slash:'lunge',recoil:'recoil',flee:'skitter',hit:'hit',dead:'death'};
 const cellOf=v=>Math.round(v/CAVE_CELL);
 const between=(rng,[a,b])=>a+(b-a)*rng();
 
@@ -72,7 +73,7 @@ function choose(c,env,want,rng){
   const steps=field.get(k);if(steps==null)continue;
   const wx=x*CAVE_CELL,wz=z*CAVE_CELL,ox=wx-player.x,oz=wz-player.z,r=Math.hypot(ox,oz)||1;
   const ahead=(ox*fx+oz*fz)/r;
-  let score=exposure(env,wx,wz)*12+rng()*.4;
+  let score=exposure(env,wx,wz)*3+rng()*.4;
   if(want.ring!=null)score+=Math.abs(steps*CAVE_CELL-want.ring)*.9+(want.behind?(ahead+1)*1.6:0);
   if(want.away)score-=steps*1.2;
   if(want.wander)score+=Math.hypot(wx-want.wander.x,wz-want.wander.z)*.5;
@@ -119,14 +120,16 @@ export function stepCrawler(c,env,dt,rng=Math.random){
    if(!c.wander||c.t>6||(c.t>1.5&&c.speed<.05)){c.wander={x:c.x+(rng()-.5)*16,z:c.z+(rng()-.5)*16};c.t=0;}
    think({wander:c.wander});moveToward(c,env,c.goal,CRAWLER.speed.lurk,dt);break;
   case 'stalk':case 'close':{
-   if(inFlare||c.burn>=1){enter(c,'recoil',rng);c.burn=Math.min(c.burn,.5);events.push({type:'recoil'});break;}
+   if(inFlare){enter(c,'recoil',rng);c.burn=Math.min(c.burn,.5);events.push({type:'recoil'});break;}
+   // The beam enrages it: within reach it charges at once; further off it sometimes jinks aside, then closes faster.
    if(lit>.15){
-    if(d<CRAWLER.provoked&&c.burn>.4&&inRange){provoke(c,events,rng);break;}
-    if(c.evadeCool<=0){evade(c,player,rng);break;}
+    if(d<CRAWLER.provoked&&inRange){provoke(c,events,rng);break;}
+    if(c.evadeCool<=0&&rng()<CRAWLER.evadeChance){evade(c,player,rng);c.patience=0;break;}
+    c.evadeCool=Math.max(c.evadeCool,.5);
    }
    if(d>CRAWLER.sense*1.3){enter(c,'lurk',rng);break;}
    const dark=!player.lamp;c.state=dark?'close':'stalk';
-   c.patience-=dt*(lit>.05?.5:dark?2.5:1);
+   c.patience-=dt*(lit>.05?2.5:dark?2.5:1);
    // Out of patience it creeps in to striking distance, still keeping to the dark and the player's back.
    const ready=c.patience<=0;
    think({ring:dark||ready?CRAWLER.darkRing:CRAWLER.ring,behind:!dark});moveToward(c,env,c.goal,dark||ready?CRAWLER.speed.close:CRAWLER.speed.stalk,dt);
@@ -152,8 +155,8 @@ export function stepCrawler(c,env,dt,rng=Math.random){
   case 'recover':
    c.speed=0;turn(c,toPlayer,dt*3);
    // Dazed for a moment after a miss, even in the light: the window to punish it.
-   if(c.t>CRAWLER.recoverTime*.5&&(c.burn>=1||inFlare)){enter(c,'recoil',rng);events.push({type:'recoil'});}
-   else if(c.t>=CRAWLER.recoverTime)enter(c,'stalk',rng);break;
+   if(c.t>CRAWLER.recoverTime*.5&&inFlare){enter(c,'recoil',rng);events.push({type:'recoil'});}
+   else if(c.t>=CRAWLER.recoverTime){enter(c,'stalk',rng);c.patience*=.4;}break;
   case 'slash':
    c.speed=0;if(c.t>=.45){enter(c,'flee',rng);c.goal=null;}break;
   case 'grab':{
@@ -164,11 +167,11 @@ export function stepCrawler(c,env,dt,rng=Math.random){
    events.push({type:'drag',dx:c.x-before.x,dz:c.z-before.z},{type:'hurt',damage:CRAWLER.grabDamage*dt});
    break;}
   case 'evade':{
-   if(inFlare||c.burn>=1){enter(c,'recoil',rng);c.burn=Math.min(c.burn,.5);events.push({type:'recoil'});break;}
+   if(inFlare){enter(c,'recoil',rng);c.burn=Math.min(c.burn,.5);events.push({type:'recoil'});break;}
    const step=CRAWLER.evadeSpeed*dt,nx=c.x+c.evade.x*step,nz=c.z+c.evade.z*step;
    if(walkable(cave,nx,nz)){c.x=nx;c.z=nz;c.speed=CRAWLER.evadeSpeed;}else{c.evade={x:-c.evade.x,z:-c.evade.z};c.speed=0;}
    turn(c,toPlayer,dt*6);
-   if(c.t>=CRAWLER.evadeTime){enter(c,'stalk',rng);c.goal=null;}
+   if(c.t>=CRAWLER.evadeTime){enter(c,'stalk',rng);c.patience=0;c.goal=null;}
    break;}
   case 'recoil':
    c.speed=0;
@@ -182,12 +185,20 @@ export function stepCrawler(c,env,dt,rng=Math.random){
    c.speed=0;if(c.t>=CRAWLER.hitTime){
     const next=c.after??'stalk';c.after=null;
     // Shot and not beaten: it comes for you, or darts off the line of fire and closes in.
-    if(next==='angry'){if(inRange&&rng()<.6)provoke(c,events,rng);else{evade(c,player,rng);c.patience=0;}}
+    if(next==='angry'){if(inRange&&rng()<CRAWLER.angry)provoke(c,events,rng);else{enter(c,'stalk',rng);c.patience=0;c.goal=null;}}
     else{enter(c,next,rng);c.goal=null;}
    }break;
   case 'flee':
+   // A short retreat: light doesn't keep it running, only standing in a flare or the flames does.
    think({away:true});moveToward(c,env,c.goal,CRAWLER.speed.flee,dt);
-   if(c.t>=CRAWLER.fleeTime&&lit<.05)enter(c,'stalk',rng);break;
+   if(c.t>=CRAWLER.fleeTime&&!inFlare){enter(c,'stalk',rng);c.patience*=.5;}break;
+  case 'emerge':{
+   // Squeezing out of a nest's burrow toward the floor in front of it, then straight onto the hunt.
+   c.speed=0;if(c.t<0||!c.emergeTo)break;
+   const ex=c.emergeTo.x-c.x,ez=c.emergeTo.z-c.z,ed=Math.hypot(ex,ez),step=Math.min(ed,CRAWLER.speed.emerge*dt);
+   if(ed>.05){c.x+=ex/ed*step;c.z+=ez/ed*step;c.speed=step/dt;turn(c,Math.atan2(ex,ez),dt*10);}
+   if(ed<.1||c.t>2.5){c.emergeTo=null;enter(c,'stalk',rng);c.patience=0;c.goal=null;}
+   break;}
  }
  c.anim=crawlerAnimation(c);
  return events;

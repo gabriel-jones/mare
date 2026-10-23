@@ -197,6 +197,12 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
    for(let i=0;i<16;i++){const a=Math.random()*Math.PI*2,s=1.5+Math.random()*3;ichor.spawn(at.x,at.y,at.z,Math.cos(a)*s+dir.x*2,1+Math.random()*2.5,Math.sin(a)*s+dir.z*2,.35+Math.random()*.35);}
    return;
   }
+  // A nest bleeds: ichor sprays back out of the burrow.
+  if(e.nest){
+   const at=new THREE.Vector3(e.x,.85,e.z);impactFlash.position.copy(at).addScaledVector(dir,-.2);impactFlash.material.opacity=.8;
+   for(let i=0;i<22;i++){const a=Math.random()*Math.PI*2,s=1+Math.random()*2.5;ichor.spawn(at.x,at.y,at.z,Math.cos(a)*s-dir.x*3,.8+Math.random()*2.5,Math.sin(a)*s-dir.z*3,.4+Math.random()*.4);}
+   return;
+  }
   // Rock: sparks off the wall and a puff of dust.
   const y=.95;
   for(let i=0;i<12;i++)sparks.spawn(e.x,y,e.z,-dir.x*(2+Math.random()*3)+(Math.random()-.5)*3,Math.random()*3,-dir.z*(2+Math.random()*3)+(Math.random()-.5)*3,.15+Math.random()*.25);
@@ -235,7 +241,7 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
    for(;clock>1;clock--)smoke.emit(wispFrom.copy(at),v.vel,s==='dead'?.6:.15);
    wisps.set(c,clock);
   }
-  hive?.update(state,dt,hunt.flame?.points??[]);
+  hive?.update(state,dt,hunt.flame?.points??[],hunt.wounds);
   smoke.update(dt,viewDir.value);
   if(cave)flares.update(state,dt,{root:caveView.root,actor});
   // The flamethrower: the jet from the nozzle out to where the sim says it stops, and fire on whatever is burning.

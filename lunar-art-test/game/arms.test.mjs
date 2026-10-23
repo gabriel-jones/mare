@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createState, serialize, deserialize } from './sim.js';
 import { caveLayout } from './caves.js';
 import { WEAPONS, ARMORY, armsOf, heldWeapon, holdWeapon, reload, stepArms, pullTrigger, craft } from './arms.js';
-import { createHunt, stepHunt, fire, release } from './hunt.js';
+import { createHunt, stepHunt, fire, release, NEST } from './hunt.js';
 import { nestMouth, liveNests } from './infest.js';
 import { createCrawler } from './crawler.js';
 import * as inv from './inventory.js';
@@ -57,7 +57,7 @@ test('the rifle hits harder and further than the pistol', () => {
   assert.equal(h.shots.at(-1).damage, WEAPONS.rifle.damage);
 });
 
-test('the flamethrower burns its tank while held, scorches crawlers and sets nests alight', () => {
+test('the flamethrower burns its tank while held, scorches crawlers and burns nests down as broods boil out', () => {
   const s = underground(1), h = createHunt(), rng = seeded();
   stepHunt(h, s, 1 / 30, rng);
   const cave = caveLayout(s.seed, 0, 1), n = cave.nests[0], m = nestMouth(n);
@@ -75,8 +75,32 @@ test('the flamethrower burns its tank while held, scorches crawlers and sets nes
   assert.ok(h.flame?.points.length, 'spraying');
   assert.ok(c.hp < hp, 'the crawler in the jet burns');
   assert.ok(armsOf(s).loaded.flamethrower < WEAPONS.flamethrower.magazine, 'the tank drains');
-  assert.ok(!liveNests(s, 0, 1).some(l => l.key === n.key), 'the nest caught');
+  assert.ok(liveNests(s, 0, 1).some(l => l.key === n.key), 'a nest takes a beating before it burns');
+  for (let t = 0; t < 3 && liveNests(s, 0, 1).some(l => l.key === n.key); t += .1) stepHunt(h, s, .1, rng);
+  assert.ok(!liveNests(s, 0, 1).some(l => l.key === n.key), 'the nest burns out');
+  const brood = h.crawlers.filter(c => c.nest === n.key);
+  assert.ok(brood.length >= NEST.final + 4, `broods crawl out as it burns: ${brood.length}`);
+  assert.ok(h.events.some(e => e.type === 'spawned' && e.emerge && e.nest === n.key));
   release(h); stepHunt(h, s, 1 / 30, rng); assert.equal(h.flame, null);
+});
+
+test('rounds that hit a nest wound it, and each wound squeezes more crawlers out of it', () => {
+  const s = underground(1), h = createHunt(), rng = seeded();
+  stepHunt(h, s, 1 / 30, rng);
+  const cave = caveLayout(s.seed, 0, 1), n = cave.nests[0], m = nestMouth(n);
+  Object.assign(s.player, { x: m.x - n.dx * 4, z: m.z - n.dz * 4, facing: Math.atan2(n.dx, n.dz) });
+  h.crawlers = [];
+  give(s, { rifle: 1, rounds: 60 }); holdWeapon(s, 'rifle'); armsOf(s).loaded.rifle = WEAPONS.rifle.magazine;
+  armsOf(s).cooldown = 0; assert.equal(fire(h, s).ok, true);
+  assert.equal(h.shots[0].nest, n.key, 'the nest takes the round');
+  stepHunt(h, s, .2, rng);
+  assert.ok(h.wounds[n.key].hp < NEST.hp);
+  for (let i = 0; i < 40 && !h.crawlers.length; i++) { armsOf(s).cooldown = 0; armsOf(s).loaded.rifle = WEAPONS.rifle.magazine; fire(h, s); stepHunt(h, s, .2, rng); }
+  const c = h.crawlers.find(c => c.nest === n.key);
+  assert.ok(c, 'a crawler squeezes out');
+  assert.equal(c.state, 'emerge');
+  for (let i = 0; i < 60 && c.state === 'emerge'; i++) stepHunt(h, s, 1 / 30, rng);
+  assert.notEqual(c.state, 'emerge', 'and joins the hunt');
 });
 
 test('on the surface the weapons fire at hatchlings and the flames clear goo', () => {
