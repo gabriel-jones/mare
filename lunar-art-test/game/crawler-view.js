@@ -47,35 +47,64 @@ vec3 gooNormal(vec3 p,vec3 n){float e=.01,d=gooD(p);vec3 g=vec3(gooD(p+vec3(e,0,
  if(shader.fragmentShader.includes('#include <roughnessmap_fragment>'))shader.fragmentShader=shader.fragmentShader.replace('#include <roughnessmap_fragment>','#include <roughnessmap_fragment>\nroughnessFactor=mix(.62,.16,gooWet());');
 }
 
+/**
+ * Wet black goo. In the studio it is physically lit; underground it takes the cave's sight and catches only the lamp.
+ * `shared` holds the animation uniforms (uTime, uSag, uPulse); the caller owns and disposes the material.
+ */
+export function gooInk({mode='studio',shared,sight=null,toCave=null,viewDir=null},amount,body=false){
+ if(mode==='studio'){
+  const m=new THREE.MeshPhysicalMaterial({color:'#070708',roughness:.4,metalness:0,clearcoat:.35,clearcoatRoughness:.35,envMapIntensity:.7});
+  m.onBeforeCompile=s=>gooShader(s,shared,amount,body);return m;
+ }
+ const m=new THREE.MeshBasicMaterial({color:'#050506',fog:false});
+ m.onBeforeCompile=shader=>{
+  gooShader(shader,{...shared,...sight,uToCave:toCave,uViewDir:viewDir},amount,body);
+  shader.vertexShader=shader.vertexShader.replace('#include <common>','#include <common>\nuniform mat4 uToCave;varying vec3 vCave;varying vec3 vCaveN;')
+   .replace('#include <project_vertex>','#include <project_vertex>\nvCave=(uToCave*modelMatrix*vec4(transformed,1.0)).xyz;vCaveN=mat3(uToCave*modelMatrix)*gooN;');
+  shader.fragmentShader=shader.fragmentShader.replace('#include <common>','#include <common>\nuniform vec3 uViewDir;varying vec3 vCave;varying vec3 vCaveN;\n'+SIGHT_PARS.replace('varying vec2 vCaveLocal;varying float vSeen;',''))
+   .replace('#include <opaque_fragment>',`
+    vec3 n=normalize(vCaveN);vec3 toLamp=normalize(vec3(uPlayer.x,1.5,uPlayer.y)-vCave);
+    float lampLevel=dot(caveSightRaw(vCave.xz),vec3(.33));
+    // Wet black: a hard highlight where the surface mirrors the lamp toward the eye, and a thin rim.
+    float wet=gooWet();
+    float glint=smoothstep(.95,.985,dot(reflect(-toLamp,n),uViewDir))*wet;
+    float rim=smoothstep(.72,.82,1.0-abs(dot(n,uViewDir)))*max(0.0,dot(n,toLamp)*.7+.3);
+    outgoingLight=diffuseColor.rgb*caveSight(vCave.xz)+vec3(.62,.68,.8)*lampLevel*(glint*1.1+rim*.2)+caveGlow(vCave.xz)*(rim*.15+glint*.35);
+    #include <opaque_fragment>`);
+ };
+ return m;
+}
+
+/** Goo leg parts that swell where they join and thin between, ending in bone needles (no hard joints), and the
+ * knee strand that gathers a drop. `keep` collects them for disposal. */
+export function legGeometry(keep=g=>g){
+ const lathe=(profile,bow=0,round=0)=>{
+  // Rounded ends so overlapping segments melt into one blob at each joint instead of showing cut tubes.
+  const cap=y=>round?Math.sqrt(Math.min(1,y/round))*Math.sqrt(Math.min(1,(1-y)/round)):1;
+  const pts=[];for(let i=0;i<=40;i++){const y=i/40;pts.push(new THREE.Vector2(Math.max(.001,profile(y)*cap(y)),y));}
+  const g=new THREE.LatheGeometry(pts,10);const p=g.attributes.position;
+  for(let i=0;i<p.count;i++){const y=p.getY(i);p.setX(i,p.getX(i)+Math.sin(y*Math.PI)*bow);}
+  g.computeVertexNormals();return keep(g);
+ };
+ const swell=(y,at,width)=>{const k=(y-at)/width;return Math.exp(-k*k);};
+ const geo={
+  femur:lathe(y=>.026+.026*swell(y,.04,.12)+.014*swell(y,.97,.1)+.004*Math.sin(y*19),.025,.05),
+  tibia:lathe(y=>.018+.014*swell(y,.04,.1)+.006*swell(y,.97,.08)+.003*Math.sin(y*23),-.02,.04),
+  meta:lathe(y=>.016*(1-y*.55)+.006*swell(y,.04,.1),0,.03),
+  needle:keep(new THREE.ConeGeometry(.011,.2,7).translate(0,.1,0)),
+  // A drop gathering on a thread, hung from each knee; it lengthens until the drop lets go.
+  strand:lathe(y=>.014*(1-y)**5+.0035+(y>.8?.017*Math.sqrt(Math.max(0,1-((y-.9)/.1)**2)):0)),
+ };
+ geo.strand.rotateX(Math.PI);
+ return geo;
+}
+
 export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=null,viewDir=null}={}){
  const root=new THREE.Group(),time={value:0},owned=[];parent.add(root);
  const keep=x=>(owned.push(x),x);
  const sag={value:new THREE.Vector3()},pulse={value:0};
  const shared={uTime:time,uSag:sag,uPulse:pulse};
- /** Materials. In the studio they are physically lit wet goo; underground they take the cave's sight and catch only the lamp. */
- function ink(amount,body=false){
-  if(mode==='studio'){
-   const m=keep(new THREE.MeshPhysicalMaterial({color:'#070708',roughness:.4,metalness:0,clearcoat:.35,clearcoatRoughness:.35,envMapIntensity:.7}));
-   m.onBeforeCompile=s=>gooShader(s,shared,amount,body);return m;
-  }
-  const m=keep(new THREE.MeshBasicMaterial({color:'#050506',fog:false}));
-  m.onBeforeCompile=shader=>{
-   gooShader(shader,{...shared,...sight,uToCave:toCave,uViewDir:viewDir},amount,body);
-   shader.vertexShader=shader.vertexShader.replace('#include <common>','#include <common>\nuniform mat4 uToCave;varying vec3 vCave;varying vec3 vCaveN;')
-    .replace('#include <project_vertex>','#include <project_vertex>\nvCave=(uToCave*modelMatrix*vec4(transformed,1.0)).xyz;vCaveN=mat3(uToCave*modelMatrix)*gooN;');
-   shader.fragmentShader=shader.fragmentShader.replace('#include <common>','#include <common>\nuniform vec3 uViewDir;varying vec3 vCave;varying vec3 vCaveN;\n'+SIGHT_PARS.replace('varying vec2 vCaveLocal;varying float vSeen;',''))
-    .replace('#include <opaque_fragment>',`
-     vec3 n=normalize(vCaveN);vec3 toLamp=normalize(vec3(uPlayer.x,1.5,uPlayer.y)-vCave);
-     float lampLevel=dot(caveSightRaw(vCave.xz),vec3(.33));
-     // Wet black: a hard highlight where the surface mirrors the lamp toward the eye, and a thin rim.
-     float wet=gooWet();
-     float glint=smoothstep(.95,.985,dot(reflect(-toLamp,n),uViewDir))*wet;
-     float rim=smoothstep(.72,.82,1.0-abs(dot(n,uViewDir)))*max(0.0,dot(n,toLamp)*.7+.3);
-     outgoingLight=diffuseColor.rgb*caveSight(vCave.xz)+vec3(.62,.68,.8)*lampLevel*(glint*1.1+rim*.2)+caveGlow(vCave.xz)*(rim*.15+glint*.35);
-     #include <opaque_fragment>`);
-  };
-  return m;
- }
+ const ink=(amount,body=false)=>keep(gooInk({mode,shared,sight,toCave,viewDir},amount,body));
  // Teeth are black needles; only a wet glint picks them out from the goo.
  const bone=mode==='studio'?keep(new THREE.MeshStandardMaterial({color:'#060607',roughness:.12,envMapIntensity:1.6})):keep(new THREE.MeshBasicMaterial({color:'#0b0b0d',fog:false}));
  if(mode!=='studio')bone.onBeforeCompile=shader=>{
@@ -105,25 +134,7 @@ export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=n
   for(let i=0;i<p.count;i+=3){const v=new THREE.Vector3().fromBufferAttribute(n,i).applyMatrix3(nm).normalize();if(v.y<-.75)belly.push(new THREE.Vector3().fromBufferAttribute(p,i).applyMatrix4(m));}
  }));
 
- // Legs: goo segments that swell where they join and thin between, ending in bone needles. No hard joints.
- const lathe=(profile,bow=0,round=0)=>{
-  // Rounded ends so overlapping segments melt into one blob at each joint instead of showing cut tubes.
-  const cap=y=>round?Math.sqrt(Math.min(1,y/round))*Math.sqrt(Math.min(1,(1-y)/round)):1;
-  const pts=[];for(let i=0;i<=40;i++){const y=i/40;pts.push(new THREE.Vector2(Math.max(.001,profile(y)*cap(y)),y));}
-  const g=new THREE.LatheGeometry(pts,10);const p=g.attributes.position;
-  for(let i=0;i<p.count;i++){const y=p.getY(i);p.setX(i,p.getX(i)+Math.sin(y*Math.PI)*bow);}
-  g.computeVertexNormals();return keep(g);
- };
- const swell=(y,at,width)=>{const k=(y-at)/width;return Math.exp(-k*k);};
- const geo={
-  femur:lathe(y=>.026+.026*swell(y,.04,.12)+.014*swell(y,.97,.1)+.004*Math.sin(y*19),.025,.05),
-  tibia:lathe(y=>.018+.014*swell(y,.04,.1)+.006*swell(y,.97,.08)+.003*Math.sin(y*23),-.02,.04),
-  meta:lathe(y=>.016*(1-y*.55)+.006*swell(y,.04,.1),0,.03),
-  needle:keep(new THREE.ConeGeometry(.011,.2,7).translate(0,.1,0)),
-  // A drop gathering on a thread, hung from each knee; it lengthens until the drop lets go.
-  strand:lathe(y=>.014*(1-y)**5+.0035+(y>.8?.017*Math.sqrt(Math.max(0,1-((y-.9)/.1)**2)):0)),
- };
- geo.strand.rotateX(Math.PI);
+ const geo=legGeometry(keep);
  const legs=legInfo.map((info,i)=>{
   const parts={femur:new THREE.Mesh(geo.femur,legInk),tibia:new THREE.Mesh(geo.tibia,legInk),meta:new THREE.Mesh(geo.meta,legInk),needle:new THREE.Mesh(geo.needle,legInk),strand:new THREE.Mesh(geo.strand,legInk)};
   Object.values(parts).forEach(m=>{m.castShadow=mode==='studio';m.frustumCulled=false;root.add(m);});
