@@ -4,8 +4,8 @@ import { createState, placeBlueprint, tick, serialize, deserialize, deconstruct,
 import { movePlayer, RUN_SPEED } from './controller.js';
 import { count, createInventory, add, room as space } from './inventory.js';
 import { ensureBuildingState } from './production.js';
-import { LIFE, ensureLifeState, eat, hunger, lifeAction, roomStatus } from './life.js';
-import { BUFFS, CROPS, GALLEY, MILL } from './farm.js';
+import { LIFE, ensureLifeState, eat, hunger, lifeAction, roomStatus, setCrop, setRecipe } from './life.js';
+import { BUFFS, CROPS, GALLEY, MILL, RECIPES as DISHES, recipeKnown } from './farm.js';
 import { TECHS, selectResearch } from './space.js';
 import { buildingStatus } from './building-status.js';
 
@@ -137,6 +137,21 @@ test('the galley cooks recipes, the mill grinds, and meals give effects that run
   assert.equal(deconstruct(s, mill.id).ok, true); assert.equal(count(s.inventory, 'wheat'), wheat + 1);
   const back = deserialize(serialize(s));
   assert.deepEqual(back.player.buffs, s.player.buffs); assert.deepEqual(back.buildings, s.buildings);
+});
+
+test('pickers replant growers and set the galley dish, offering only what research makes possible', () => {
+  const s = base(), bed = build(s, 'growbed', 2, 0), galley = build(s, 'galley', 1, 0);
+  assert.equal(setCrop(s, bed, 'soy').ok, false, 'a bed cannot grow rack crops');
+  run(s, 10); assert.ok(bed.grow > 0);
+  assert.equal(setCrop(s, bed, 'greens').reason, 'Planted greens.'); assert.equal(bed.grow, 0);
+  bed.grow = 1; assert.match(setCrop(s, bed, 'crop').reason, /Harvest the greens first/);
+  const known = () => Object.keys(DISHES).filter(id => recipeKnown(s, id));
+  assert.deepEqual(known(), ['meal'], 'salad waits for tomatoes, bread for the mill');
+  assert.equal(setRecipe(s, galley, 'bread').ok, false);
+  s.research.done.push('hydroponics', 'tomato', 'medicine');
+  assert.deepEqual(known(), ['meal', 'salad', 'medkit']);
+  assert.equal(setRecipe(s, galley, 'medkit').ok, true); assert.equal(galley.recipe, 'medkit');
+  assert.equal(setRecipe(s, galley, null).ok, true); assert.equal(galley.recipe, null);
 });
 
 test('a galley from before recipes keeps its potatoes and meals', () => {

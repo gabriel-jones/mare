@@ -25,8 +25,8 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 /** Where each grower shows its ripe crop: [x, y, z, size] in the model's space. */
 const RIPE_SPOTS={
   growbed:[[-.42,.51,.4,.42],[.42,.51,.4,.42]],
-  hydrorack:[[-.45,.6,0,.3],[.45,1.16,-.2,.3],[0,1.72,.1,.3]],
-  verticalfarm:[[-.3,.5,1,.4],[.3,.94,-.5,.4],[0,1.38,-1.2,.4],[-.2,1.82,.4,.4]],
+  hydrorack:[[-.45,1.62,.2,.3],[.42,1.62,-.25,.3],[0,1.06,.3,.28]],
+  verticalfarm:[[-.4,1.7,1.2,.42],[.35,1.7,.2,.42],[-.2,1.7,-.9,.42],[.3,1.7,-1.5,.38]],
   mushroomtray:[[-.4,.86,.1,.32],[.42,.86,-.35,.32]],
 };
 export async function createWorld(canvas, initialState) {

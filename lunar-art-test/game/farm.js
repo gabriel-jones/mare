@@ -44,6 +44,15 @@ export const RECIPES = Object.freeze({
 export const AUTO = Object.freeze(['pizza', 'stew', 'salad', 'broth', 'bread', 'algaecake', 'meal']);
 export const GALLEY = Object.freeze({ time: 6, power: 1.5, queue: 2, ready: 3 });
 export const recipeUnlocked = (state, id) => !RECIPES[id].tech || techDone(state, RECIPES[id].tech);
+/** Whether research lets the colony make `item` at all: a crop some grower can plant, or milled from one. */
+export function obtainable(state, item) {
+  if (CROPS[item]) return cropsFor(state, CROPS[item].grower).includes(item);
+  const grain = Object.keys(MILL.makes).find(k => MILL.makes[k] === item);
+  if (grain) return techDone(state, 'processing') && obtainable(state, grain);
+  return true;
+}
+/** Recipes the galley picker offers: researched, with every ingredient obtainable. */
+export const recipeKnown = (state, id) => recipeUnlocked(state, id) && Object.keys(RECIPES[id].input).every(item => obtainable(state, item));
 
 /**
  * Meal effects. They all run at once; eating the same effect again adds its time, up to `BUFF_CAP` seconds.

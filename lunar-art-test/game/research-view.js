@@ -23,7 +23,7 @@ export function createResearchView(callbacks = {}) {
   }
   const width = PAD * 2 + Math.max(...Object.values(place).map(p => p.x)) + COL, height = top;
   const links = Object.entries(TECHS).flatMap(([id, t]) => (t.requires ?? []).map(r => ({ from: r, to: id })));
-  const path = ({ from, to }) => { const a = place[from], b = place[to], x0 = a.x + 158, y0 = a.y + 62, x1 = b.x, y1 = b.y + 62, m = (x0 + x1) / 2; return `M${x0} ${y0}C${m} ${y0} ${m} ${y1} ${x1} ${y1}`; };
+  const path = ({ from, to }) => { const a = place[from], b = place[to], x0 = a.x + 158, y0 = a.y + 69, x1 = b.x, y1 = b.y + 69, m = (x0 + x1) / 2; return `M${x0} ${y0}C${m} ${y0} ${m} ${y1} ${x1} ${y1}`; };
   root.innerHTML = `<header class="research-head"><div><small>Colony research</small><h2>Research</h2></div>
       <div class="research-stats"><span>Points <strong data-research="bank">0</strong></span><span>Rate <strong data-research="rate">0</strong><small>pts / min</small></span></div>
       <button type="button" class="research-close" data-research-action="close" aria-label="Close research" title="Close (T)">×</button></header>

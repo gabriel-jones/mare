@@ -1,7 +1,8 @@
 import { DEFS } from './sim.js';
 import { ITEM_INFO } from './defs.js';
 import { count } from './inventory.js';
-import { hunger } from './life.js';
+import { hunger, galleyRecipe } from './life.js';
+import { BUFFS, CROPS, RECIPES, cropsFor, isGrower, recipeKnown } from './farm.js';
 import { robotStatus, lampLevel } from './building-status.js';
 import { areaKind, remainingRegolith, MAX_MINING_AREAS } from './production.js';
 
@@ -64,6 +65,7 @@ export function createUI(root, callbacks = {}) {
       <span class="health-resource" title="Suit integrity. Vents and toxic pools wear it down; it recovers on the surface. At zero you black out."><span>Suit</span><span class="health-meter"><i></i></span><strong data-value="health">100%</strong></span>
       <span class="food-resource" title="How fed you are. Hungry below 35%: slower walking and building."><span>Food</span><span class="food-meter"><i></i></span><strong data-value="food">100%</strong></span>
     </div>
+    <div class="buffs" aria-label="Meal effects"></div>
     <section class="objective" aria-label="Ship AI" aria-live="polite">
       <header><span class="objective-source">Ship AI</span><small class="objective-step"></small></header>
       <p class="objective-message"></p>
@@ -73,6 +75,7 @@ export function createUI(root, callbacks = {}) {
       ${Array.from({ length: 10 }, (_, i) => `<button type="button" class="slot" data-slot="${i}" aria-pressed="false"><kbd>${slotKey(i)}</kbd><span class="slot-icon"></span><strong></strong></button>`).join('')}
     </div>
     <div class="construction">
+      <div class="station" aria-label="Station" hidden></div>
       <div class="context-hint" hidden></div>
       <div id="build-menu" class="build-menu" aria-label="Construction" hidden>
         ${GROUPS.map(([title, types]) => `<h3>${title}</h3>${types.map(type => { const def = TOOLS[type]; return `<button type="button" class="build-item" data-build="${type}" aria-pressed="false" title="${def.description}${def.cost ? ` · ${costText(def)}` : ''}">${svg(ICONS[type] || ICONS.habitat)}<span>${def.name}</span><kbd>${def.key?.toUpperCase() ?? ''}</kbd></button>`; }).join('')}`).join('')}
@@ -99,7 +102,40 @@ export function createUI(root, callbacks = {}) {
   const robotsPanel = root.querySelector('.robots-panel'), robotsToggle = root.querySelector('.robots-toggle');
   const setRobots = open => { robotsPanel.hidden = !open; robotsToggle.setAttribute('aria-expanded', String(open)); if (open) { menu.hidden = true; toggle.setAttribute('aria-expanded', 'false'); robotsKey = ''; robotsAt = 0; } };
   const setOpen = open => { menu.hidden = !open; toggle.setAttribute('aria-expanded', String(open)); if (open) setRobots(false); };
-  let robotsKey = '', robotsAt = 0;
+  let robotsKey = '', robotsAt = 0, stationKey = '', buffsKey = '';
+  const station = root.querySelector('.station'), buffs = root.querySelector('.buffs');
+  const icon = item => `<img src="${ITEM_ICON_URLS[item]}" alt="" aria-hidden="true" draggable="false">`;
+  const clock = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+  // Rebuilt only when the choice or what the player can afford changes, so a hovered chip stays put.
+  function renderStation(state, b) {
+    if (!b) { if (!station.hidden) { station.hidden = true; stationKey = ''; } return; }
+    let key, html;
+    if (isGrower(b)) {
+      const crops = cropsFor(state, b.type);
+      key = `${b.id}|${b.crop}|${crops}|${b.grow >= 1}`;
+      if (key === stationKey) return;
+      html = `<header><strong>${DEFS[b.type].name}</strong><small>${b.grow >= 1 ? 'Ripe: harvest with E' : crops.length > 1 ? 'Choose a crop · replanting loses growth' : 'Research unlocks more crops'}</small></header>
+        <div class="station-options">${crops.map(id => { const c = CROPS[id]; return `<button type="button" data-crop="${id}" data-station="${b.id}" aria-pressed="${id === b.crop}" title="${c.name}: ${c.yield} every ${c.time}s · water ${c.water}${c.power ? ` · ${c.power} kW` : ' · no power'}">${icon(id)}<span>${c.name}</span><small>${c.time}s · ${c.yield}×</small></button>`; }).join('')}</div>`;
+    } else {
+      const dishes = Object.keys(RECIPES).filter(id => recipeKnown(state, id));
+      const has = id => Object.entries(RECIPES[id].input).every(([item, n]) => count(state.inventory, item) >= n);
+      const next = galleyRecipe(state, b);
+      key = `${b.id}|${b.recipe}|${dishes.map(id => `${id}${has(id)}`)}|${next}`;
+      if (key === stationKey) return;
+      const effect = id => { const buff = RECIPES[id].buff; return id === 'medkit' ? 'Heals suit' : buff ? (Object.keys(buff).length === Object.keys(BUFFS).length ? 'All four effects' : Object.keys(buff).map(k => BUFFS[k].name).join(' · ')) : 'Filling'; };
+      html = `<header><strong>Galley</strong><small>${next ? `E cooks ${ITEM_INFO[next].name.toLowerCase()}` : b.recipe ? `Missing ingredients for ${ITEM_INFO[b.recipe].name.toLowerCase()}` : 'No ingredients for any dish'}</small></header>
+        <div class="station-options"><button type="button" class="station-auto" data-recipe="" data-station="${b.id}" aria-pressed="${!b.recipe}" title="Cook the best dish you have ingredients for">${svg('<path d="M4 12a8 8 0 0 1 14-5m2 5a8 8 0 0 1-14 5"/><path d="M18 3v4h-4M6 21v-4h4"/>', 1.6)}<span>Auto</span><small>Best dish</small></button>
+        ${dishes.map(id => `<button type="button" data-recipe="${id}" data-station="${b.id}" aria-pressed="${id === b.recipe}" class="${has(id) ? '' : 'missing'}" title="${ITEM_INFO[id].name}: ${Object.entries(RECIPES[id].input).map(([item, n]) => `${n} ${ITEM_INFO[item].name.toLowerCase()}`).join(' + ')} · ${effect(id)}">${icon(id)}<span>${ITEM_INFO[id].name}</span><small class="station-inputs">${Object.entries(RECIPES[id].input).map(([item, n]) => `${n > 1 ? `<b>${n}</b>` : ''}${icon(item)}`).join('')}</small><em>${effect(id)}</em></button>`).join('')}</div>`;
+    }
+    stationKey = key; station.innerHTML = html; station.hidden = false;
+  }
+  function renderBuffs(state) {
+    const active = Object.entries(state.player.buffs ?? {}).filter(([, t]) => t > 0);
+    const key = active.map(([id, t]) => `${id}${Math.ceil(t)}`).join();
+    if (key === buffsKey) return;
+    buffsKey = key;
+    buffs.innerHTML = active.map(([id, t]) => `<span class="buff" data-buff="${id}" title="${BUFFS[id].name}"><i></i>${BUFFS[id].name}<small>${clock(t)}</small></span>`).join('');
+  }
   // Rows are rebuilt only when rovers or zones come and go, so an open zone picker is never torn down mid-choice.
   function renderRobots(state) {
     const areas = state.miningAreas ?? [], key = state.robots.map(r => r.id).join() + '|' + areas.map(a => a.id).join();
@@ -123,6 +159,7 @@ export function createUI(root, callbacks = {}) {
   }
   const onClick = event => {
     const button = event.target.closest('button'); if (!button) return;
+    if (button.dataset.station) { const id = Number(button.dataset.station); callbacks.onStation?.(button.dataset.crop ? { id, crop: button.dataset.crop } : { id, recipe: button.dataset.recipe || null }); stationKey = ''; button.blur(); return; }
     if (button.dataset.build) { callbacks.onSelect?.(button.dataset.build); setOpen(false); setRobots(false); }
     else if (button.dataset.removeZone) callbacks.onRemoveZone?.(Number(button.dataset.removeZone));
     else if (button.dataset.action === 'robots') setRobots(robotsPanel.hidden);
@@ -177,6 +214,8 @@ export function createUI(root, callbacks = {}) {
       rotateButton.hidden = selected === 'mine' || selected === 'dismantle' || !!TOOLS[selected]?.paint;
       const invalid = selected && view.placementReason && !/^(Click|Drag)|release to place/.test(view.placementReason);
       reasonLabel.textContent = invalid ? view.placementReason : ''; reasonLabel.hidden = !invalid;
+      renderStation(state, selected ? null : view.station);
+      renderBuffs(state);
       const held = state.inventory[view.foodSlot ?? view.selectedSlot], edible = ITEM_INFO[held?.item]?.food && satiety < 100;
       const lines = [];
       if (view.missionUse) lines.push(`<kbd>E</kbd> ${view.missionUse.verb}${view.missionUse.hold && view.missionUse.progress > 0 ? ` <span class="hint-progress"><i style="transform:scaleX(${view.missionUse.progress})"></i></span>` : ''}`);
@@ -186,7 +225,7 @@ export function createUI(root, callbacks = {}) {
         if (flares) lines.push(`<kbd>Q</kbd> Throw flare · ${flares}`);
         else if (count(state.inventory, 'metal') >= 2) lines.push('<kbd>X</kbd> Make 3 flares · 2 metal');
       }
-      if (edible && (status.label || satiety < 70)) lines.push(`<kbd>F</kbd> Eat ${held.item === 'meal' ? 'meal' : 'raw potato'}`);
+      if (edible && (status.label || satiety < 70)) lines.push(`<kbd>F</kbd> Eat ${RECIPES[held.item] ? ITEM_INFO[held.item].name.toLowerCase() : `raw ${ITEM_INFO[held.item].name.toLowerCase()}`}`);
       const next = lines.join('<span class="hint-gap"></span>');
       if (next !== hintKey) { hintKey = next; hint.innerHTML = next; hint.hidden = !next; }
       for (const item of items) {

@@ -6,7 +6,8 @@ import {DEFS,createState,validatePlacement,placeBlueprint,construct,tick,seriali
 import {DIRS,ITEM_INFO,footprint} from './defs.js';
 import {movePlayer,nearestBlueprint,buildingCenter,resetLocomotion,interpolatePose,RUN_SPEED} from './controller.js';
 import {count} from './inventory.js';
-import {eat,lifeAction} from './life.js';
+import {eat,lifeAction,setCrop,setRecipe} from './life.js';
+import {isGrower} from './farm.js';
 import {createWorld} from './world.js';
 import {createUI} from './ui.js';
 import {objective,missionAction,salvage,installCore,processorUnlocked,noteSighting} from './mission.js';
@@ -77,11 +78,22 @@ function nearbyUse(){
  }
  return best;
 }
+/** The grower or galley the player stands at, whose picker the HUD shows. */
+function nearbyStation(){
+ if(state.player.cave!=null)return null;
+ let best=null,distance=3;
+ for(const b of state.buildings){
+  if(!b.built||!(isGrower(b)||b.type==='galley'))continue;
+  const c=buildingCenter(b,DEFS),d=Math.hypot(c.x-state.player.x,c.z-state.player.z);
+  if(d<distance){best=b;distance=d;}
+ }
+ return best;
+}
 function view(){
  const nearest=state.player.cave==null?nearestBlueprint(state,DEFS,100):null,c=nearest?buildingCenter(nearest,DEFS):null;
  const guidance=nearest?`${DEFS[nearest.type].name} blueprint: ${Math.ceil(Math.hypot(c.x-state.player.x,c.z-state.player.z))}m away. Walk within 5m, then hold E.`:null;
  const goal=objective(state),distance=goal.target&&state.player.cave==null?Math.round(Math.hypot(goal.target.x-state.player.x,goal.target.z-state.player.z)):null;
- return {objective:{...goal,distance},missionUse:missionAction(state)??shipAction(state),locked:{...(processorUnlocked(state)?{}:{processor:PROCESSOR_LOCKED}),...Object.fromEntries(Object.keys(DEFS).map(type=>[type,lockedReason(state,type)]).filter(([,reason])=>reason))},selectedType,rotation,placementReason,constructionReason,nearbyBuilding:nearby(),use:nearbyUse(),selectedSlot,foodSlot:foodSlot(),guidance,constructing,night:Math.sin(state.time/240*Math.PI*2+Math.PI/3)<=0,paused:false,saveStatus:saveStatus+(speed>1?' · Time ×12':''),timeScale:speed};
+ return {objective:{...goal,distance},missionUse:missionAction(state)??shipAction(state),locked:{...(processorUnlocked(state)?{}:{processor:PROCESSOR_LOCKED}),...Object.fromEntries(Object.keys(DEFS).map(type=>[type,lockedReason(state,type)]).filter(([,reason])=>reason))},selectedType,rotation,placementReason,constructionReason,nearbyBuilding:nearby(),use:nearbyUse(),station:nearbyStation(),selectedSlot,foodSlot:foodSlot(),guidance,constructing,night:Math.sin(state.time/240*Math.PI*2+Math.PI/3)<=0,paused:false,saveStatus:saveStatus+(speed>1?' · Time ×12':''),timeScale:speed};
 }
 function point(event){hover=world?.pick(event.clientX,event.clientY);canvas.dataset.hoverCell=hover?`${hover.x},${hover.z}`:'';if(!hover){world?.clearGhost();return;}if(beltPath)extendBeltPath(hover);if(paintPath)extendPaintPath(hover);targetId=hover.buildingId??null;canvas.dataset.targetId=String(targetId??'');if(erasing)eraseAt();refreshGhost();}
 const MAX_PAINT=120;
@@ -125,8 +137,9 @@ function useNearby(){
 /** The selected slot if it holds food, otherwise the most filling food carried. */
 function foodSlot(){
  if(ITEM_INFO[state.inventory[selectedSlot]?.item]?.food)return selectedSlot;
- const slot=['meal','crop'].map(item=>state.inventory.findIndex(s=>s?.item===item)).find(i=>i>=0);
- return slot??selectedSlot;
+ let slot=selectedSlot,best=0;
+ state.inventory.forEach((s,i)=>{const food=ITEM_INFO[s?.item]?.food??0;if(food>best){best=food;slot=i;}});
+ return slot;
 }
 function eatSelected(){notify(eat(state,foodSlot()).reason);}
 const MAX_BELT_PATH=80;
@@ -275,7 +288,7 @@ async function start(){
  try{
   let restored=false;
   try{const raw=localStorage.getItem(KEY);if(raw){state=deserialize(raw);resetPlayer();restored=true;saveStatus='Restored local save';}}catch(e){saveStatus='New colony · save unreadable';}
-  ui=createUI(document.querySelector('#ui'),{onSelect:select,onAssign:(robot,area)=>{const r=assignRover(state,robot,area);if(!r.ok)notify(r.reason);},onRemoveZone:id=>notify(removeMiningArea(state,id).reason),onSlot:i=>{if(selectedSlot===i)eatSelected();selectedSlot=i;ui.update(state,view());},onRotate:()=>{rotation=(rotation+1)%4;refreshGhost();},onSave:save,onLoad:load,onReset:()=>{state=createState(Math.floor(Math.random()*999999));selectedType=null;resetPlayer();targetId=null;keys.clear();world?.clearGhost();save();notify('New lunar landing created.');},onCancel:()=>select(null),onOrbit:()=>{research?.close();orbit?.toggle();},onResearch:()=>{orbit?.close();research?.toggle();},onTimeToggle:()=>{speed=speed===1?12:1;notify(speed===1?'Normal day/night speed.':'Day/night simulation ×12. Movement stays normal.');}});
+  ui=createUI(document.querySelector('#ui'),{onSelect:select,onAssign:(robot,area)=>{const r=assignRover(state,robot,area);if(!r.ok)notify(r.reason);},onRemoveZone:id=>notify(removeMiningArea(state,id).reason),onSlot:i=>{if(selectedSlot===i)eatSelected();selectedSlot=i;ui.update(state,view());},onRotate:()=>{rotation=(rotation+1)%4;refreshGhost();},onSave:save,onLoad:load,onReset:()=>{state=createState(Math.floor(Math.random()*999999));selectedType=null;resetPlayer();targetId=null;keys.clear();world?.clearGhost();save();notify('New lunar landing created.');},onStation:({id,crop,recipe})=>{const b=state.buildings.find(o=>o.id===id);if(!b)return;notify((crop?setCrop(state,b,crop):setRecipe(state,b,recipe)).reason);canvas.focus({preventScroll:true});},onCancel:()=>select(null),onOrbit:()=>{research?.close();orbit?.toggle();},onResearch:()=>{orbit?.close();research?.toggle();},onTimeToggle:()=>{speed=speed===1?12:1;notify(speed===1?'Normal day/night speed.':'Day/night simulation ×12. Movement stays normal.');}});
   world=await createWorld(canvas,state);
   orbit=createOrbitView({onReturn:()=>{notify(recallShip(state).reason);orbit.close();},onClose:()=>{keys.clear();canvas.focus({preventScroll:true});}});
   research=createResearchView({onResearch:id=>notify(selectResearch(state,id).reason),onClose:()=>{keys.clear();canvas.focus({preventScroll:true});}});

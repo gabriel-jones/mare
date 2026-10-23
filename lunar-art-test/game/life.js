@@ -1,7 +1,7 @@
 import { DEFS, ITEM_INFO } from './defs.js';
 import { habitatLayout, openRooms } from './habitat.js';
 import * as inv from './inventory.js';
-import { CROPS, GALLEY, MILL, RECIPES, AUTO, BUFFS, isGrower, cropsFor, defaultCrop, recipeUnlocked, addBuffs, buffed, stepBuffs } from './farm.js';
+import { CROPS, GALLEY, MILL, RECIPES, AUTO, BUFFS, isGrower, cropsFor, defaultCrop, recipeUnlocked, recipeKnown, addBuffs, buffed, stepBuffs } from './farm.js';
 
 // Provisional tuning.
 export const LIFE = Object.freeze({
@@ -117,6 +117,22 @@ export function nextCrop(state, b) {
   const options = cropsFor(state, b.type);
   if (options.length < 2 && options.includes(b.crop)) return null;
   return options[(options.indexOf(b.crop) + 1) % options.length] ?? null;
+}
+/** Replants a grower with `crop`; an unripe crop in it is lost, a ripe one must be harvested first. */
+export function setCrop(state, b, crop) {
+  if (!isGrower(b) || !b.built) return { ok: false, reason: 'Not a grower.' };
+  if (!cropsFor(state, b.type).includes(crop)) return { ok: false, reason: `${DEFS[b.type].name} can't grow that yet.` };
+  if (b.crop === crop) return { ok: true, reason: `Already growing ${name(crop)}.` };
+  if (b.grow >= 1) return { ok: false, reason: `Harvest the ${name(b.crop)} first.` };
+  Object.assign(b, { crop, grow: 0, watered: false });
+  return { ok: true, reason: `Planted ${name(crop)}.` };
+}
+/** Picks what the galley cooks; null cooks the best dish the player can make. */
+export function setRecipe(state, b, recipe) {
+  if (b?.type !== 'galley') return { ok: false, reason: 'Not a galley.' };
+  if (recipe != null && (!RECIPES[recipe] || !recipeKnown(state, recipe))) return { ok: false, reason: 'Unknown recipe.' };
+  b.recipe = recipe ?? null;
+  return { ok: true, reason: recipe ? `Galley set to ${name(recipe)}.` : 'Galley cooks the best it can.' };
 }
 const millInput = state => Object.keys(MILL.makes).filter(item => inv.count(state.inventory, item) > 0);
 

@@ -1,0 +1,29 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Farm buildings, pickers and research tree • art review</title><link rel="stylesheet" href="../game.css"><style>canvas{position:fixed;inset:0;width:100%;height:100%;outline:none}</style><script type="importmap">{"imports":{"three":"../../node_modules/three/build/three.module.js","three/addons/":"../../node_modules/three/examples/jsm/"}}</script></head><body><canvas id="game" tabindex="0"></canvas><div id="ui"></div><script type="module">
+// Isolated review of the farm fittings, ripe crops, station pickers, meal effects and the research tree. Never reads or writes colony saves.
+// ?station=<building id> shows that grower's or galley's picker; ?research=1 opens the tree.
+import{createWorld}from'../world.js';import{createState,tick}from'../sim.js';import{ensureBuildingState}from'../production.js';import{ensureLifeState,setCrop,setRecipe}from'../life.js';
+import{createUI}from'../ui.js';import{createResearchView}from'../research-view.js';import{add}from'../inventory.js';
+const params=new URLSearchParams(location.search),state=createState();
+state.time=25;state.player.facing=Math.PI;state.player.animation='idle';
+state.research.done.push('hydroponics','soy','tomato','mycology','processing','vertical','wheat','medicine');
+state.research.selected='algae';state.research.progress={algae:4};state.research.bank=3;
+const layout=[];
+for(let x=-7;x<=-5;x++)for(const z of [1,2])layout.push(['habitat',x,z,0]);
+for(let x=-4;x<=-1;x++)for(const z of [1,2,3])layout.push(['greenhouse',x,z,0]);
+layout.push(['airlock',-6,3,0],
+ ['growbed',-4,1,0,{crop:'greens',grow:1,watered:true}],['hydrorack',-3,1,0,{crop:'tomato',grow:1,watered:true}],['hydrorack',-2,1,0,{crop:'soy',grow:.6,watered:true}],
+ ['verticalfarm',-1,1,0,{crop:'wheat',grow:1,watered:true}],['growbed',-4,3,0,{crop:'crop',grow:.4,watered:true}],['hydrorack',-3,3,0,{crop:'algae',grow:1,watered:true}],
+ ['mushroomtray',-7,1,0,{crop:'mushroom',grow:1,watered:true}],['mill',-6,1,0,{ready:{flour:2}}],['galley',-5,1,0,{ready:{pizza:1}}],['solar',3,-1,0],['battery',6,-1,0]);
+state.buildings=layout.map(([type,x,z,rotation,extra],i)=>Object.assign(ensureLifeState(ensureBuildingState({id:i+1,type,x,z,rotation,progress:1,built:true})),{air:true},extra));
+state.buildings.forEach(b=>{if(!['habitat','greenhouse','airlock'].includes(b.type))delete b.air;});state.nextId=layout.length+1;
+Object.assign(state.player,{x:-4,z:12,buffs:{regen:212,calm:540,sight:75}});
+for(const [item,n] of [['tomato',3],['greens',2],['flour',3],['mushroom',2],['crop',4]])add(state.inventory,item,n);
+tick(state,0);state.power.stored=state.power.capacity;tick(state,0);
+const base=document.createElement('base');base.href='../';document.head.append(base);
+const world=await createWorld(document.querySelector('canvas'),state);window.addEventListener('resize',world.resize);
+const station=state.buildings.find(b=>b.id===Number(params.get('station')))??null;
+const ui=createUI(document.querySelector('#ui'),{onStation:({id,crop,recipe})=>{const b=state.buildings.find(o=>o.id===id);ui.notify((crop?setCrop(state,b,crop):setRecipe(state,b,recipe)).reason);}});
+const research=createResearchView({onResearch:id=>{},onClose:()=>{}});if(params.has("research"))research.show();
+window.preview={state,world,ui,research};
+let last=performance.now();function frame(now){const dt=Math.min((now-last)/1000,.1);last=now;world.update(state,dt);ui.update(state,{station,selectedSlot:0});research.update(state);requestAnimationFrame(frame)}requestAnimationFrame(frame);
+</script></body></html>

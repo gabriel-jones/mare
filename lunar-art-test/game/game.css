@@ -199,10 +199,10 @@ body[data-orbit=open] .game-ui, body[data-orbit=open] .building-status-layer { v
 .research-links path { fill:none;stroke:#ffffff1f;stroke-width:2; }
 .research-links path[data-state=open] { stroke:#8fc4ff66; }
 .research-links path[data-state=done] { stroke:#edbd79aa; }
-.research-node { position:absolute;width:158px;height:126px;display:grid;grid-template-rows:64px auto 1fr auto;justify-items:center;gap:2px;padding:8px 8px 7px;border-radius:7px;border:1px solid #ffffff22;background:#0d131dd9;color:inherit;text-align:center;cursor:pointer;transition:border-color .12s,background .12s; }
-.research-node img { width:64px;height:64px;object-fit:contain;filter:drop-shadow(0 4px 6px #0008); }
+.research-node { position:absolute;width:158px;height:138px;display:grid;grid-template-rows:58px auto 1fr auto;justify-items:center;gap:2px;padding:8px 8px 7px;border-radius:7px;border:1px solid #ffffff22;background:#0d131dd9;color:inherit;text-align:center;cursor:pointer;transition:border-color .12s,background .12s; }
+.research-node img { width:58px;height:58px;object-fit:contain;filter:drop-shadow(0 4px 6px #0008); }
 .research-node strong { font-size:12px;font-weight:600; }
-.research-node small { font-size:10px;line-height:1.25;color:#98a3b3;overflow:hidden; }
+.research-node small { font-size:10px;line-height:1.25;color:#98a3b3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical; }
 .research-node:hover:not(:disabled) { border-color:#8fc4ff;background:#132030; }
 .research-node[data-state=active] { border-color:#8fc4ff;box-shadow:0 0 0 1px #8fc4ff55,0 0 18px #8fc4ff33; }
 .research-node[data-state=done] { border-color:#edbd7988;cursor:default; }
@@ -217,3 +217,31 @@ body[data-orbit=open] .game-ui, body[data-orbit=open] .building-status-layer { v
 .research-toggle svg { color:#edbd79; }
 .research-badge { position:absolute;top:-4px;right:-4px;width:10px;height:10px;border-radius:50%;background:#edbd79;box-shadow:0 0 8px #edbd79; }
 body[data-research=open] .game-ui, body[data-research=open] .building-status-layer { visibility:hidden; }
+
+/* Grower crop and galley recipe pickers, shown above the hint while standing at one. */
+.station { position:fixed;left:50%;bottom:140px;transform:translateX(-50%);width:max-content;max-width:min(860px,calc(100vw - 40px));padding:8px 10px 10px;border:1px solid var(--line);border-radius:6px;background:var(--panel);backdrop-filter:blur(12px);box-shadow:0 6px 30px #0005;pointer-events:auto;font-size:12px;color:#e3dccd; }
+.station header { display:flex;align-items:baseline;gap:10px;margin:0 2px 7px; }
+.station header strong { font-size:12px;font-weight:600; }
+.station header small { color:#8d979c;font-size:11px; }
+.station-options { display:flex;gap:6px;flex-wrap:wrap;justify-content:center; }
+.station-options button { position:relative;display:grid;justify-items:center;gap:1px;width:86px;padding:6px 4px 7px;border:1px solid #ffffff14;border-radius:5px;background:#ffffff08;color:inherit;font:inherit;cursor:pointer; }
+.station-options button:hover { border-color:#edbd7966;background:#edbd7912; }
+.station-options button[aria-pressed=true] { border-color:var(--amber);background:#edbd7922;box-shadow:inset 0 0 0 1px #edbd7955; }
+.station-options button > img { width:40px;height:40px;object-fit:contain; }
+.station-options button > svg { width:28px;height:28px;margin:6px;color:var(--amber); }
+.station-options button span { font-size:11px;font-weight:600;white-space:nowrap; }
+.station-options button small { color:#8d979c;font-size:10px;display:flex;align-items:center;gap:1px; }
+.station-options button em { font-style:normal;font-size:9.5px;color:#9fd39b;line-height:1.15;text-align:center; }
+.station-inputs img { width:16px;height:16px; }
+.station-inputs b { font-weight:600;color:#c9c3b6;margin-left:2px; }
+.station-options button.missing > img { opacity:.45;filter:grayscale(.7); }
+.station-options button.missing span { color:#9a958b; }
+
+.buffs { position:fixed;top:70px;left:24px;display:flex;gap:6px;pointer-events:none; }
+.buffs:empty { display:none; }
+.buff { display:inline-flex;align-items:center;gap:5px;padding:4px 8px;border:1px solid var(--line);border-radius:4px;background:var(--panel);backdrop-filter:blur(12px);color:#9fd39b;font-size:11px; }
+.buff i { width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 6px currentColor; }
+.buff small { color:#8d979c;font-variant-numeric:tabular-nums; }
+.buff[data-buff=calm] { color:#e8c787; }
+.buff[data-buff=stamina] { color:#ef9a7e; }
+.buff[data-buff=sight] { color:#9ec9ef; }

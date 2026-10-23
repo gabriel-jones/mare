@@ -106,10 +106,11 @@ def rack():
         box('Rack shelf', (0, 0, z), (1.62, .9, .04), 'dark')
         for y in [-.25, .05, .35]:
             box('Growing channel', (0, y, z + .06), (1.5, .16, .08), 'ivory', .01)
-        box('Shelf grow light', (0, .05, z + .5), (1.5, .5, .025), 'grow')
-        box('Light bar', (0, .05, z + .52), (1.56, .56, .025), 'dark')
+        for y in [-.25, .35]:
+            box('Light bar', (0, y, z + .52), (1.5, .06, .03), 'dark')
+            box('Shelf grow light', (0, y, z + .5), (1.46, .04, .015), 'grow')
     cyl('Feed riser', (.7, .44, .9), .03, 1.5, 'orange', 8)
-    box('Rack top', (0, 0, 1.92), (1.66, .94, .05), 'dark')
+    for y in [-.42, .42]: box('Rack top rail', (0, y, 1.9), (1.62, .06, .06), 'metal', .01)
 
 def rack_plants():
     i = 0
@@ -127,9 +128,10 @@ def tower():
     for z in TIERS:
         box('Tier tray', (0, 0, z), (1.5, 3.5, .1), 'ivory', .015)
         box('Tier substrate', (0, 0, z + .055), (1.4, 3.4, .02), 'soil')
-        box('Tier light', (0, 0, z + .4), (1.36, 3.3, .02), 'grow')
+        for x in [-.5, .5]: box('Tier light', (x, 0, z + .36), (.05, 3.3, .02), 'grow')
     for y in [-1.2, 0, 1.2]: box('Tower side rail', (.82, y, 1.0), (.03, .9, .04), 'orange')
-    box('Tower crown', (0, 0, 1.98), (1.72, 3.72, .06), 'dark')
+    for x in [-.8, .8]: box('Tower crown rail', (x, 0, 1.98), (.08, 3.68, .07), 'dark', .01)
+    for y in [-1.8, 1.8]: box('Tower crown rail', (0, y, 1.98), (1.68, .08, .07), 'dark', .01)
     cyl('Mist manifold', (-.75, 0, 1.9), .035, 3.5, 'metal', 8, (math.pi / 2, 0, 0))
 
 def tower_plants():
