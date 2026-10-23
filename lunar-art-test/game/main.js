@@ -8,6 +8,8 @@ import {createWorld} from './world.js';
 import {createUI} from './ui.js';
 import {objective,missionAction,salvage,installCore,processorUnlocked,noteSighting} from './mission.js';
 import {createWatcher,stepWatcher} from './watcher.js';
+import {shipAction,holdLaunch,releaseLaunch,loadSatellite,recallShip,selectResearch,machineAction,lockedReason} from './space.js';
+import {createOrbitView} from './orbit-view.js';
 
 // ?sandbox=1 plays a throwaway colony that never touches the real save.
 const KEY=new URLSearchParams(location.search).has('sandbox')?'lunar-frontier.sandbox':'lunar-frontier.phase-a.v1';
@@ -16,6 +18,7 @@ const SHORTCUTS={...Object.fromEntries(Object.entries(DEFS).filter(([,def])=>def
 const canvas=document.querySelector('#game'),boot=document.querySelector('#boot');
 let state=createState(),selectedType=null,rotation=0,world,ui,selectedSlot=0;
 let placementReason='',constructionReason='',hover=null,targetId=null,constructing=false,speed=1,saveStatus='Not saved',beltPath=null,paintPath=null,erasing=null;
+let orbit=null,shipStatus='pad';
 let jumpVelocity=0,accumulator=0,last=performance.now(),uiClock=0,autoClock=0,salvageReason='';
 const watcher=createWatcher();
 const keys=new Set();
@@ -58,7 +61,7 @@ function nearbyUse(){
  let best=null,distance=2.8;
  for(const b of state.buildings){
   if(!b.built)continue;
-  const action=b.type==='storage'?(b.inv.metal||b.inv.silicon?{verb:`Collect ${b.inv.metal} metal · ${b.inv.silicon} silicon`}:null):lifeAction(state,b);
+  const action=b.type==='storage'?(b.inv.metal||b.inv.silicon?{verb:`Collect ${b.inv.metal} metal · ${b.inv.silicon} silicon`}:null):machineAction(state,b)??lifeAction(state,b);
   if(!action)continue;
   const c=buildingCenter(b,DEFS),d=Math.hypot(c.x-state.player.x,c.z-state.player.z);
   if(d<distance){best={building:b,...action};distance=d;}
@@ -69,7 +72,7 @@ function view(){
  const nearest=state.player.cave==null?nearestBlueprint(state,DEFS,100):null,c=nearest?buildingCenter(nearest,DEFS):null;
  const guidance=nearest?`${DEFS[nearest.type].name} blueprint: ${Math.ceil(Math.hypot(c.x-state.player.x,c.z-state.player.z))}m away. Walk within 5m, then hold E.`:null;
  const goal=objective(state),distance=goal.target?Math.round(Math.hypot(goal.target.x-state.player.x,goal.target.z-state.player.z)):null;
- return {objective:{...goal,distance},missionUse:missionAction(state),locked:processorUnlocked(state)?{}:{processor:PROCESSOR_LOCKED},selectedType,rotation,placementReason,constructionReason,nearbyBuilding:nearby(),use:nearbyUse(),selectedSlot,foodSlot:foodSlot(),guidance,constructing,night:Math.sin(state.time/240*Math.PI*2+Math.PI/3)<=0,paused:false,saveStatus:saveStatus+(speed>1?' · Time ×12':''),timeScale:speed};
+ return {objective:{...goal,distance},missionUse:missionAction(state)??shipAction(state),locked:{...(processorUnlocked(state)?{}:{processor:PROCESSOR_LOCKED}),...(lockedReason(state,'roverbay')?{roverbay:lockedReason(state,'roverbay')}:{})},selectedType,rotation,placementReason,constructionReason,nearbyBuilding:nearby(),use:nearbyUse(),selectedSlot,foodSlot:foodSlot(),guidance,constructing,night:Math.sin(state.time/240*Math.PI*2+Math.PI/3)<=0,paused:false,saveStatus:saveStatus+(speed>1?' · Time ×12':''),timeScale:speed};
 }
 function point(event){hover=world?.pick(event.clientX,event.clientY);canvas.dataset.hoverCell=hover?`${hover.x},${hover.z}`:'';if(!hover){world?.clearGhost();return;}if(beltPath)extendBeltPath(hover);if(paintPath)extendPaintPath(hover);targetId=hover.buildingId??null;canvas.dataset.targetId=String(targetId??'');if(erasing)eraseAt();refreshGhost();}
 const MAX_PAINT=120;
@@ -206,7 +209,12 @@ function fixedUpdate(dt){
  updatePortals(dt);
  if((state.player.y??0)>0||jumpVelocity>0){jumpVelocity-=1.62*dt;state.player.y=Math.max(0,(state.player.y??0)+jumpVelocity*dt);if(state.player.y===0)jumpVelocity=0;}
  constructing=false;constructionReason='';
- const action=keys.has('e')?missionAction(state):null;
+ const mission=keys.has('e')?missionAction(state):null,ship=keys.has('e')&&!mission?shipAction(state):null;
+ if(ship?.hold){
+  const r=holdLaunch(state,dt);constructing=r.ok&&!r.done;
+  if(r.done){notify(r.reason);keys.delete('e');}
+ }else releaseLaunch(state);
+ const action=mission;
  if(action?.hold){
   // Holding E at the lander works the core loose; the astronaut kneels into the build pose.
   const r=salvage(state,dt);constructing=r.ok;
@@ -214,7 +222,7 @@ function fixedUpdate(dt){
   else if(!r.ok&&r.reason!==salvageReason)notify(r.reason);
   salvageReason=r.ok?'':r.reason;
  }
- else if(state.player.cave==null&&keys.has('e')){const b=nearby();if(b){const r=construct(state,b.id,dt);constructing=r.ok!==false;if(!r.ok)constructionReason=r.reason;if(b.built)completed(b);}}
+ else if(state.player.cave==null&&keys.has('e')&&!ship){const b=nearby();if(b){const r=construct(state,b.id,dt);constructing=r.ok!==false;if(!r.ok)constructionReason=r.reason;if(b.built)completed(b);}}
  if(constructing&&state.player.speed<=.1){
   const b=nearby();
   if(b){const center=buildingCenter(b,DEFS),target=Math.atan2(center.x-state.player.x,center.z-state.player.z),delta=Math.atan2(Math.sin(target-state.player.facing),Math.cos(target-state.player.facing));state.player.facing+=delta*(1-Math.exp(-dt/.065));}
@@ -227,8 +235,9 @@ async function start(){
  try{
   let restored=false;
   try{const raw=localStorage.getItem(KEY);if(raw){state=deserialize(raw);resetPlayer();restored=true;saveStatus='Restored local save';}}catch(e){saveStatus='New colony · save unreadable';}
-  ui=createUI(document.querySelector('#ui'),{onSelect:select,onAssign:(robot,area)=>{const r=assignRover(state,robot,area);if(!r.ok)notify(r.reason);},onRemoveZone:id=>notify(removeMiningArea(state,id).reason),onSlot:i=>{if(selectedSlot===i)eatSelected();selectedSlot=i;ui.update(state,view());},onRotate:()=>{rotation=(rotation+1)%4;refreshGhost();},onSave:save,onLoad:load,onReset:()=>{state=createState(Math.floor(Math.random()*999999));selectedType=null;resetPlayer();targetId=null;keys.clear();world?.clearGhost();save();notify('New lunar landing created.');},onCancel:()=>select(null),onTimeToggle:()=>{speed=speed===1?12:1;notify(speed===1?'Normal day/night speed.':'Day/night simulation ×12. Movement stays normal.');}});
+  ui=createUI(document.querySelector('#ui'),{onSelect:select,onAssign:(robot,area)=>{const r=assignRover(state,robot,area);if(!r.ok)notify(r.reason);},onRemoveZone:id=>notify(removeMiningArea(state,id).reason),onSlot:i=>{if(selectedSlot===i)eatSelected();selectedSlot=i;ui.update(state,view());},onRotate:()=>{rotation=(rotation+1)%4;refreshGhost();},onSave:save,onLoad:load,onReset:()=>{state=createState(Math.floor(Math.random()*999999));selectedType=null;resetPlayer();targetId=null;keys.clear();world?.clearGhost();save();notify('New lunar landing created.');},onCancel:()=>select(null),onOrbit:()=>orbit?.toggle(),onTimeToggle:()=>{speed=speed===1?12:1;notify(speed===1?'Normal day/night speed.':'Day/night simulation ×12. Movement stays normal.');}});
   world=await createWorld(canvas,state);
+  orbit=createOrbitView({onReturn:()=>{notify(recallShip(state).reason);orbit.close();},onResearch:id=>notify(selectResearch(state,id).reason),onClose:()=>{keys.clear();canvas.focus({preventScroll:true});}});
   canvas.addEventListener('pointermove',point);
   canvas.addEventListener('pointerleave',()=>{if(beltPath||paintPath||erasing)return;hover=null;world.clearGhost();});
   canvas.addEventListener('pointerdown',e=>{
@@ -250,7 +259,10 @@ async function start(){
   canvas.addEventListener('contextmenu',e=>e.preventDefault());
   window.addEventListener('keydown',e=>{
    if(/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)||e.ctrlKey||e.metaKey||e.altKey)return;
-   const k=e.key.toLowerCase();if(['w','a','s','d','e','f',' ','r','b','g','escape'].includes(k)||SHORTCUTS[k]||/^[0-9]$/.test(k))e.preventDefault();
+   const k=e.key.toLowerCase();
+   if(k==='o'&&!e.repeat){e.preventDefault();orbit.toggle();return;}
+   if(orbit.open){if(k==='escape')orbit.close();return;}
+   if(['w','a','s','d','e','f',' ','r','b','g','escape'].includes(k)||SHORTCUTS[k]||/^[0-9]$/.test(k))e.preventDefault();
    keys.add(k);if(e.repeat)return;
    if(k===' '&&!(state.player.y>0)){jumpVelocity=1.8;}
    if(k==='escape')select(null);
@@ -258,8 +270,10 @@ async function start(){
    if(k==='g')ui.toggleRobots();
    if(k==='r'){rotation=(rotation+1)%4;refreshGhost();}
    const mission=k==='e'?missionAction(state):null;
+   const ship=k==='e'&&!mission?shipAction(state):null;
    if(mission&&!mission.hold)notify(installCore(state).reason);
-   else if(k==='e'&&!mission&&!nearby())useNearby();
+   else if(ship&&!ship.hold)notify(loadSatellite(state).reason);
+   else if(k==='e'&&!mission&&!ship&&!nearby())useNearby();
    if(k==='f')eatSelected();
    if(k==='delete'||k==='backspace')cancel();
    if(/^[0-9]$/.test(k)){selectedSlot=(Number(k)+9)%10;ui.update(state,view());}
@@ -277,6 +291,8 @@ async function start(){
    while(accumulator>=1/30){fixedUpdate(1/30);accumulator-=1/30;}
    if(stepWatcher(watcher,state,dt)==='vanished'){const remark=noteSighting(state);if(remark)setTimeout(()=>ui.say(remark),1500);}
    world.update(state,dt,interpolatePose(previousPose,state.player,accumulator/(1/30)),watcher);uiClock+=dt;autoClock+=dt;
+   if(state.ship.status!==shipStatus){if(state.ship.status==='orbit'&&shipStatus==='ascent'){notify(`Satellites deployed. ${state.satellites} in orbit.`);orbit.show();}if(state.ship.status==='pad'&&shipStatus==='descent')notify('The Starship is back on the pad.');shipStatus=state.ship.status;}
+   orbit.update(state,dt);
    if(uiClock>.1){ui.update(state,view());refreshGhost();uiClock=0;}
    if(autoClock>20){try{localStorage.setItem(KEY,serialize(state));saveStatus='Autosaved locally';}catch{}autoClock=0;}
    requestAnimationFrame(frame);

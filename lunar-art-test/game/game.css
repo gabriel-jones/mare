@@ -123,3 +123,32 @@ button:focus-visible { outline:2px solid #edbd79;outline-offset:4px; }
 .game-ui .zone-add { display:flex;align-items:center;justify-content:space-between;width:calc(100% - 8px);margin:6px 4px 0;padding:8px 10px;border-radius:3px;font-size:12px; }
 .zone-add kbd { min-width:18px;height:18px;display:inline-grid;place-items:center;border:1px solid #ffffff2a;border-radius:3px;font:600 10px Inter,ui-sans-serif,sans-serif;color:#aab3b6; }
 .game-ui .zone-add:disabled { opacity:.4;pointer-events:none; }
+/* Orbit button and the full-screen orbital view. */
+.game-ui .orbit-toggle { position:fixed;top:22px;right:24px;padding:11px 12px; }
+.orbit-toggle svg { color:#8fc4ff; }
+.orbit-badge { position:absolute;top:-6px;right:-6px;min-width:17px;height:17px;padding:0 4px;display:grid;place-items:center;border-radius:9px;background:#8fc4ff;color:#0b1220;font:700 10px Inter,ui-sans-serif,sans-serif; }
+.orbit-view { position:fixed;inset:0;z-index:20;background:#03050a;color:#e8ecf2; }
+.orbit-canvas { position:absolute;inset:0;width:100%;height:100%;display:block;cursor:grab; }
+.orbit-canvas:active { cursor:grabbing; }
+.orbit-head { position:absolute;top:22px;left:26px;right:26px;display:flex;justify-content:space-between;align-items:flex-start;pointer-events:none; }
+.orbit-head small { font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#8fc4ff; }
+.orbit-head h2 { margin:4px 0 0;font-size:22px;font-weight:600; }
+.orbit-close { pointer-events:auto;width:36px;height:36px;border-radius:5px;border:1px solid #ffffff2e;background:#0e1420cc;color:inherit;font-size:20px;cursor:pointer; }
+.orbit-panel { position:absolute;right:26px;bottom:26px;width:290px;padding:14px;border:1px solid #ffffff22;border-radius:7px;background:#0d131dd9;backdrop-filter:blur(12px);font-size:12px; }
+.orbit-panel h3 { margin:14px 0 8px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#9aa6b6;font-weight:600; }
+.orbit-stat { display:flex;align-items:baseline;gap:6px;padding:3px 0; }
+.orbit-stat span { flex:1;color:#aeb8c6; }
+.orbit-stat strong { font-size:17px; }
+.orbit-stat small { color:#7e8898; }
+.orbit-ship { margin-top:10px;padding-top:10px;border-top:1px solid #ffffff1a;display:grid;gap:8px;color:#d6dde8; }
+.orbit-return { padding:9px;border-radius:5px;border:1px solid #edbd79;background:#edbd7922;color:#f6dcb4;font-weight:600;cursor:pointer; }
+.orbit-return:hover { background:#edbd7944; }
+.orbit-techs { display:grid;gap:6px; }
+.orbit-tech { display:grid;grid-template-columns:1fr auto;gap:3px 8px;text-align:left;padding:9px 10px;border-radius:5px;border:1px solid #ffffff22;background:#ffffff08;color:inherit;cursor:pointer; }
+.orbit-tech small { grid-column:1/-1;color:#98a3b3; }
+.orbit-tech em { grid-row:1;grid-column:2;font-style:normal;color:#8fc4ff;font-size:11px; }
+.orbit-tech[data-state=active] { border-color:#8fc4ff; }
+.orbit-tech[data-state=done] { opacity:.75;cursor:default; }
+.orbit-bar { grid-column:1/-1;height:3px;border-radius:2px;background:#ffffff14;overflow:hidden; }
+.orbit-bar i { display:block;height:100%;background:#8fc4ff;transform-origin:left;transform:scaleX(0); }
+body[data-orbit=open] .game-ui, body[data-orbit=open] .building-status-layer { visibility:hidden; }

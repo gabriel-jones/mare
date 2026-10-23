@@ -3,7 +3,13 @@ export const CELL_SIZE = 2;
 // Facing index matches Three.js rotation.y = facing * PI/2 applied to a model whose front is +Z.
 export const DIRS = Object.freeze([[0, 1], [1, 0], [0, -1], [-1, 0]]);
 /** Items that travel on belts and fill machines. */
-export const ITEMS = Object.freeze(['regolith', 'metal', 'silicon', 'ice']);
+export const ITEMS = Object.freeze(['regolith', 'metal', 'silicon', 'ice', 'frame', 'wing', 'chip', 'satellite']);
+/** Satellite parts a fabricator can make, and what each costs. */
+export const PARTS = Object.freeze({
+  frame: { name: 'Satellite frame', input: { metal: 4 } },
+  wing: { name: 'Solar wing', input: { metal: 1, silicon: 3 } },
+  chip: { name: 'Compute chip', input: { silicon: 4 } },
+});
 /** Items the player can carry. `food` is how much satiety eating one restores. */
 export const ITEM_INFO = Object.freeze({
   metal: { name: 'Metal', stack: 200 },
@@ -11,6 +17,10 @@ export const ITEM_INFO = Object.freeze({
   crop: { name: 'Potatoes', stack: 30, food: 15 },
   meal: { name: 'Meal', stack: 10, food: 40 },
   core: { name: 'Processor core', stack: 1 },
+  frame: { name: 'Satellite frame', stack: 10 },
+  wing: { name: 'Solar wing', stack: 10 },
+  chip: { name: 'Compute chip', stack: 10 },
+  satellite: { name: 'AI satellite', stack: 1 },
 });
 const allSides = [0, 1, 2, 3].map(dir => ({ x: 0, z: 0, dir }));
 // `layer`: 'floor' squares form rooms, 'interior' objects stand on finished floor of the `needs` room type,
@@ -30,9 +40,15 @@ export const DEFS = Object.freeze({
   processor: { name: 'Regolith processor', w: 2, d: 3, cost: { metal: 45, silicon: 15 }, buildTime: 7, inputs: [{ x: 0, z: 0, dir: 2 }], outputs: [{ x: 0, z: 2, dir: 0 }], description: 'Refines regolith into metal and silicon, venting oxygen to colony reserves. Uses 3 kW while running.' },
   melter: { name: 'Ice melter', w: 1, d: 2, cost: { metal: 24, silicon: 6 }, buildTime: 4, inputs: [{ x: 0, z: 0, dir: 2 }], description: 'Melts ice from a belt into the colony water reserve. Uses 1.5 kW while melting.' },
   storage: { name: 'Storage crate', w: 1, d: 1, cost: { metal: 10 }, buildTime: 2, capacity: 80, inputs: allSides, description: 'Accepts items from belts on any side. Press E nearby to collect.' },
+  fabricator: { name: 'Fabricator', w: 2, d: 2, cost: { metal: 30, silicon: 10 }, buildTime: 5, inputs: [{ x: 0, z: 0, dir: 2 }], outputs: [{ x: 1, z: 1, dir: 0 }], description: 'Makes satellite frames, solar wings or compute chips from metal and silicon. Press E to change part. Uses 2 kW.' },
+  assembler: { name: 'Satellite assembler', w: 2, d: 3, cost: { metal: 50, silicon: 20 }, buildTime: 8, inputs: [{ x: 0, z: 0, dir: 2 }], outputs: [{ x: 1, z: 2, dir: 0 }], description: 'Builds an AI satellite from 1 frame, 2 solar wings and 2 chips. Press E to take a finished one. Uses 4 kW.' },
+  electrolyser: { name: 'Electrolyser', w: 1, d: 2, cost: { metal: 20, silicon: 8 }, buildTime: 4, description: 'Splits colony water into hydrogen and oxygen propellant for the nearest propellant tank. Uses 3 kW.' },
+  tank: { name: 'Propellant tank', w: 2, d: 2, cost: { metal: 30, silicon: 4 }, buildTime: 5, capacity: 100, nearPad: true, description: 'Holds hydrolox propellant. Must touch the landing pad to fuel the Starship.' },
+  dock: { name: 'Robot dock', w: 2, d: 2, cost: { metal: 30, silicon: 10 }, buildTime: 5, description: 'Builds hauler robots (press E) and recharges them. Haulers carry parts, materials and satellites between machines.' },
+  roverbay: { name: 'Rover bay', w: 2, d: 2, cost: { metal: 40, silicon: 15 }, buildTime: 6, research: 'roverbay', description: 'Builds extra mining rovers (press E). Unlocked by research.' },
 });
 /** Stencil codes for machine callouts: `MLT-02` is the second ice melter built. */
-export const CODES = Object.freeze({ solar: 'SOL', battery: 'BAT', hopper: 'HOP', habitat: 'HAB', greenhouse: 'GRN', airlock: 'ALK', growbed: 'BED', galley: 'GAL', recycler: 'RCY', conveyor: 'BLT', processor: 'PRC', melter: 'MLT', storage: 'CRT' });
+export const CODES = Object.freeze({ solar: 'SOL', battery: 'BAT', hopper: 'HOP', habitat: 'HAB', greenhouse: 'GRN', airlock: 'ALK', growbed: 'BED', galley: 'GAL', recycler: 'RCY', conveyor: 'BLT', processor: 'PRC', melter: 'MLT', storage: 'CRT', fabricator: 'FAB', assembler: 'ASM', electrolyser: 'ELY', tank: 'TNK', dock: 'DCK', roverbay: 'RVB' });
 export const tagOf = b => `${CODES[b.type] ?? 'UNT'}-${String(b.serial ?? 0).padStart(2, '0')}`;
 export const ROOM_TYPES = Object.freeze(Object.keys(DEFS).filter(type => DEFS[type].layer === 'floor'));
 

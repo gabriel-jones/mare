@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createState, placeBlueprint, tick, serialize, deserialize, deconstruct, collectStorage, setMiningArea, removeMiningArea, assignRover, validatePlacement, rotateBelt, DEFS } from './sim.js';
+import { createState, placeBlueprint, tick, serialize, deserialize, deconstruct, collectStorage, setMiningArea, removeMiningArea, assignRover, validatePlacement, rotateBelt, DEFS, SAVE_VERSION } from './sim.js';
 import { ports } from './defs.js';
 import { beltTurns, ensureBuildingState, miningCells, remainingRegolith, ROVER, RECIPE, REGOLITH_PER_CELL, BELT_SPACING } from './production.js';
 import { findPath } from './paths.js';
@@ -153,7 +153,7 @@ test('production saves round-trip exactly and version 1 colonies gain the starte
   legacy.version = 1; legacy.inventory = { metal: 240, silicon: 100 }; delete legacy.robots; delete legacy.reserves; delete legacy.miningAreas; delete legacy.nextAreaId; delete legacy.mined;
   legacy.buildings = [{ id: 1, type: 'hopper', x: 2, z: 2, rotation: 1, progress: 1, built: true }]; legacy.nextId = 2;
   const migrated = deserialize(JSON.stringify(legacy));
-  assert.equal(migrated.version, 5); assert.equal(migrated.robots.length, 1);
+  assert.equal(migrated.version, SAVE_VERSION); assert.equal(migrated.robots.length, 1);
   assert.deepEqual(migrated.buildings[0].inv, { regolith: 0, ice: 0 });
   assert.equal(migrated.mission.legacy, true, 'older colonies keep their processors');
   const corrupt = JSON.parse(serialize(s));

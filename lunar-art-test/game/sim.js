@@ -4,19 +4,21 @@ import { CELL_SIZE, DEFS, DIRS, ITEMS, dims, footprint } from './defs.js';
 import { airlockApron, habitatLayout, isRoom, trapsPlayer } from './habitat.js';
 import * as inv from './inventory.js';
 import { LIFE, STARTING, ensureLifeState, hunger, lifeDemand, roomStatus, stepLife, useLife } from './life.js';
-import { createRover, ensureBuildingState, productionDemand, stepProduction, MINING_RADIUS, MAX_MINING_AREAS, REGOLITH_PER_CELL, ROVER, PROCESSOR_INPUT_CAP, PROCESSOR_OUTPUT_CAP, BELT_SPACING, MELT } from './production.js';
+import { createRover, ensureBuildingState, productionDemand, stepProduction, MINING_RADIUS, MAX_MINING_AREAS, REGOLITH_PER_CELL, ROVER, PROCESSOR_INPUT_CAP, PROCESSOR_OUTPUT_CAP, BELT_SPACING, MELT, FAB, ASSEMBLY, RECIPES, KIT, cycleRecipe, robotTopology } from './production.js';
+import { createResearch, createShip, buildRobot, lockedReason, restoreResearch, restoreShip, spaceDemand, stepSpace, touchesPad } from './space.js';
+import { haulerDemand, restoreHauler, stepHaulers } from './hauler.js';
 import { createMission, processorUnlocked, restoreMission, stepMission } from './mission.js';
 export { CELL_SIZE, DEFS, footprint } from './defs.js';
 /** Pure, serializable simulation. Positions use 2m cells; building anchors are minimum cells. */
 export const DAY_DURATION = 240;
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 export const PROCESSOR_LOCKED = "Locked: the ship's processor core is cracked. Recover a replacement from the crater.";
 const PLAYER_RADIUS = 0.32;
 const key = (x, z) => `${x},${z}`;
 
 export function createState(seed = 1847) {
   if (!Number.isSafeInteger(seed)) throw new Error('Seed must be an integer.');
-  return { version: SAVE_VERSION, seed, time: 0, inventory: inv.createInventory({ metal: 240, silicon: 100, meal: STARTING.meals }), reserves: { oxygen: STARTING.oxygen, water: STARTING.water }, player: { x: 0, z: 8, y: 0, satiety: 100 }, buildings: [], nextId: 1, robots: [createRover()], miningAreas: [], nextAreaId: 1, mined: {}, mission: createMission(), power: { generation: 0, demand: 0, stored: 0, capacity: 0, supplied: 0, powered: true } };
+  return { version: SAVE_VERSION, seed, time: 0, inventory: inv.createInventory({ metal: 240, silicon: 100, meal: STARTING.meals }), reserves: { oxygen: STARTING.oxygen, water: STARTING.water }, player: { x: 0, z: 8, y: 0, satiety: 100 }, buildings: [], nextId: 1, robots: [createRover()], miningAreas: [], nextAreaId: 1, mined: {}, mission: createMission(), ship: createShip(), satellites: 0, research: createResearch(), power: { generation: 0, demand: 0, stored: 0, capacity: 0, supplied: 0, powered: true } };
 }
 const validRotation = r => Number.isInteger(r) && r >= 0 && r <= 3;
 const finite = n => typeof n === 'number' && Number.isFinite(n);
@@ -84,6 +86,9 @@ export function validatePlacement(state, type, x, z, rotation = 0) {
   if (state.player.cave != null) return { ok: false, reason: 'Construction is unavailable underground.' };
   if (!DEFS[type]) return { ok: false, reason: 'Invalid building or grid position.' };
   if (type === 'processor' && !processorUnlocked(state)) return { ok: false, reason: PROCESSOR_LOCKED };
+  const locked = lockedReason(state, type);
+  if (locked) return { ok: false, reason: locked };
+  if (DEFS[type].nearPad && !touchesPad({ type, x, z, rotation })) return { ok: false, reason: 'Place the tank right beside the landing pad.' };
   const reason = geometryReason(state, type, x, z, rotation);
   if (reason) return { ok: false, reason };
   if (DEFS[type].layer !== 'interior') {
@@ -159,8 +164,8 @@ export function deconstruct(state, id) {
   const blocked = removalReason(state, b);
   if (blocked) return { ok: false, reason: blocked };
   if (!refund(state, b)) return { ok: false, reason: 'No room in your inventory for the materials.' };
-  const contents = { metal: 0, silicon: 0, crop: 0, meal: 0 };
-  for (const store of [b.inv, b.out]) for (const item of ['metal', 'silicon']) contents[item] += Math.floor(store?.[item] ?? 0);
+  const contents = { metal: 0, silicon: 0, crop: 0, meal: 0, frame: 0, wing: 0, chip: 0, satellite: 0 };
+  for (const store of [b.inv, b.out]) for (const item of ['metal', 'silicon', 'frame', 'wing', 'chip', 'satellite']) contents[item] += Math.floor(store?.[item] ?? 0);
   for (const item of b.items ?? []) if (item.type in contents) contents[item.type] += 1;
   if (b.type === 'galley') { contents.crop += b.crops; contents.meal += b.meals; }
   if (b.type === 'growbed' && b.grow >= 1) contents.crop += LIFE.harvest;
@@ -185,6 +190,15 @@ export function interact(state, id) {
   const b = state.buildings.find(b => b.id === id);
   if (!b) return { ok: false, reason: 'Nothing here.' };
   if (b.type === 'storage') return collectStorage(state, id);
+  if (!b.built) return { ok: false, reason: 'Finish building it first.' };
+  if (b.type === 'fabricator') return { ok: true, reason: `Fabricator now makes: ${cycleRecipe(b)}.` };
+  if (b.type === 'assembler') {
+    if (b.out.satellite < 1) return { ok: false, reason: 'No finished satellite yet.' };
+    if (inv.room(state.inventory, 'satellite') < 1) return { ok: false, reason: 'No free slot for the satellite.' };
+    inv.add(state.inventory, 'satellite', 1); b.out.satellite -= 1;
+    return { ok: true, reason: 'Satellite collected. Carry it to the Starship.' };
+  }
+  if (b.type === 'dock' || b.type === 'roverbay') return buildRobot(state, id);
   return useLife(state, b);
 }
 /** Turns an existing belt (blueprint or finished) to face `rotation`; items on it are kept. */
@@ -232,10 +246,10 @@ export function tick(state, dt) {
   state.time += dt;
   // Machines run on the previous tick's supply state, so derived power always matches the saved state.
   const powered = state.power.powered !== false;
-  if (dt > 0) { stepProduction(state, dt, powered); stepLife(state, dt, powered); }
+  if (dt > 0) { stepProduction(state, dt, powered); stepHaulers(state, dt, powered, robotTopology(state)); stepSpace(state, dt, powered); stepLife(state, dt, powered); }
   stepMission(state);
   const daylight = daylightAt(state.time);
-  let generation = 0, demand = productionDemand(state) + lifeDemand(state, roomStatus(state)), capacity = 0;
+  let generation = 0, demand = productionDemand(state) + spaceDemand(state) + haulerDemand(state) + lifeDemand(state, roomStatus(state)), capacity = 0;
   for (const b of state.buildings) {
     if (!b.built) continue;
     if (b.type === 'solar') generation += 8 * daylight;
@@ -270,8 +284,8 @@ function restoreBuilding(raw) {
   const limits = { hopper: [DEFS.hopper.capacity, ['regolith', 'ice']], storage: [DEFS.storage.capacity, ITEMS], processor: [PROCESSOR_INPUT_CAP, ['regolith']], melter: [MELT.cap, ['ice']] }[b.type];
   if (limits && raw.inv != null) {
     b.inv = {};
-    // Ice arrived with save version 4; older stores simply hold none.
-    for (const item of limits[1]) { const n = raw.inv[item] ?? (item === 'ice' ? 0 : undefined); if (!count(n, limits[0])) throw new Error('Invalid storage contents.'); b.inv[item] = n; }
+    // Ice arrived with save version 4 and satellite parts with 6; older stores simply hold none.
+    for (const item of limits[1]) { const n = raw.inv[item] ?? (['regolith', 'metal', 'silicon'].includes(item) ? undefined : 0); if (!count(n, limits[0])) throw new Error('Invalid storage contents.'); b.inv[item] = n; }
   }
   if (b.type === 'melter' && raw.work != null) { if (!count(raw.work, 1)) throw new Error('Invalid melter progress.'); b.work = raw.work; }
   if (b.type === 'processor') {
@@ -283,9 +297,22 @@ function restoreBuilding(raw) {
   if (b.type === 'growbed') { check('grow', v => count(v, 1)); check('watered', v => typeof v === 'boolean'); }
   if (b.type === 'galley') { check('crops', v => wholeCount(v, LIFE.cookInput * 2)); check('work', v => count(v, 1)); check('meals', v => wholeCount(v, LIFE.galleyMeals)); }
   if (b.type === 'recycler') check('work', v => count(v, 1));
+  if (b.type === 'fabricator' || b.type === 'assembler') {
+    const [stock, out] = b.type === 'fabricator' ? [{ metal: FAB.stock, silicon: FAB.stock }, { frame: FAB.out, wing: FAB.out, chip: FAB.out }] : [ASSEMBLY.stock, { satellite: ASSEMBLY.out }];
+    for (const [field, caps] of [['inv', stock], ['out', out]]) {
+      if (raw[field] == null) continue;
+      b[field] = {};
+      for (const [item, cap] of Object.entries(caps)) { if (!count(raw[field][item], cap)) throw new Error(`Invalid ${DEFS[b.type].name.toLowerCase()} state.`); b[field][item] = raw[field][item]; }
+    }
+    check('work', v => count(v, 1));
+    if (b.type === 'fabricator') { check('recipe', v => RECIPES.includes(v)); check('step', v => wholeCount(v, KIT.length - 1)); }
+  }
+  if (b.type === 'electrolyser') check('work', v => count(v, 1));
+  if (b.type === 'tank') check('fuel', v => count(v, DEFS.tank.capacity));
   return ensureState(b);
 }
 function restoreRobot(raw, index) {
+  if (raw?.kind === 'hauler') return restoreHauler(raw);
   const tasks = ['idle', 'toMine', 'mining', 'toHopper', 'docked', 'blocked'];
   if (!raw || raw.kind !== 'miner' || !Number.isSafeInteger(raw.id) || !finite(raw.x) || !finite(raw.z) || Math.abs(raw.x) > 125 || Math.abs(raw.z) > 125 || !tasks.includes(raw.task) || !count(raw.cargo, ROVER.capacity) || !count(raw.charge, 1) || !finite(raw.facing)) throw new Error('Invalid robot.');
   const r = { ...createRover(raw.id), x: raw.x, z: raw.z, facing: raw.facing, task: raw.task, cargo: raw.cargo, charge: raw.charge, target: null };
@@ -315,7 +342,7 @@ function migrateModules(buildings, nextId) {
 }
 export function deserialize(text) {
   const raw = JSON.parse(text);
-  if (!raw || ![1, 2, 3, 4, SAVE_VERSION].includes(raw.version) || !Number.isSafeInteger(raw.seed) || !finite(raw.time) || raw.time < 0 || !Array.isArray(raw.buildings) || raw.buildings.length > 13689) throw new Error('Invalid or unsupported save.');
+  if (!raw || ![1, 2, 3, 4, 5, SAVE_VERSION].includes(raw.version) || !Number.isSafeInteger(raw.seed) || !finite(raw.time) || raw.time < 0 || !Array.isArray(raw.buildings) || raw.buildings.length > 13689) throw new Error('Invalid or unsupported save.');
   const state = createState(raw.seed);
   state.time = raw.time;
   if (raw.version >= 3) state.inventory = inv.restore(raw.inventory);
@@ -384,6 +411,13 @@ export function deserialize(text) {
   }
   // Colonies from before the crater mission keep their working processors.
   state.mission = raw.version >= 4 ? restoreMission(raw.mission) : createMission(true);
+  if (raw.version >= 6) {
+    state.ship = restoreShip(raw.ship);
+    state.research = restoreResearch(raw.research);
+    if (!wholeCount(raw.satellites, 1000)) throw new Error('Invalid satellites.');
+    state.satellites = raw.satellites;
+  }
+  if (new Set(state.robots.map(r => r.id)).size !== state.robots.length) throw new Error('Invalid robots.');
   tick(state, 0);
   return state;
 }

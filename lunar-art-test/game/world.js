@@ -1,6 +1,7 @@
 import { caveOrigin,caveToWorld } from './cave-space.js';
 import { createCaveView } from './cave-view.js';
-import { buildingStatus, robotStatus, lampLevel } from './building-status.js';
+import { buildingStatus, robotStatus, shipStatus, lampLevel } from './building-status.js';
+import { LAUNCH } from './space.js';
 import { DIRS, ports as machinePorts } from './defs.js';
 import { MINING_RADIUS, beltTurns, total, MELT } from './production.js';
 import { createStatusLamps } from './status-lamps.js';
@@ -26,7 +27,7 @@ export async function createWorld(canvas, initialState) {
   renderer.toneMapping=THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure=1.12;
   const loader=new GLTFLoader();
-  const assetNames=['starship','launchpad','solar','battery','hopper','habitat-kit','conveyor','conveyor-corner','processor','storage','growbed','galley','recycler','melter','lander','rover','rock-a','rock-b','rock-c','cave-mouth'];
+  const assetNames=['starship','launchpad','solar','battery','hopper','habitat-kit','conveyor','conveyor-corner','processor','storage','growbed','galley','recycler','melter','fabricator','assembler','electrolyser','tank','dock','roverbay','lander','rover','hauler','rock-a','rock-b','rock-c','cave-mouth'];
   const loaded=await Promise.all(assetNames.map(name=>loader.loadAsync(`./assets/${name}.glb`).then(g=>[name,g.scene]).catch(e=>{console.error('Asset failed:',name,e);return [name,null];})));
   const models=new Map(loaded);
   const lamps=createStatusLamps();for(const model of models.values())if(model)lamps.prepare(model);let lampClock=0;
@@ -76,6 +77,7 @@ export async function createWorld(canvas, initialState) {
     const level=b.built?lampLevel(status):'off';o.lamp.set(level,b.built);
     if(b.type==='battery')o.lamp.cells(b.built?status?.fill??0:0,level);
     if(b.type==='melter')o.lamp.fill(b.built?(b.inv?.ice??0)/MELT.cap:0,'water');
+    if(b.type==='tank')o.lamp.fill(b.built?(b.fuel??0)/DEFS.tank.capacity:0,'fuel');
     if(b.type==='hopper')o.lamp.fill(b.built?total(b.inv)/DEFS.hopper.capacity:0,(b.inv?.ice??0)>(b.inv?.regolith??0)?'water':'regolith');
   }
   const GLYPHS={
@@ -85,6 +87,9 @@ export async function createWorld(canvas, initialState) {
     water:'<path d="M12 3s-6 6.8-6 11a6 6 0 0 0 12 0c0-4.2-6-11-6-11z"/>',
     alert:'<path d="M12 3 2.5 20h19z"/><path d="M12 9.5v4.5M12 17v.5"/>',
     build:'<path d="m14 4 6 6-3 3-2-2-8 9-3-3 9-8-2-2 3-3Z"/>',
+    satellite:'<path d="M9 9h6v6H9ZM2 10h5v4H2Zm15 0h5v4h-5ZM12 9V5"/>',
+    fuel:'<path d="M5 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M3 21h14M15 9h2a2 2 0 0 1 2 2v5a1.5 1.5 0 0 0 3 0V8l-3-3"/>',
+    launch:'<path d="M12 2c3 3 4 7 3 12H9C8 9 9 5 12 2Z"/><path d="M9 14l-3 3 1 3 3-2m5-4 3 3-1 3-3-2M12 18v4"/>',
   };
   function updateStatuses(){
     const entries=[],rooms=habitatLayout(state.buildings);
@@ -98,8 +103,9 @@ export async function createWorld(canvas, initialState) {
     for(const r of state.robots??[]){
       const view=productionView.rovers.get(r.id),status=view?robotStatus(r,state):null;
       if(view){view.lamp??=lamps.attach(view.model);view.lamp?.set(lampLevel(status));}
-      entries.push({key:`robot-${r.id}`,status,anchor:view?.root,height:1.9,name:'Mining rover'});
+      entries.push({key:`robot-${r.id}`,status,anchor:view?.root,height:1.9,name:r.kind==='hauler'?'Hauler':'Mining rover'});
     }
+    if(starship)entries.push({key:'ship',status:shipStatus(state),anchor:starship,height:13.4,name:'Starship'});
     const live=new Set(entries.map(e=>e.key));
     for(const [id,label] of statusLabels)if(!live.has(id)){label.remove();statusLabels.delete(id);}
     const rect=canvas.getBoundingClientRect(),placed=[];
@@ -118,7 +124,7 @@ export async function createWorld(canvas, initialState) {
       }
       if(label.dataset.glyph!==glyph||label.dataset.tone!==status.tone){label.dataset.glyph=glyph;label.dataset.tone=status.tone;label.querySelector('.callout-glyph').innerHTML=GLYPHS[glyph]??GLYPHS.alert;}
       // Blueprints and charging wear a progress ring around the bubble.
-      const ring=status.fill!=null&&(glyph==='build'||glyph==='charging')?Math.round(Math.max(0,Math.min(1,status.fill))*100):-1;
+      const ring=status.fill!=null&&(glyph==='build'||glyph==='charging'||glyph==='fuel'||glyph==='launch')?Math.round(Math.max(0,Math.min(1,status.fill))*100):-1;
       if(label.dataset.ring!==String(ring)){label.dataset.ring=String(ring);label.querySelector('.arc').style.strokeDashoffset=String(100-Math.max(0,ring));}
       if(label.dataset.status!==status.text){label.dataset.status=status.text;label.setAttribute('aria-label',`${name}: ${status.text}`);}
       statusPoint.copy(anchor.position);statusPoint.y+=height+.25;statusPoint.project(camera);
@@ -160,6 +166,31 @@ export async function createWorld(canvas, initialState) {
   for(const name of ['launchpad','starship']){
     const imported=models.get(name);
     if(imported){imported.position.set(0,0,-10);imported.traverse(o=>{if(o.isMesh){o.castShadow=name==='starship';o.receiveShadow=true;}});scene.add(imported);}
+  }
+  // Liftoff and landing: the ship rises on a flame and a glare light, and kicks up a ring of dust near the ground.
+  const starship=models.get('starship');
+  const flameMaterial=new THREE.MeshBasicMaterial({color:'#ffb35c',transparent:true,opacity:.85,blending:THREE.AdditiveBlending,depthWrite:false});materials.add(flameMaterial);
+  const flameGeo=new THREE.ConeGeometry(1.1,7,16,1,true);flameGeo.rotateX(Math.PI);flameGeo.translate(0,-3.5,0);geometries.add(flameGeo);
+  const flame=new THREE.Mesh(flameGeo,flameMaterial);flame.position.y=.6;flame.visible=false;starship?.add(flame);
+  const plumeCore=new THREE.Mesh(flameGeo,new THREE.MeshBasicMaterial({color:'#fff4d6',transparent:true,opacity:.9,blending:THREE.AdditiveBlending,depthWrite:false}));materials.add(plumeCore.material);plumeCore.scale.set(.45,.6,.45);flame.add(plumeCore);
+  const burnLight=new THREE.PointLight('#ff9a3c',0,45,2);burnLight.position.set(0,-1,0);starship?.add(burnLight);
+  const dustMaterial=new THREE.MeshBasicMaterial({color:'#c9c1b4',transparent:true,opacity:0,depthWrite:false});materials.add(dustMaterial);
+  const dustGeo=new THREE.RingGeometry(.6,1,48);dustGeo.rotateX(-Math.PI/2);geometries.add(dustGeo);
+  const dust=new THREE.Mesh(dustGeo,dustMaterial);dust.position.set(0,.3,-10);scene.add(dust);let dustClock=0;
+  function updateShip(dt){
+    if(!starship)return;
+    const s=state.ship,flying=s.status==='ascent'||s.status==='descent';
+    let altitude=0;
+    if(s.status==='ascent')altitude=.5*(2*170/LAUNCH.ascent**2)*s.t**2;
+    if(s.status==='descent')altitude=170*(1-Math.min(1,s.t/LAUNCH.descent))**2;
+    starship.visible=s.status!=='orbit';
+    const shake=flying&&altitude<4?(Math.random()-.5)*.08:0;
+    starship.position.set(shake,altitude,-10+shake);
+    flame.visible=flying;burnLight.intensity=flying?60+Math.random()*25:0;
+    if(flying){const k=s.status==='descent'?.65+.35*Math.min(1,s.t/LAUNCH.descent):1;flame.scale.set(k*(.9+Math.random()*.2),k*(.85+Math.random()*.35),k*(.9+Math.random()*.2));}
+    // Dust billows out while the plume is close to the ground.
+    const near=flying&&altitude<25;dustClock=near?dustClock+dt:Math.max(0,dustClock-dt*2);
+    dust.visible=dustClock>0;dust.scale.setScalar(4+dustClock*6%14);dustMaterial.opacity=near?.35*(1-altitude/25):dustMaterial.opacity*.95;
   }
   const padLight=new THREE.PointLight('#ffc584',18,23,2);padLight.position.set(0,3,-10);scene.add(padLight);
   const player=new THREE.Group();scene.add(player);
@@ -297,6 +328,7 @@ export async function createWorld(canvas, initialState) {
     lampClock+=dt;lamps.update(lampClock,daylight);
     updateLights(daylight);
     productionView.update(state,dt,daylight);
+    updateShip(dt);
     follow.set(player.position.x,player.position.y+1.05,player.position.z);
     const cameraDistance=4;camera.position.set(follow.x+26*cameraDistance,follow.y+34*cameraDistance,follow.z+26*cameraDistance);camera.lookAt(follow);camera.updateMatrixWorld();
     if(underground)caveView.update(state,dt);else updateStatuses();

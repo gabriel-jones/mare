@@ -1,6 +1,8 @@
 import { daylightAt } from './sim.js';
 import { DEFS } from './defs.js';
-import { processorReady, melterReady, remainingRegolith, roverHasWork, hasMelter, miningCells, dockSpace, total, ROVER, RECIPE, MELT, PROCESSOR_INPUT_CAP } from './production.js';
+import { HAULER } from './hauler.js';
+import { ELECTROLYSIS, LAUNCH, electrolyserReady, touchesPad } from './space.js';
+import { processorReady, melterReady, fabricatorReady, assemblerReady, currentPart, ASSEMBLY, FAB, remainingRegolith, roverHasWork, hasMelter, miningCells, dockSpace, total, ROVER, RECIPE, MELT, PROCESSOR_INPUT_CAP } from './production.js';
 import { LIFE, roomStatus } from './life.js';
 
 const roomCache={state:null,time:-1,result:null};
@@ -65,11 +67,33 @@ export function buildingStatus(building,state){
   if(state.reserves.water>=LIFE.waterCap)return {text:'Tanks full',read:`WATER ${Math.floor(state.reserves.water)}`,tone:'inactive'};
   return state.power.powered===false?noPower:{text:'Recycling',read:`WATER ${Math.floor(state.reserves.water)}`,tone:'charge',fill:building.work};
  }
+ if(building.type==='fabricator'){
+  if(fabricatorReady(building))return state.power.powered===false?noPower:{text:'Fabricating',read:currentPart(building).toUpperCase(),tone:'charge',fill:building.work};
+  if(building.out[currentPart(building)]>=FAB.out)return {text:'Output full',read:'HAUL OR BELT THE PARTS AWAY',tone:'low'};
+  return {text:'Needs materials',read:`METAL ${building.inv.metal} · SILICON ${building.inv.silicon}`,tone:'inactive'};
+ }
+ if(building.type==='assembler'){
+  if(building.out.satellite>=1)return {text:'Satellite ready',read:'PRESS E OR SEND A HAULER',tone:'low',glyph:'satellite'};
+  if(assemblerReady(building))return state.power.powered===false?noPower:{text:'Assembling',read:'SATELLITE',tone:'charge',fill:building.work,glyph:'build'};
+  return {text:'Needs parts',read:Object.keys(ASSEMBLY.need).map(p=>`${p.toUpperCase()} ${building.inv[p]}/${ASSEMBLY.need[p]}`).join(' · '),tone:'inactive'};
+ }
+ if(building.type==='electrolyser'){
+  if(electrolyserReady(state,building))return state.power.powered===false?noPower:{text:'Splitting water',read:'H2 + O2',tone:'charge',fill:building.work};
+  if(!state.buildings.some(b=>b.type==='tank'&&b.built))return {text:'Needs a tank',read:'BUILD A TANK BY THE PAD',tone:'warning',glyph:'fuel'};
+  if(state.reserves.water<=ELECTROLYSIS.waterFloor)return {text:'Needs water',read:'KEEPS A DRINKING RESERVE',tone:'warning',glyph:'water'};
+  return {text:'Tanks full',read:'PROPELLANT STORED',tone:'inactive'};
+ }
+ if(building.type==='tank'){
+  const fill=building.fuel/DEFS.tank.capacity;
+  if(!touchesPad(building))return {text:'Not at the pad',read:'MOVE BESIDE THE PAD',tone:'warning'};
+  return {text:`Propellant ${Math.round(fill*100)}%`,read:`${Math.floor(building.fuel)} / ${DEFS.tank.capacity}`,tone:'charge',fill};
+ }
  if(building.type==='solar'&&daylight===0)return {text:'No sunlight',read:'0.0 KW · NIGHT',tone:'inactive'};
  return null;
 }
 
 export function robotStatus(robot,state){
+ if(robot.kind==='hauler')return haulerStatus(robot,state);
  const hasDock=state.buildings.some(b=>(b.type==='hopper'||b.type==='melter')&&b.built);
  const load=robot.cargo/ROVER.capacity,cargo=`${robot.load==='ice'?'ICE':'REGOLITH'} ${Math.floor(robot.cargo)} / ${ROVER.capacity}`,battery=`BATTERY ${Math.round(robot.charge*100)}%`;
  if(robot.task==='blocked')return {text:'No route',read:'CLEAR A PATH',tone:'warning'};
@@ -93,4 +117,23 @@ function areaStatus(robot,state){
  if(roverHasWork(state,robot))return null;
  if(!hasMelter(state)&&miningCells(state,robot.area??null).some(c=>c.kind==='ice'&&c.remaining>0))return {text:'Needs a melter',read:'ICE GOES STRAIGHT INTO A MELTER',tone:'warning',glyph:'ice'};
  return {text:'Zone unreachable',read:'CLEAR A PATH',tone:'warning'};
+}
+function haulerStatus(robot,state){
+ const battery=`BATTERY ${Math.round(robot.charge*100)}%`,cargo=robot.cargo?`${robot.cargo} ${robot.load}`:'empty';
+ if(robot.task==='blocked')return {text:'No route',read:'CLEAR A PATH',tone:'warning'};
+ if(robot.charge<=0)return {text:'Battery flat',read:battery,tone:'warning'};
+ if(robot.task==='charging')return robot.charge>=.95?{text:'Docked',read:'NO JOBS',tone:'inactive'}:state.power.powered===false?noPower:{text:'Charging',read:battery,tone:'charge',fill:robot.charge,glyph:'charging'};
+ if(robot.task==='toHome')return {text:robot.charge<HAULER.low?'Low battery':'Returning',read:battery,tone:robot.charge<HAULER.low?'low':'charge'};
+ const where=id=>id==='ship'?'Starship':(n=>n?`${DEFS[n.type].name}`:'?')(state.buildings.find(b=>b.id===id));
+ if(robot.task==='toPickup')return {text:`Fetching ${robot.job?.item??''}`,read:`FROM ${where(robot.job?.from).toUpperCase()}`,tone:'charge'};
+ if(robot.task==='toDrop')return {text:`Delivering ${cargo}`,read:`TO ${where(robot.target?.id).toUpperCase()}`,tone:'charge'};
+ return {text:'Idle',read:'NO JOBS',tone:'inactive'};
+}
+/** Starship status shown over the pad: fuel as a ring, a glyph once satellites are aboard. */
+export function shipStatus(state){
+ const ship=state.ship;
+ if(ship.status!=='pad')return null;
+ const fuel=Math.min(1,ship.fuel/LAUNCH.fuel);
+ if(!ship.payload&&!ship.fuel)return null;
+ return {text:ship.payload?`${ship.payload} aboard`:'Fuelling',read:`FUEL ${Math.round(fuel*100)}%`,tone:fuel>=1&&ship.payload?'low':'charge',fill:fuel,glyph:fuel>=1&&ship.payload?'launch':'fuel'};
 }

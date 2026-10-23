@@ -1,11 +1,17 @@
 import { missionSite } from './terrain.js';
 import * as inv from './inventory.js';
+import { LAUNCH } from './space.js';
 
 /** The ship AI's objectives, in order. Each starts with a message; `done` is checked every tick, so
  * work finished early simply skips ahead. `target` names where the waypoint points. */
 export const SHIP = Object.freeze({ x: 0, z: -10, reach: 6.5 });
 export const SALVAGE_TIME = 3;
 const has = (s, type) => s.buildings.some(b => b.type === type && b.built);
+const launched = s => s.satellites > 0;
+// A satellite counts once it exists anywhere: in the assembler, on a belt or hauler, carried, or aboard.
+const satelliteMade = s => launched(s) || s.ship.payload > 0 || inv.count(s.inventory, 'satellite') > 0
+  || s.buildings.some(b => (b.out?.satellite ?? 0) + (b.type === 'storage' ? b.inv.satellite ?? 0 : 0) > 0 || b.items?.some(i => i.type === 'satellite'))
+  || s.robots.some(r => r.load === 'satellite' && r.cargo > 0);
 export const STEPS = Object.freeze([
   { id: 'power', objective: 'Build a solar array', message: "Ship AI online. We're down in one piece, mostly. First, power: open the build menu (B) and place a solar array.", done: s => has(s, 'solar') },
   { id: 'shelter', objective: 'Paint a habitat and attach an airlock', message: "Power's flowing. You'll need somewhere to breathe and eat: paint a habitat (H) and fit an airlock to it.", done: s => has(s, 'habitat') && has(s, 'airlock') },
@@ -15,8 +21,14 @@ export const STEPS = Object.freeze([
   { id: 'repair', objective: 'Take the core to the Starship and press E', message: "Got it. Bring it back to the ship and I'll talk you through the install.", target: 'ship', done: s => s.mission.installed },
   { id: 'refine', objective: 'Build a regolith processor', message: 'Core installed. Refining is back online: build a regolith processor and belt the hopper into it.', done: s => has(s, 'processor') },
   { id: 'ice', objective: 'Mine crater ice and melt it into water', message: "That crater floor never sees the Sun, and it's full of water ice. Build an ice melter, then mark a mining zone on the ice. The rover carries ice straight into the melter.", target: 'ice', done: s => s.mission.melted >= 5 },
+  { id: 'fabricate', objective: 'Build a fabricator', message: "Water's flowing. One more thing: the tracks around that lander weren't from any rover I know. I'll keep watching the rim, but we need eyes in orbit. Build a fabricator from the Space menu and belt it metal and silicon. It makes satellite parts.", done: s => has(s, 'fabricator') || launched(s) },
+  { id: 'hauler', objective: 'Build a robot dock and a hauler', message: 'Belts get tangled fast. Build a robot dock and press E at it for a hauler. Haulers carry materials, parts and satellites to whatever needs them.', done: s => s.robots.some(r => r.kind === 'hauler') || launched(s) },
+  { id: 'assemble', objective: 'Assemble a satellite', message: 'Now build a satellite assembler. It takes one frame, two solar wings and two compute chips per satellite.', done: satelliteMade },
+  { id: 'fuel', objective: 'Fuel the Starship', message: "Our tanks are dry. Build an electrolyser to split water into hydrogen and oxygen, and a propellant tank beside the landing pad. The tank fills the ship.", target: 'ship', done: s => s.ship.fuel >= LAUNCH.fuel || launched(s) },
+  { id: 'launch', objective: 'Load a satellite and launch', message: 'Fuelled. Haulers bring satellites to the pad, or carry one yourself. When one is aboard, hold E beside the Starship to launch.', target: 'ship', done: launched },
+  { id: 'research', objective: 'Research the rover bay', message: "Satellite deployed. Open the orbital view (O) and choose what to research. Every satellite in orbit speeds it up. The rover bay comes first.", done: s => s.research.done.includes('roverbay') },
 ]);
-export const FINALE = "Water's flowing. One more thing: the tracks around that lander weren't from any rover I know. I'll keep watching the rim.";
+export const FINALE = 'Rover bay unlocked: build one and press E for another mining rover. Every satellite you launch speeds up research.';
 export const SIGHTING = 'Movement on the crater rim? My sensors show nothing out there. Probably nothing.';
 
 export function createMission(legacy = false) {

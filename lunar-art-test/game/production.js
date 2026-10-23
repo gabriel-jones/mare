@@ -1,4 +1,4 @@
-import { CELL_SIZE, DEFS, DIRS, footprint, ports } from './defs.js';
+import { CELL_SIZE, DEFS, DIRS, PARTS, footprint, ports } from './defs.js';
 import { findPath, robotBlockedCells, cellPassable } from './paths.js';
 import { iceAt } from './terrain.js';
 
@@ -11,6 +11,14 @@ export const MAX_MINING_AREAS = 4;
 export const RECIPE = Object.freeze({ input: 4, time: 6, metal: 2, silicon: 1, oxygen: 1, power: 3 });
 export const PROCESSOR_INPUT_CAP = 16, PROCESSOR_OUTPUT_CAP = 12;
 export const MELT = Object.freeze({ time: 3, water: 1, power: 1.5, cap: 12, waterCap: 200 });
+/** Fabricators hold up to `stock` of each material and `out` finished parts; assemblers `stock` of each part. */
+export const FAB = Object.freeze({ time: 6, power: 2, stock: 20, out: 6 });
+/** The default recipe makes one satellite's worth of parts in turn. */
+export const KIT = Object.freeze(['frame', 'wing', 'wing', 'chip', 'chip']);
+export const RECIPES = Object.freeze(['kit', 'frame', 'wing', 'chip']);
+export const currentPart = b => b.recipe === 'kit' ? KIT[(b.step ?? 0) % KIT.length] : b.recipe;
+const recipeInputs = b => b.recipe === 'kit' ? ['metal', 'silicon'] : Object.keys(PARTS[b.recipe].input);
+export const ASSEMBLY = Object.freeze({ time: 20, power: 4, need: { frame: 1, wing: 2, chip: 2 }, stock: { frame: 2, wing: 4, chip: 4 }, out: 1 });
 export const ROVER = Object.freeze({ speed: 3, capacity: 20, mineRate: 2, unloadRate: 10, drain: 1 / 300, chargeRate: 1 / 25, chargePower: 1.5, low: 0.25 });
 
 export function createRover(id = 1) {
@@ -21,22 +29,43 @@ export function ensureBuildingState(b) {
   if (!b.built) return b;
   if (b.type === 'conveyor') b.items ??= [];
   if (b.type === 'hopper') { b.inv ??= { regolith: 0 }; b.inv.ice ??= 0; }
-  if (b.type === 'storage') { b.inv ??= { regolith: 0, metal: 0, silicon: 0 }; b.inv.ice ??= 0; }
+  if (b.type === 'storage') { b.inv ??= { regolith: 0, metal: 0, silicon: 0 }; for (const item of ['ice', 'frame', 'wing', 'chip', 'satellite']) b.inv[item] ??= 0; }
   if (b.type === 'processor') { b.inv ??= { regolith: 0 }; b.out ??= { metal: 0, silicon: 0 }; b.work ??= 0; }
   if (b.type === 'melter') { b.inv ??= { ice: 0 }; b.work ??= 0; }
+  if (b.type === 'fabricator') { b.inv ??= { metal: 0, silicon: 0 }; b.out ??= { frame: 0, wing: 0, chip: 0 }; b.recipe ??= 'kit'; b.step ??= 0; b.work ??= 0; }
+  if (b.type === 'assembler') { b.inv ??= { frame: 0, wing: 0, chip: 0 }; b.out ??= { satellite: 0 }; b.work ??= 0; }
+  if (b.type === 'electrolyser') b.work ??= 0;
+  if (b.type === 'tank') b.fuel ??= 0;
+  if (b.type === 'dock' || b.type === 'roverbay') b.work ??= 0;
   return b;
 }
 const key = (x, z) => `${x},${z}`;
 export const total = inv => Object.values(inv ?? {}).reduce((s, n) => s + n, 0);
 export const processorReady = b => b.built && b.inv.regolith >= RECIPE.input && total(b.out) + RECIPE.metal + RECIPE.silicon <= PROCESSOR_OUTPUT_CAP;
 export const melterReady = (state, b) => b.built && b.inv.ice >= 1 && state.reserves.water < MELT.waterCap;
+export const fabricatorReady = b => b.built && b.out[currentPart(b)] < FAB.out && Object.entries(PARTS[currentPart(b)].input).every(([item, n]) => b.inv[item] >= n);
+export const assemblerReady = b => b.built && b.out.satellite < ASSEMBLY.out && Object.entries(ASSEMBLY.need).every(([part, n]) => b.inv[part] >= n);
+/** How many more of `item` a machine will take, from a belt or a hauler. */
+export function machineRoom(b, item) {
+  if (!b.built) return 0;
+  if (b.type === 'fabricator') return recipeInputs(b).includes(item) ? FAB.stock - b.inv[item] : 0;
+  if (b.type === 'assembler') return item in ASSEMBLY.stock ? ASSEMBLY.stock[item] - b.inv[item] : 0;
+  return 0;
+}
 const roverCharging = r => r.task === 'docked' && r.charge < 1;
 
+/** E at a fabricator: kit, then each single part. Materials it no longer needs stay inside. */
+export function cycleRecipe(b) {
+  b.recipe = RECIPES[(RECIPES.indexOf(b.recipe) + 1) % RECIPES.length]; b.work = 0;
+  return b.recipe === 'kit' ? 'Satellite kit' : PARTS[b.recipe].name;
+}
 export function productionDemand(state) {
   let kw = 0;
   for (const b of state.buildings) if (b.type === 'processor' && processorReady(b)) kw += RECIPE.power;
   for (const b of state.buildings) if (b.type === 'melter' && melterReady(state, b)) kw += MELT.power;
-  for (const r of state.robots ?? []) if (roverCharging(r)) kw += ROVER.chargePower;
+  for (const b of state.buildings) if (b.type === 'fabricator' && fabricatorReady(b)) kw += FAB.power;
+  for (const b of state.buildings) if (b.type === 'assembler' && assemblerReady(b)) kw += ASSEMBLY.power;
+  for (const r of state.robots ?? []) if (r.kind === 'miner' && roverCharging(r)) kw += ROVER.chargePower;
   return kw;
 }
 
@@ -71,6 +100,7 @@ function machineAccept(b, item) {
   if (b.type === 'storage' && total(b.inv) < DEFS.storage.capacity) { b.inv[item] += 1; return true; }
   if (b.type === 'processor' && item === 'regolith' && b.inv.regolith < PROCESSOR_INPUT_CAP) { b.inv.regolith += 1; return true; }
   if (b.type === 'melter' && item === 'ice' && b.inv.ice < MELT.cap) { b.inv.ice += 1; return true; }
+  if ((b.type === 'fabricator' || b.type === 'assembler') && machineRoom(b, item) >= 1) { b.inv[item] += 1; return true; }
   return false;
 }
 /** Where the item at the front of `belt` would go, or null. */
@@ -115,6 +145,20 @@ function stepMachines(state, index, dt, powered) {
     if (b.type === 'melter' && melterReady(state, b) && powered) {
       b.work = Math.min(1, b.work + dt / MELT.time);
       if (b.work >= 1) { b.work = 0; b.inv.ice -= 1; state.reserves.water = Math.min(MELT.waterCap, state.reserves.water + MELT.water); if (state.mission) state.mission.melted += MELT.water; }
+    }
+    if (b.type === 'fabricator') {
+      if (fabricatorReady(b) && powered) {
+        b.work = Math.min(1, b.work + dt / FAB.time);
+        if (b.work >= 1) { const part = currentPart(b); b.work = 0; for (const [item, n] of Object.entries(PARTS[part].input)) b.inv[item] -= n; b.out[part] += 1; b.step = (b.step + 1) % KIT.length; }
+      }
+      pushOutputs(b, index, () => { const part = Object.keys(b.out).find(p => b.out[p] > 0); if (part) b.out[part]--; return part ?? null; });
+    }
+    if (b.type === 'assembler') {
+      if (assemblerReady(b) && powered) {
+        b.work = Math.min(1, b.work + dt / ASSEMBLY.time);
+        if (b.work >= 1) { b.work = 0; for (const [part, n] of Object.entries(ASSEMBLY.need)) b.inv[part] -= n; b.out.satellite += 1; }
+      }
+      pushOutputs(b, index, () => b.out.satellite > 0 ? (b.out.satellite--, 'satellite') : null);
     }
     if (b.type !== 'processor') continue;
     if (processorReady(b) && powered) {
@@ -162,8 +206,8 @@ const roverCell = r => ({ x: Math.round(r.x / CELL_SIZE), z: Math.round(r.z / CE
 // Cells and docks a rover recently failed to reach, so it tries the next candidate instead of retrying forever.
 const unreachable = new WeakMap();
 const UNREACHABLE_MEMORY = 30;
-function isUnreachable(state, r, x, z) { const until = unreachable.get(r)?.get(key(x, z)); return until != null && until > state.time; }
-function markUnreachable(state, r, target) {
+export function isUnreachable(state, r, x, z) { const until = unreachable.get(r)?.get(key(x, z)); return until != null && until > state.time; }
+export function markUnreachable(state, r, target) {
   if (!unreachable.has(r)) unreachable.set(r, new Map());
   unreachable.get(r).set(key(target.x, target.z), state.time + UNREACHABLE_MEMORY);
 }
@@ -179,28 +223,30 @@ function nearestMiningCell(state, r) {
   }
   return best;
 }
-/** Free docking cells beside a hopper or melter, never on its belt ports or another structure. */
+/** Free docking cells beside a building, off its belt ports unless every side is a port (a crate). */
 export function dockingCells(state, hopper, occupied, blocked) {
   const cells = footprint(hopper.type, hopper.x, hopper.z, hopper.rotation), inside = new Set(cells.map(c => key(c.x, c.z)));
-  const outputs = new Set([...ports(hopper, 'outputs'), ...ports(hopper, 'inputs')].map(p => key(p.neighbor.x, p.neighbor.z))), result = new Map();
+  const portCells = new Set([...ports(hopper, 'outputs'), ...ports(hopper, 'inputs')].map(p => key(p.neighbor.x, p.neighbor.z))), result = new Map(), ported = new Map();
   for (const c of cells) for (const [dx, dz] of DIRS) {
     const x = c.x + dx, z = c.z + dz, k = key(x, z);
-    if (inside.has(k) || outputs.has(k) || occupied.has(k) || !cellPassable(state, blocked, x, z)) continue;
-    result.set(k, { x, z });
+    if (inside.has(k) || occupied.has(k) || !cellPassable(state, blocked, x, z)) continue;
+    (portCells.has(k) ? ported : result).set(k, { x, z });
   }
-  return [...result.values()];
+  return [...(result.size ? result : ported).values()];
 }
 /** Room left in `dock` for the rover's load: regolith goes to hoppers, ice straight into melters. */
 export function dockSpace(dock, load = 'regolith') {
   if (dock.type === 'melter') return load === 'ice' ? MELT.cap - (dock.inv?.ice ?? 0) : 0;
   return load === 'ice' ? 0 : DEFS.hopper.capacity - total(dock.inv);
 }
-function nearestDock(state, r, types) {
+/** The closest free docking cell beside a building of one of `types` (or matching a predicate). */
+export function nearestDock(state, r, types) {
+  const match = typeof types === 'function' ? types : b => types.includes(b.type);
   const occupied = new Set(state.buildings.flatMap(b => footprint(b.type, b.x, b.z, b.rotation).map(c => key(c.x, c.z))));
   const blocked = robotBlockedCells(state);
   let best = null, bestDistance = Infinity;
   for (const b of state.buildings) {
-    if (!types.includes(b.type) || !b.built) continue;
+    if (!b.built || !match(b)) continue;
     for (const c of dockingCells(state, b, occupied, blocked)) {
       if (isUnreachable(state, r, c.x, c.z)) continue;
       const d = Math.hypot(c.x * CELL_SIZE - r.x, c.z * CELL_SIZE - r.z);
@@ -211,7 +257,7 @@ function nearestDock(state, r, types) {
 }
 // Paths are derived navigation data, intentionally kept out of saves.
 const routes = new WeakMap();
-function drive(state, r, goal, dt, topology) {
+export function drive(state, r, goal, dt, topology) {
   let route = routes.get(r);
   const goalKey = key(goal.x, goal.z);
   if (!route || route.goal !== goalKey || route.topology !== topology) {
@@ -289,12 +335,15 @@ function stepRover(state, r, dt, powered, topology) {
   }
 }
 
+/** Changes whenever robots must replan their routes. */
+export const robotTopology = state => state.buildings.filter(b => b.built && (!DEFS[b.type].walkable || DEFS[b.type].enclosed)).map(b => b.id).join(',');
 export function stepProduction(state, dt, powered) {
   const index = cellIndex(state);
   stepBelts(state, index, dt);
   stepMachines(state, index, dt, powered);
-  const topology = state.buildings.filter(b => b.built && (!DEFS[b.type].walkable || DEFS[b.type].enclosed)).map(b => b.id).join(',');
+  const topology = robotTopology(state);
   for (const r of state.robots) {
+    if (r.kind !== 'miner') continue;
     if (r.area != null && !state.miningAreas?.some(a => a.id === r.area)) delete r.area;
     stepRover(state, r, dt, powered, topology);
   }

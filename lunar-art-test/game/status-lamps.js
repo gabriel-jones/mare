@@ -4,7 +4,7 @@ import * as THREE from 'three';
 // battery `Cell1`..`Cell5` and a `Level` sight glass. Every lamp in a state shares one material,
 // so blinking costs nothing per machine and changing state never compiles a shader.
 export const LAMP_COLORS = Object.freeze({ ok: '#58e0a0', low: '#f2b45a', fault: '#ff6a32', idle: '#56616a', off: '#1a1f22' });
-const FLUIDS = { water: '#7fd6ff', regolith: '#d0a466' };
+const FLUIDS = { water: '#7fd6ff', regolith: '#d0a466', fuel: '#c9f2ff' };
 const base = name => name.replace(/\.?\d{3}$/, '');
 
 /** Brightness 0–1 of a lamp level at time `t`: steady, slow pulse, hard blink or dark. */

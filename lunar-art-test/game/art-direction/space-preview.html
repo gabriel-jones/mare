@@ -1,0 +1,21 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Space kit, liftoff and orbit • art review</title><link rel="stylesheet" href="../game.css"><style>canvas#game{position:fixed;inset:0;width:100%;height:100%;outline:none}</style><script type="importmap">{"imports":{"three":"../../node_modules/three/build/three.module.js","three/addons/":"../../node_modules/three/examples/jsm/"}}</script></head><body><canvas id="game" tabindex="0"></canvas><script type="module">
+// Isolated review of the Phase E machines, hauler, part items on belts, liftoff and the orbital view. Never reads or writes colony saves.
+// ?launch=1 freezes the Starship two seconds into its ascent; ?orbit=1 opens the orbital view with five satellites and the ship in orbit.
+import{createWorld}from'../world.js';import{createState,tick}from'../sim.js';import{ensureBuildingState}from'../production.js';import{createHauler}from'../space.js';import{createOrbitView}from'../orbit-view.js';
+const params=new URLSearchParams(location.search),state=createState();
+state.time=params.has('night')?150:25;state.player.facing=Math.PI;state.player.animation='idle';
+const layout=[['fabricator',-8,-4,0],['assembler',-4,1,0],['electrolyser',-2,1,0],['tank',5,-6,0,{fuel:70}],['dock',0,2,0],['roverbay',-8,2,0],['solar',5,2,0],['battery',6,5,0],
+ ['conveyor',-7,-2,0],['conveyor',-7,-1,0],['conveyor',-7,0,0]];
+state.buildings=layout.map(([type,x,z,rotation,extra],i)=>Object.assign(ensureBuildingState({id:i+1,type,x,z,rotation,progress:1,built:true,serial:1}),extra));state.nextId=layout.length+1;
+state.buildings.filter(b=>b.type==='conveyor').forEach((b,i)=>b.items.push({type:['frame','wing','chip'][i],p:.7},{type:i?'satellite':'wing',p:.2}));
+const hauler=Object.assign(createHauler(2,5),{x:2,z:-1,facing:2.4,cargo:1,load:'satellite',task:'toDrop',target:{id:'ship',x:5,z:-5}});state.robots.push(hauler);
+state.ship.fuel=80;state.ship.payload=1;
+if(params.has('launch'))Object.assign(state.ship,{status:'ascent',t:2});
+Object.assign(state.player,{x:2,z:4});
+tick(state,0);state.power.stored=state.power.capacity;
+const base=document.createElement('base');base.href='../';document.head.append(base);
+const world=await createWorld(document.querySelector('canvas'),state);window.addEventListener('resize',world.resize);
+let orbit=null;
+if(params.has('orbit')){Object.assign(state.ship,{status:'orbit',t:0,payload:0,fuel:0});state.satellites=5;state.research.progress.roverbay=14;orbit=createOrbitView();orbit.show();}
+let last=performance.now();function frame(now){const dt=Math.min((now-last)/1000,.1);last=now;world.update(state,dt);orbit?.update(state,dt);requestAnimationFrame(frame)}requestAnimationFrame(frame);
+</script></body></html>

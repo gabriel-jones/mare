@@ -14,6 +14,10 @@ export function createProductionView(scene, models) {
     regolith: [own(geometries, new THREE.IcosahedronGeometry(.2, 0)), own(materials, new THREE.MeshStandardMaterial({ color: '#8f877b', roughness: 1, flatShading: true }))],
     metal: [own(geometries, new THREE.BoxGeometry(.42, .16, .24)), own(materials, new THREE.MeshStandardMaterial({ color: '#d4dbe0', metalness: .8, roughness: .3 }))],
     silicon: [own(geometries, new THREE.BoxGeometry(.3, .08, .3)), own(materials, new THREE.MeshStandardMaterial({ color: '#25466a', metalness: .5, roughness: .2, emissive: '#0f2742', emissiveIntensity: .4 }))],
+    frame: [own(geometries, new THREE.BoxGeometry(.5, .32, .5)), own(materials, new THREE.MeshStandardMaterial({ color: '#c7ced4', metalness: .7, roughness: .35, wireframe: true }))],
+    wing: [own(geometries, new THREE.BoxGeometry(.7, .05, .36)), own(materials, new THREE.MeshStandardMaterial({ color: '#16294a', metalness: .5, roughness: .25, emissive: '#0c2240', emissiveIntensity: .35 }))],
+    chip: [own(geometries, new THREE.BoxGeometry(.28, .07, .28)), own(materials, new THREE.MeshStandardMaterial({ color: '#2f6b4a', metalness: .4, roughness: .3, emissive: '#1c5a3c', emissiveIntensity: .3 }))],
+    satellite: [own(geometries, new THREE.BoxGeometry(.5, .5, .5)), own(materials, new THREE.MeshStandardMaterial({ color: '#d9a441', metalness: .85, roughness: .3 }))],
     ice: [own(geometries, new THREE.OctahedronGeometry(.2, 0)), own(materials, new THREE.MeshStandardMaterial({ color: '#d6efff', roughness: .15, metalness: .1, emissive: '#4c86a8', emissiveIntensity: .45, flatShading: true }))],
   };
   const batches = {}, dummy = new THREE.Object3D();
@@ -21,7 +25,7 @@ export function createProductionView(scene, models) {
     const mesh = new THREE.InstancedMesh(geo, mat, 4096); mesh.castShadow = true; mesh.count = 0; mesh.frustumCulled = false; root.add(mesh); batches[type] = mesh;
   }
   function updateItems(state, time) {
-    const counts = { regolith: 0, metal: 0, silicon: 0, ice: 0 }, turns = beltTurns(state);
+    const counts = Object.fromEntries(Object.keys(batches).map(type => [type, 0])), turns = beltTurns(state);
     for (const b of state.buildings) {
       if (b.type !== 'conveyor' || !b.items?.length) continue;
       const [fx, fz] = DIRS[b.rotation], cx = b.x * 2, cz = b.z * 2, turn = turns.get(b.id) ?? 0;
@@ -45,8 +49,8 @@ export function createProductionView(scene, models) {
 
   // Rovers: wheels roll with distance travelled, the drill digs, and the cargo mound fills.
   const rovers = new Map();
-  function createRoverView() {
-    const template = models.get('rover');
+  function createRoverView(kind) {
+    const template = models.get(kind === 'hauler' ? 'hauler' : 'rover');
     let view;
     if (template) {
       const model = template.clone(true), wheels = [];let drill = null, cargo = null;
@@ -66,7 +70,7 @@ export function createProductionView(scene, models) {
     for (const r of state.robots ?? []) {
       live.add(r.id);
       let view = rovers.get(r.id);
-      if (!view) { view = createRoverView(); rovers.set(r.id, view); }
+      if (!view) { view = createRoverView(r.kind); rovers.set(r.id, view); }
       // The simulation moves in fixed ticks; ease the presentation between them.
       if (!view.display || Math.hypot(view.display.x - r.x, view.display.z - r.z) > 6) view.display = { x: r.x, z: r.z, facing: r.facing };
       const blend = 1 - Math.exp(-dt * 14), d = view.display, px = d.x, pz = d.z;
@@ -79,8 +83,9 @@ export function createProductionView(scene, models) {
       view.digTime += dt;
       if (view.drill) view.drill.rotation.x += ((mining ? .32 + Math.sin(view.digTime * 7) * .1 : 0) - view.drill.rotation.x) * Math.min(1, dt * 8);
       view.model.position.y = mining ? Math.abs(Math.sin(view.digTime * 14)) * .025 : 0;
-      if (view.cargo) { const load = Math.max(0, Math.min(1, r.cargo / ROVER.capacity)); view.cargo.visible = load > .02; view.cargo.scale.set(.6 + .4 * load, Math.max(.05, load), .6 + .4 * load); }
-      view.beacon.intensity = r.task === 'idle' ? 0 : (1 - daylight) * 5 + .6;
+      if (view.cargo && r.kind === 'hauler') view.cargo.visible = r.cargo >= 1;
+      else if (view.cargo) { const load = Math.max(0, Math.min(1, r.cargo / ROVER.capacity)); view.cargo.visible = load > .02; view.cargo.scale.set(.6 + .4 * load, Math.max(.05, load), .6 + .4 * load); }
+      view.beacon.intensity = r.task === 'idle' || r.task === 'charging' ? 0 : (1 - daylight) * 5 + .6;
     }
     for (const [id, view] of rovers) if (!live.has(id)) { root.remove(view.root); rovers.delete(id); }
   }
