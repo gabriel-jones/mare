@@ -1,4 +1,5 @@
 import * as inv from './inventory.js';
+import { missing, pay } from './storage.js';
 import { ITEM_INFO } from './defs.js';
 import { techDone } from './space.js';
 
@@ -92,10 +93,10 @@ export function burnTank(state, dt) {
 export function craft(state, id) {
   const r = ARMORY[id]; if (!r) return { ok: false, reason: 'Unknown recipe.' };
   if (!armoryKnown(state, id)) return { ok: false, reason: 'Research it first (T).' };
-  const missing = Object.entries(r.input).filter(([item, n]) => inv.count(state.inventory, item) < n);
-  if (missing.length) return { ok: false, reason: `Needs ${missing.map(([item, n]) => `${n} ${ITEM_INFO[item].name.toLowerCase()}`).join(', ')}.` };
+  const short = missing(state, r.input);
+  if (short.length) return { ok: false, reason: `Needs ${short.map(([item, n]) => `${n} ${ITEM_INFO[item].name.toLowerCase()}`).join(', ')}.` };
   if (inv.room(state.inventory, id) < r.makes) return { ok: false, reason: 'No room in your inventory.' };
-  for (const [item, n] of Object.entries(r.input)) inv.remove(state.inventory, item, n);
+  pay(state, r.input);
   inv.add(state.inventory, id, r.makes);
   return { ok: true, reason: `Crafted ${r.makes > 1 ? `${r.makes} ` : ''}${ITEM_INFO[id].name.toLowerCase()}.` };
 }

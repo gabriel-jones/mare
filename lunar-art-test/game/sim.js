@@ -14,6 +14,7 @@ import { restoreInfest } from './infest.js';
 import { GOO, ensureVat, gooDemand, restoreGoo, stepGoo, useVat } from './goo.js';
 import { haulerDemand, restoreHauler, stepHaulers } from './hauler.js';
 import { createMission, processorUnlocked, restoreMission, stepMission } from './mission.js';
+import { canReceive, crates, emptyCrate, missing, pay, receive, stash, takeSlot } from './storage.js';
 export { CELL_SIZE, DEFS, footprint } from './defs.js';
 /** Pure, serializable simulation. Positions use 2m cells; building anchors are minimum cells. */
 export const DAY_DURATION = 240;
@@ -103,7 +104,8 @@ export function validatePlacement(state, type, x, z, rotation = 0) {
   }
   const placeReason = roomReason(state, type, x, z, rotation);
   if (placeReason) return { ok: false, reason: placeReason };
-  for (const [item, amount] of Object.entries(DEFS[type].cost)) if (inv.count(state.inventory, item) < amount) return { ok: false, reason: `Not enough ${ITEM_INFO[item]?.name.toLowerCase() ?? item}.` };
+  const short = missing(state, DEFS[type].cost)[0];
+  if (short) return { ok: false, reason: `Not enough ${ITEM_INFO[short[0]]?.name.toLowerCase() ?? short[0]}${crates(state).length ? ' in your pockets or base storage' : ''}.` };
   return { ok: true, reason: 'Click to place blueprint.' };
 }
 /** Machines are numbered per type in build order; a number is only reused after the newest of its type is removed. */
@@ -111,7 +113,7 @@ const nextSerial = (buildings, type) => 1 + Math.max(0, ...buildings.filter(b =>
 export function placeBlueprint(state, type, x, z, rotation = 0) {
   const result = validatePlacement(state, type, x, z, rotation);
   if (!result.ok) return result;
-  for (const [item, amount] of Object.entries(DEFS[type].cost)) inv.remove(state.inventory, item, amount);
+  pay(state, DEFS[type].cost);
   const id = state.nextId++;
   state.buildings.push({ id, type, x, z, rotation, progress: 0, built: false, serial: nextSerial(state.buildings, type) });
   return { ok: true, reason: 'Blueprint placed. Approach and hold E to construct.', id };
@@ -138,12 +140,22 @@ export function construct(state, id, dt) {
   ensureState(b);
   return { ok: true, reason: b.built ? 'Construction complete.' : 'Constructing…' };
 }
-/** Returns the cost of `b`; refused when the refund will not fit in the player's slots. */
+/** Returns the cost of `b` to pockets, overflowing into base storage; refused when it will not fit. */
 function refund(state, b) {
-  if (!inv.canFit(state.inventory, DEFS[b.type].cost)) return false;
-  for (const [item, amount] of Object.entries(DEFS[b.type].cost)) inv.add(state.inventory, item, amount);
+  if (!canReceive(state, DEFS[b.type].cost, b)) return false;
+  receive(state, DEFS[b.type].cost, b);
   return true;
 }
+const crateContents = b => { const held = {}; for (const s of b.slots ?? []) if (s) held[s.item] = (held[s.item] ?? 0) + s.count; return held; };
+/** Whether a crate's contents fit in the other crates and pockets alongside its own refund. */
+function crateFits(state, b) {
+  const goods = crateContents(b);
+  for (const [item, n] of Object.entries(DEFS.storage.cost)) goods[item] = (goods[item] ?? 0) + n;
+  const pockets = state.inventory.map(s => s && { ...s }), others = crates(state).filter(o => o !== b).map(o => o.slots.map(s => s && { ...s }));
+  return Object.entries(goods).every(([item, n]) => { for (const slots of others) n = inv.add(slots, item, n); return inv.add(pockets, item, n) === 0; });
+}
+const NO_ROOM = 'No room in your pockets or base storage for the materials.';
+const CRATE_FULL = 'Nowhere to put what this crate holds. Empty it or build another crate first.';
 export function cancelBlueprint(state, id) {
   const index = state.buildings.findIndex(b => b.id === id);
   if (index < 0) return { ok: false, reason: 'Blueprint no longer exists.' };
@@ -151,7 +163,7 @@ export function cancelBlueprint(state, id) {
   if (b.built) return { ok: false, reason: 'Completed buildings cannot be cancelled.' };
   const blocked = removalReason(state, b);
   if (blocked) return { ok: false, reason: blocked };
-  if (!refund(state, b)) return { ok: false, reason: 'No room in your inventory for the materials.' };
+  if (!refund(state, b)) return { ok: false, reason: NO_ROOM };
   state.buildings.splice(index, 1);
   return { ok: true, reason: 'Blueprint cancelled; materials returned.' };
 }
@@ -159,7 +171,7 @@ export function cancelBlueprint(state, id) {
 export function removalCheck(state, id) {
   const b = state.buildings.find(b => b.id === id);
   if (!b) return 'Nothing to dismantle here.';
-  return removalReason(state, b) ?? (inv.canFit(state.inventory, DEFS[b.type].cost) ? null : 'No room in your inventory for the materials.');
+  return removalReason(state, b) ?? (b.type === 'storage' && b.built ? (crateFits(state, b) ? null : CRATE_FULL) : canReceive(state, DEFS[b.type].cost, b) ? null : NO_ROOM);
 }
 /** Dismantles a finished structure for a full refund. Carried goods inside are returned if they fit; regolith is spilled. */
 export function deconstruct(state, id) {
@@ -169,7 +181,12 @@ export function deconstruct(state, id) {
   if (!b.built) return cancelBlueprint(state, id);
   const blocked = removalReason(state, b);
   if (blocked) return { ok: false, reason: blocked };
-  if (!refund(state, b)) return { ok: false, reason: 'No room in your inventory for the materials.' };
+  if (b.type === 'storage') {
+    if (!crateFits(state, b)) return { ok: false, reason: CRATE_FULL };
+    const held = crateContents(b); b.slots = emptyCrate();
+    for (const [item, n] of Object.entries(held)) inv.add(state.inventory, item, stash(state, item, n, null, b));
+  }
+  if (!refund(state, b)) return { ok: false, reason: NO_ROOM };
   const contents = {}, give = (item, n) => { if (n > 0 && ITEM_INFO[item]) contents[item] = (contents[item] ?? 0) + n; };
   for (const store of [b.inv, b.out]) for (const item of ['metal', 'silicon', 'frame', 'wing', 'chip', 'satellite']) give(item, Math.floor(store?.[item] ?? 0));
   for (const item of b.items ?? []) if (['metal', 'silicon', 'frame', 'wing', 'chip', 'satellite'].includes(item.type)) give(item.type, 1);
@@ -178,27 +195,26 @@ export function deconstruct(state, id) {
   for (const q of b.queue ?? []) if (b.type === 'galley') for (const [item, n] of Object.entries(DISHES[q].input)) give(item, n); else give(q, 1);
   if (isGrower(b) && b.grow >= 1) give(b.crop, CROPS[b.crop].yield);
   if (b.type === 'goovat') give('goo', Math.floor(b.stock ?? 0) + (b.seeded ? 1 : 0));
-  let lost = 0;
-  for (const [item, n] of Object.entries(contents)) if (n) lost += inv.add(state.inventory, item, n);
+  const lost = receive(state, contents, b);
   state.buildings.splice(index, 1);
   return { ok: true, reason: `${DEFS[b.type].name} dismantled; materials returned${lost ? `, but ${lost} item${lost > 1 ? 's' : ''} didn't fit and were lost` : ''}.` };
 }
-/** Transfers usable materials from a storage crate into the player's inventory, as far as they fit. */
+/** Takes everything that fits out of one crate into pockets. */
 export function collectStorage(state, id) {
   const b = state.buildings.find(b => b.id === id);
   if (!b || b.type !== 'storage' || !b.built) return { ok: false, reason: 'No storage crate here.' };
-  if (!b.inv.metal && !b.inv.silicon) return { ok: false, reason: b.inv.regolith ? 'This crate only holds raw regolith.' : 'Storage crate is empty.' };
+  if (!b.slots.some(Boolean)) return { ok: false, reason: 'Storage crate is empty.' };
   const taken = {};
-  for (const item of ['metal', 'silicon']) { const n = Math.min(b.inv[item], inv.room(state.inventory, item)); inv.add(state.inventory, item, n); b.inv[item] -= n; taken[item] = n; }
-  const { metal, silicon } = taken;
-  if (!metal && !silicon) return { ok: false, reason: 'No room in your inventory.' };
-  return { ok: true, reason: `Collected ${[metal && `${metal} metal`, silicon && `${silicon} silicon`].filter(Boolean).join(' and ')}${b.inv.metal || b.inv.silicon ? '; your inventory is full' : ''}.`, metal, silicon };
+  b.slots.forEach((s, i) => { if (!s) return; const item = s.item, r = takeSlot(state, b, i); if (r.ok) taken[item] = (taken[item] ?? 0) + r.moved; });
+  if (!Object.keys(taken).length) return { ok: false, reason: 'No room in your pockets.' };
+  const left = b.slots.some(Boolean);
+  return { ok: true, reason: `Took ${Object.entries(taken).map(([item, n]) => `${n} ${ITEM_INFO[item].name.toLowerCase()}`).join(', ')}${left ? '; your pockets are full' : ''}.`, taken };
 }
 /** E on a grow bed or galley. */
 export function interact(state, id) {
   const b = state.buildings.find(b => b.id === id);
   if (!b) return { ok: false, reason: 'Nothing here.' };
-  if (b.type === 'storage') return collectStorage(state, id);
+  if (b.type === 'storage') return b.built ? { ok: true, open: 'crate', reason: '' } : { ok: false, reason: 'Finish building it first.' };
   if (!b.built) return { ok: false, reason: 'Finish building it first.' };
   if (b.type === 'fabricator') return { ok: true, reason: `Fabricator now makes: ${cycleRecipe(b)}.` };
   if (b.type === 'assembler') {
@@ -293,11 +309,16 @@ function restoreBuilding(raw) {
       return { type: item.type, p: item.p };
     });
   }
-  const limits = { hopper: [DEFS.hopper.capacity, ['regolith', 'ice']], storage: [DEFS.storage.capacity, ITEMS], processor: [PROCESSOR_INPUT_CAP, ['regolith']], melter: [MELT.cap, ['ice']] }[b.type];
+  const limits = { hopper: [DEFS.hopper.capacity, ['regolith', 'ice']], processor: [PROCESSOR_INPUT_CAP, ['regolith']], melter: [MELT.cap, ['ice']] }[b.type];
   if (limits && raw.inv != null) {
     b.inv = {};
     // Ice arrived with save version 4 and satellite parts with 6; older stores simply hold none.
     for (const item of limits[1]) { const n = raw.inv[item] ?? (['regolith', 'metal', 'silicon'].includes(item) ? undefined : 0); if (!count(n, limits[0])) throw new Error('Invalid storage contents.'); b.inv[item] = n; }
+  }
+  if (b.type === 'storage') {
+    if (raw.slots != null) b.slots = inv.restore(raw.slots, DEFS.storage.slots);
+    // Crates used to hold up to 80 loose units of the belt items.
+    else if (raw.inv != null) { b.slots = emptyCrate(); for (const item of ITEMS) { const n = raw.inv[item] ?? 0; if (!count(n, 80)) throw new Error('Invalid storage contents.'); inv.add(b.slots, item, Math.floor(n)); } }
   }
   if (b.type === 'melter' && raw.work != null) { if (!count(raw.work, 1)) throw new Error('Invalid melter progress.'); b.work = raw.work; }
   if (b.type === 'processor') {

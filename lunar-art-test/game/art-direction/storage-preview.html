@@ -1,0 +1,27 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Storage crates and base stock • art review</title><link rel="stylesheet" href="../game.css"><style>canvas{position:fixed;inset:0;width:100%;height:100%;outline:none}</style><script type="importmap">{"imports":{"three":"../../node_modules/three/build/three.module.js","three/addons/":"../../node_modules/three/examples/jsm/"}}</script></head><body><canvas id="game" tabindex="0"></canvas><div id="ui"></div><script type="module">
+// Isolated review of crate slots, goods on crate lids, the crate transfer panel and the base ledger. Never reads or writes colony saves.
+// ?ledger=1 opens the ledger alone (the I key); otherwise the first crate is open beside it.
+import{createWorld}from'../world.js';import{createState,tick,collectStorage}from'../sim.js';import{ensureBuildingState}from'../production.js';import{createInventory}from'../inventory.js';
+import{createUI}from'../ui.js';import{storeAll,storeSlot,takeSlot}from'../storage.js';
+const params=new URLSearchParams(location.search),state=createState();
+state.time=25;state.player.facing=Math.PI*.8;state.player.animation='idle';state.mission.installed=true;
+state.inventory=createInventory({metal:140,silicon:60,titanium:12,pistol:1,rounds:24,meal:3,flare:6});
+const layout=[['storage',0,2,0,{metal:200,silicon:120,frame:4}],['storage',1,2,0,{regolith:60,ice:30,titanium:22}],['storage',2,2,0,{chip:6,wing:4,satellite:1,goo:3}],
+ ['processor',-3,0,0],['fabricator',4,0,0],['assembler',4,4,0],['solar',-3,4,0],['dock',-1,5,0],['conveyor',-1,2,1]];
+state.buildings=layout.map(([type,x,z,rotation,goods],i)=>{const b=ensureBuildingState({id:i+1,type,x,z,rotation,progress:1,built:true,serial:1});if(goods)b.slots=createInventory(goods,12);return b;});
+state.buildings.filter(b=>b.type==='storage').forEach((b,i)=>b.serial=i+1);
+Object.assign(state.buildings.find(b=>b.type==='processor').out,{metal:6,silicon:3});Object.assign(state.buildings.find(b=>b.type==='fabricator').inv,{metal:12,silicon:8});
+state.buildings.find(b=>b.type==='conveyor').items.push({type:'metal',p:.4});
+state.nextId=layout.length+1;
+state.robots.push({id:2,kind:'hauler',home:8,x:5,z:9,facing:0,charge:.8,cargo:8,load:'chip',task:'toDrop',job:{item:'chip',amount:8,from:3,to:6},target:{id:6,x:4,z:6}});
+Object.assign(state.player,{x:1.5,z:6.6});
+tick(state,0);state.power.stored=state.power.capacity;tick(state,0);
+const base=document.createElement('base');base.href='../';document.head.append(base);
+const world=await createWorld(document.querySelector('canvas'),state);window.addEventListener('resize',world.resize);
+const crate=id=>state.buildings.find(b=>b.id===id),note=r=>ui.notify(r.reason);
+const ui=createUI(document.querySelector('#ui'),{onStore:(id,i,half)=>note(storeSlot(state,i,crate(id),half?Math.ceil(state.inventory[i].count/2):Infinity)),onTake:(id,i,half)=>note(takeSlot(state,crate(id),i,half?Math.ceil(crate(id).slots[i].count/2):Infinity)),onStoreAll:id=>note(storeAll(state,crate(id))),onTakeAll:id=>note(collectStorage(state,id))});
+if(params.has('ledger'))ui.toggleStock();else ui.openCrate(1);
+const view={selectedSlot:0,objective:null};
+window.harness={state,world,ui,view};
+let last=performance.now(),clock=0;function frame(now){const dt=Math.min((now-last)/1000,.1);last=now;world.update(state,dt);clock+=dt;if(clock>.1){ui.update(state,view);clock=0;}requestAnimationFrame(frame)}requestAnimationFrame(frame);
+</script></body></html>

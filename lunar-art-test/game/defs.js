@@ -14,6 +14,8 @@ export const PARTS = Object.freeze({
 export const ITEM_INFO = Object.freeze({
   metal: { name: 'Metal', stack: 200 },
   silicon: { name: 'Silicon', stack: 200 },
+  regolith: { name: 'Regolith', stack: 100 },
+  ice: { name: 'Ice', stack: 50 },
   crop: { name: 'Potatoes', stack: 30, food: 15 },
   greens: { name: 'Greens', stack: 30, food: 8 },
   soy: { name: 'Soybeans', stack: 30, food: 6 },
@@ -71,7 +73,7 @@ export const DEFS = Object.freeze({
   conveyor: { name: 'Conveyor belt', key: 'c', w: 1, d: 1, cost: { metal: 1 }, buildTime: 0.25, walkable: true, description: 'Carries items forward. Drag a route; it can turn corners.' },
   processor: { name: 'Regolith processor', w: 2, d: 3, cost: { metal: 45, silicon: 15 }, buildTime: 7, inputs: [{ x: 0, z: 0, dir: 2 }], outputs: [{ x: 0, z: 2, dir: 0 }], description: 'Refines regolith into metal and silicon, venting oxygen to colony reserves. Uses 3 kW while running.' },
   melter: { name: 'Ice melter', w: 1, d: 2, cost: { metal: 24, silicon: 6 }, buildTime: 4, inputs: [{ x: 0, z: 0, dir: 2 }], description: 'Melts ice from a belt into the colony water reserve. Uses 1.5 kW while melting.' },
-  storage: { name: 'Storage crate', w: 1, d: 1, cost: { metal: 10 }, buildTime: 2, capacity: 80, inputs: allSides, description: 'Accepts items from belts on any side. Press E nearby to collect.' },
+  storage: { name: 'Storage crate', w: 1, d: 1, cost: { metal: 10 }, buildTime: 2, slots: 12, inputs: allSides, description: 'Holds 12 stacks of anything. Belts and haulers fill it; press E to move things in and out. Every crate adds to one base stock that building and crafting draw on.' },
   fabricator: { name: 'Fabricator', w: 2, d: 2, cost: { metal: 30, silicon: 10 }, buildTime: 5, inputs: [{ x: 0, z: 0, dir: 2 }], outputs: [{ x: 1, z: 1, dir: 0 }], description: 'Makes satellite frames, solar wings or compute chips from metal and silicon. Press E to change part. Uses 2 kW.' },
   assembler: { name: 'Satellite assembler', w: 2, d: 3, cost: { metal: 50, silicon: 20 }, buildTime: 8, inputs: [{ x: 0, z: 0, dir: 2 }], outputs: [{ x: 1, z: 2, dir: 0 }], description: 'Builds an AI satellite from 1 frame, 2 solar wings and 2 chips. Press E to take a finished one. Uses 4 kW.' },
   electrolyser: { name: 'Electrolyser', w: 1, d: 2, cost: { metal: 20, silicon: 8 }, buildTime: 4, description: 'Splits colony water into hydrogen and oxygen propellant for the nearest propellant tank. Uses 3 kW.' },

@@ -42,10 +42,12 @@ export function buildingStatus(building,state){
   return {text:'Needs ice',read:`${read} · INPUT EMPTY`,tone:'warning',glyph:'ice'};
  }
  if(building.type==='storage'){
-  const inv=building.inv??{},count=(inv.metal??0)+(inv.silicon??0)+(inv.regolith??0);
-  if(!count)return null;
-  const full=count>=DEFS.storage.capacity;
-  return {text:full?'Full':'Stocked',read:`METAL ${inv.metal??0} · SILICON ${inv.silicon??0}`,tone:full?'low':'charge',fill:count/DEFS.storage.capacity};
+  const slots=building.slots??[],used=slots.filter(Boolean).length,held={};
+  if(!used)return null;
+  for(const s of slots)if(s)held[s.item]=(held[s.item]??0)+s.count;
+  const top=Object.entries(held).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([item,n])=>`${(ITEM_INFO[item]?.name??item).toUpperCase()} ${n}`).join(' · ');
+  const full=used>=DEFS.storage.slots;
+  return {text:full?'Full':'Stocked',read:`${top} · ${used}/${DEFS.storage.slots} SLOTS`,tone:full?'low':'charge',fill:used/DEFS.storage.slots};
  }
  if(building.type==='processor'){
   if(!building.inv)return null;

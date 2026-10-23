@@ -187,10 +187,10 @@ test('ten slots stack items, and full pockets refuse refunds and leave goods in 
   assert.equal(add(s.inventory, 'meal', 2), 2, 'nothing fits');
   s.player = { ...s.player, x: 0, z: 0 };
   const crate = build(s, 'storage', 0, 2);
-  crate.inv.metal = 30;
+  crate.slots = createInventory({ metal: 30 }, crate.slots.length);
   const result = collectStorage(s, crate.id);
-  assert.equal(result.metal, 10); assert.equal(crate.inv.metal, 20);
-  assert.match(deconstruct(s, crate.id).reason, /No room/);
+  assert.equal(result.taken.metal, 10); assert.equal(count(crate.slots, 'metal'), 20);
+  assert.match(deconstruct(s, crate.id).reason, /Nowhere to put/);
 });
 
 test('saves keep life support, and version 2 habitat modules become painted squares with an airlock', () => {

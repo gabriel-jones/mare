@@ -1,4 +1,5 @@
 import { CELL_SIZE, footprint } from './defs.js';
+import * as inv from './inventory.js';
 import { drive, isUnreachable, machineRoom, markUnreachable, nearestDock } from './production.js';
 import { LAUNCH, createHauler, shipOnPad } from './space.js';
 
@@ -10,7 +11,7 @@ const key = (x, z) => `${x},${z}`;
 /** Finished goods a building will hand over. */
 export function stockOf(b, item) {
   if (!b.built) return 0;
-  if (b.type === 'storage') return Math.floor(b.inv[item] ?? 0);
+  if (b.type === 'storage') return inv.count(b.slots, item);
   if (b.type === 'processor' || b.type === 'fabricator' || b.type === 'assembler') return Math.floor(b.out?.[item] ?? 0);
   return 0;
 }
@@ -56,7 +57,7 @@ function chooseJob(state, r) {
 /** Where leftover cargo goes: a machine that wants it, else the nearest crate with room. */
 function dropTarget(state, r) {
   for (const dest of destinations(state)) if (roomAt(state, dest, r.load, r) >= 1) { const t = dockAt(state, r, dest === 'ship' ? 'ship' : dest.id); if (t) return t; }
-  const crate = nearestDock(state, r, b => b.type === 'storage' && Object.values(b.inv).reduce((s, n) => s + n, 0) < 60);
+  const crate = nearestDock(state, r, b => b.type === 'storage' && b.built && inv.room(b.slots, r.load) >= 1);
   return crate && { id: crate.hopper.id, x: crate.cell.x, z: crate.cell.z };
 }
 const home = (state, r) => state.buildings.find(b => b.id === r.home && b.built) ?? state.buildings.find(b => b.type === 'dock' && b.built);
@@ -81,9 +82,8 @@ function deliver(state, r) {
   else {
     const b = state.buildings.find(b => b.id === id && b.built);
     if (!b) return;
-    room = b.type === 'storage' ? 60 - Object.values(b.inv).reduce((s, n) => s + n, 0) : machineRoom(b, r.load);
-    room = Math.min(room, r.cargo);
-    if (room > 0) { b.inv[r.load] += room; r.cargo -= room; }
+    room = Math.min(b.type === 'storage' ? inv.room(b.slots, r.load) : machineRoom(b, r.load), r.cargo);
+    if (room > 0) { if (b.type === 'storage') inv.add(b.slots, r.load, room); else b.inv[r.load] += room; r.cargo -= room; }
     return;
   }
   const n = Math.min(room, r.cargo);
@@ -113,7 +113,7 @@ function stepHauler(state, r, dt, powered, topology) {
   if (r.task === 'toPickup') {
     const source = state.buildings.find(b => b.id === goal.id), item = r.job.item;
     const n = Math.min(r.job.amount, stockOf(source, item), item === 'satellite' ? 1 : HAULER.capacity);
-    if (n >= 1) { (source.type === 'storage' ? source.inv : source.out)[item] -= n; r.cargo = n; r.load = item; }
+    if (n >= 1) { if (source.type === 'storage') inv.remove(source.slots, item, n); else source.out[item] -= n; r.cargo = n; r.load = item; }
     r.job = null; r.task = 'idle';
     return plan(state, r);
   }

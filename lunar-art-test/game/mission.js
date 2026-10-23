@@ -10,7 +10,7 @@ const has = (s, type) => s.buildings.some(b => b.type === type && b.built);
 const launched = s => s.satellites > 0;
 // A satellite counts once it exists anywhere: in the assembler, on a belt or hauler, carried, or aboard.
 const satelliteMade = s => launched(s) || s.ship.payload > 0 || inv.count(s.inventory, 'satellite') > 0
-  || s.buildings.some(b => (b.out?.satellite ?? 0) + (b.type === 'storage' ? b.inv.satellite ?? 0 : 0) > 0 || b.items?.some(i => i.type === 'satellite'))
+  || s.buildings.some(b => (b.out?.satellite ?? 0) + (b.type === 'storage' ? inv.count(b.slots ?? [], 'satellite') : 0) > 0 || b.items?.some(i => i.type === 'satellite'))
   || s.robots.some(r => r.load === 'satellite' && r.cargo > 0);
 export const STEPS = Object.freeze([
   { id: 'power', objective: 'Build a solar array', message: "Ship AI online. We're down in one piece, mostly. First, power: open the build menu (B) and place a solar array.", done: s => has(s, 'solar') },

@@ -1,5 +1,6 @@
 import { CELL_SIZE, DEFS, DIRS, PARTS, footprint, ports } from './defs.js';
 import { findPath, robotBlockedCells, cellPassable } from './paths.js';
+import * as inv from './inventory.js';
 import { iceAt } from './terrain.js';
 
 // Provisional tuning. One item is one abstract unit of bulk material.
@@ -29,7 +30,7 @@ export function ensureBuildingState(b) {
   if (!b.built) return b;
   if (b.type === 'conveyor') b.items ??= [];
   if (b.type === 'hopper') { b.inv ??= { regolith: 0 }; b.inv.ice ??= 0; }
-  if (b.type === 'storage') { b.inv ??= { regolith: 0, metal: 0, silicon: 0 }; for (const item of ['ice', 'frame', 'wing', 'chip', 'satellite']) b.inv[item] ??= 0; }
+  if (b.type === 'storage') b.slots ??= Array(DEFS.storage.slots).fill(null);
   if (b.type === 'processor') { b.inv ??= { regolith: 0 }; b.out ??= { metal: 0, silicon: 0 }; b.work ??= 0; }
   if (b.type === 'melter') { b.inv ??= { ice: 0 }; b.work ??= 0; }
   if (b.type === 'fabricator') { b.inv ??= { metal: 0, silicon: 0 }; b.out ??= { frame: 0, wing: 0, chip: 0 }; b.recipe ??= 'kit'; b.step ??= 0; b.work ??= 0; }
@@ -97,7 +98,7 @@ function cellIndex(state) {
 }
 const beltCanAccept = belt => belt.built && belt.type === 'conveyor' && (belt.items.length === 0 || belt.items[belt.items.length - 1].p >= BELT_SPACING);
 function machineAccept(b, item) {
-  if (b.type === 'storage' && total(b.inv) < DEFS.storage.capacity) { b.inv[item] += 1; return true; }
+  if (b.type === 'storage') return inv.add(b.slots, item, 1) === 0;
   if (b.type === 'processor' && item === 'regolith' && b.inv.regolith < PROCESSOR_INPUT_CAP) { b.inv.regolith += 1; return true; }
   if (b.type === 'melter' && item === 'ice' && b.inv.ice < MELT.cap) { b.inv.ice += 1; return true; }
   if ((b.type === 'fabricator' || b.type === 'assembler') && machineRoom(b, item) >= 1) { b.inv[item] += 1; return true; }

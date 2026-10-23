@@ -3,11 +3,11 @@ import { createCaveView } from './cave-view.js';
 import { caveLayout } from './caves.js';
 import { buildingStatus, robotStatus, shipStatus, lampLevel } from './building-status.js';
 import { LAUNCH } from './space.js';
-import { DIRS, ports as machinePorts } from './defs.js';
+import { DIRS, ITEM_INFO, ports as machinePorts } from './defs.js';
 import { MINING_RADIUS, beltTurns, total, MELT } from './production.js';
 import { createStatusLamps } from './status-lamps.js';
 import { createProductionView } from './production-view.js';
-import { loadItemLibrary } from './item-models.js';
+import { loadItemLibrary, BELT_ITEM_SIZES } from './item-models.js';
 import { createHabitatView } from './habitat-view.js';
 import { airlockOf, habitatLayout, isRoom } from './habitat.js';
 import { surfaceHeightAt as heightAt, terrainData } from './terrain.js';
@@ -93,6 +93,22 @@ export async function createWorld(canvas, initialState) {
   const vignette=document.createElement('div');vignette.className='cave-vignette';document.body.append(vignette);
 
   const structures=new Map();
+  // A crate shows its four biggest holdings on the lid, one per quarter, stacked higher as they fill.
+  const CRATE_SPOTS=[[-.27,-.27],[.27,-.27],[-.27,.27],[.27,.27]];
+  function showCrateGoods(o,b){
+    if(!itemModels)return;
+    const held={};for(const s of b.built?b.slots??[]:[])if(s)held[s.item]=(held[s.item]??0)+s.count;
+    const top=Object.entries(held).sort((p,q)=>q[1]-p[1]).slice(0,4).map(([item,n])=>{const stack=ITEM_INFO[item]?.stack??1;return [item,stack<3?1:n>=stack?3:n>=stack/3?2:1];});
+    const key=top.map(t=>t.join(':')).join();
+    if(o.goodsKey===key)return;o.goodsKey=key;
+    if(!o.goods){o.goods=new THREE.Group();o.goods.name='Crate goods';o.goods.position.y=1.67;o.root.add(o.goods);}
+    o.goods.clear();
+    top.forEach(([item,levels],i)=>{
+      const size=Math.min(.42,BELT_ITEM_SIZES[item]??.4),probe=itemModels.create(item,size);if(!probe)return;
+      const height=new THREE.Box3().setFromObject(probe).getSize(new THREE.Vector3()).y;
+      for(let l=0;l<levels;l++){const m=l?itemModels.create(item,size):probe;m.position.set(CRATE_SPOTS[i][0],l*height*.96,CRATE_SPOTS[i][1]);m.rotation.y=i*1.3+l*.5;o.goods.add(m);}
+    });
+  }
   const statusLayer=document.createElement('div');statusLayer.className='building-status-layer';statusLayer.setAttribute('aria-label','Building status');document.body.append(statusLayer);
   const statusLabels=new Map(),statusPoint=new THREE.Vector3();
   // Drives a machine's lamp, battery cells and sight glass from its status.
@@ -409,6 +425,7 @@ export async function createWorld(canvas, initialState) {
         o.crops.visible=b.built&&b.grow>=1;
       }
       if(o.tray)o.tray.visible=b.built&&Object.values(b.ready??{}).some(n=>n>0);
+      if(b.type==='storage')showCrateGoods(o,b);
       if(o.level&&b.type==='goovat')o.level.scale.y=Math.max(.02,b.seeded||b.stock?(Math.max(b.stock,.6)+b.work)/(GOO.cap+1):.02);
       // Blueprints turn red while the player stands where the finished structure would trap them.
       const blocked=!b.built&&!isRoom(b)&&obstructs(b);

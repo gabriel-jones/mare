@@ -9,7 +9,7 @@ ASSETS=ROOT/'assets/inventory'
 OUT=ROOT/'art-direction/inventory-icons.png'
 font_path='/System/Library/Fonts/Supplemental/Arial.ttf'
 font=lambda size:ImageFont.truetype(font_path,size)
-items=[('metal','Metal'),('silicon','Silicon'),('crop','Potatoes'),('greens','Greens'),('soy','Soybeans'),
+items=[('metal','Metal'),('silicon','Silicon'),('regolith','Regolith'),('ice','Ice'),('crop','Potatoes'),('greens','Greens'),('soy','Soybeans'),
        ('tomato','Tomatoes'),('algae','Algae'),('wheat','Wheat'),('mushroom','Mushrooms'),('flour','Flour'),
        ('protein','Soy protein'),('meal','Hash browns'),('salad','Salad'),('bread','Bread'),('stew','Soy stew'),
        ('broth','Mushroom broth'),('algaecake','Algae cakes'),('pizza','Pizza'),('medkit','Medkit'),

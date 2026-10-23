@@ -1,6 +1,7 @@
 import { DEFS, ITEM_INFO } from './defs.js';
 import { habitatLayout, openRooms } from './habitat.js';
 import * as inv from './inventory.js';
+import { canPay, pay } from './storage.js';
 import { gooOn } from './goo.js';
 import { CROPS, GALLEY, MILL, RECIPES, AUTO, BUFFS, isGrower, cropsFor, defaultCrop, recipeUnlocked, recipeKnown, addBuffs, buffed, stepBuffs } from './farm.js';
 
@@ -109,7 +110,7 @@ export function eat(state, slot) {
 
 /** The recipe the galley would cook next from what the player carries: its chosen one, or on auto the best it can. */
 export function galleyRecipe(state, b) {
-  const can = id => recipeUnlocked(state, id) && Object.entries(RECIPES[id].input).every(([item, n]) => inv.count(state.inventory, item) >= n);
+  const can = id => recipeUnlocked(state, id) && canPay(state, RECIPES[id].input);
   if (b.recipe) return can(b.recipe) ? b.recipe : null;
   return AUTO.find(can) ?? null;
 }
@@ -180,7 +181,7 @@ export function useLife(state, b) {
     if (b.queue.length >= GALLEY.queue) return { ok: false, reason: 'The galley is full.' };
     const r = galleyRecipe(state, b);
     if (!r) return { ok: false, reason: b.recipe ? `Needs ${listing(RECIPES[b.recipe].input)} for ${name(b.recipe)}.` : 'Needs ingredients: 2 potatoes make hash browns.' };
-    for (const [item, n] of Object.entries(RECIPES[r].input)) inv.remove(state.inventory, item, n);
+    pay(state, RECIPES[r].input);
     b.queue.push(r);
     return { ok: true, reason: `Cooking ${name(r)}.` };
   }

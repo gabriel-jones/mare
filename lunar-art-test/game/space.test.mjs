@@ -41,11 +41,11 @@ test('research-locked and pad-side buildings refuse bad placements', () => {
 test('haulers bring parts to the assembler and the finished satellite to the ship', () => {
   const s = colony();
   const crate = build(s, 'storage', -7, 2), asm = build(s, 'assembler', -4, 1), dock = build(s, 'dock', 0, 2);
-  Object.assign(crate.inv, { frame: 1, wing: 2, chip: 2 });
+  crate.slots = createInventory({ frame: 1, wing: 2, chip: 2 }, crate.slots.length);
   assert.equal(interact(s, dock.id).ok, true);
   assert.equal(s.robots.filter(r => r.kind === 'hauler').length, 1);
   run(s, 25);
-  assert.equal(crate.inv.frame + crate.inv.wing + crate.inv.chip, 0, 'parts collected');
+  assert.equal(crate.slots.filter(Boolean).length, 0, 'parts collected');
   run(s, 60);
   assert.equal(asm.out.satellite + s.ship.payload, 1, 'satellite built');
   run(s, 40);

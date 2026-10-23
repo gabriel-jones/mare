@@ -3,10 +3,9 @@ import { ZONE_NAMES } from './caves.js';
 import { lootAction, takeLoot } from './delve.js';
 import { stepPeril, dropAction, recoverDrop, craftFlares, throwFlare, flareNow, FLARE, HURT_TEXT, BLACKOUT } from './peril.js';
 import { sampleAction, takeSample, stepBrood, vatAction } from './goo.js';
-import {DEFS,createState,validatePlacement,placeBlueprint,construct,tick,serialize,deserialize,cancelBlueprint,deconstruct,setMiningArea,miningAreaReason,removeMiningArea,assignRover,rotateBelt,playerObstructs,interact,removalCheck,PROCESSOR_LOCKED} from './sim.js';
+import {DEFS,createState,validatePlacement,placeBlueprint,construct,tick,serialize,deserialize,cancelBlueprint,deconstruct,collectStorage,setMiningArea,miningAreaReason,removeMiningArea,assignRover,rotateBelt,playerObstructs,interact,removalCheck,PROCESSOR_LOCKED} from './sim.js';
 import {DIRS,ITEM_INFO,footprint} from './defs.js';
 import {movePlayer,nearestBlueprint,buildingCenter,resetLocomotion,interpolatePose,RUN_SPEED} from './controller.js';
-import {count} from './inventory.js';
 import {eat,lifeAction,setCrop,setRecipe} from './life.js';
 import {isGrower} from './farm.js';
 import {createWorld} from './world.js';
@@ -18,6 +17,7 @@ import {createOrbitView} from './orbit-view.js';
 import {createResearchView} from './research-view.js';
 import {createHunt,stepHunt,fire,release,roll,wrench,pinned,grabbedBy,rouse} from './hunt.js';
 import {isWeapon,holdWeapon,reload,craft} from './arms.js';
+import {available,crateDistance,storeAll,storeSlot,takeSlot} from './storage.js';
 import {worldVectorToCave} from './cave-space.js';
 
 // ?sandbox=1 plays a throwaway colony that never touches the real save.
@@ -73,7 +73,7 @@ function nearbyUse(){
  let best=null,distance=2.8;
  for(const b of state.buildings){
   if(!b.built)continue;
-  const action=b.type==='storage'?(b.inv.metal||b.inv.silicon?{verb:`Collect ${b.inv.metal} metal · ${b.inv.silicon} silicon`}:null):machineAction(state,b)??lifeAction(state,b)??vatAction(state,b);
+  const action=b.type==='storage'?{verb:ui?.crateId===b.id?'Close crate':'Open crate'}:machineAction(state,b)??lifeAction(state,b)??vatAction(state,b);
   if(!action)continue;
   const c=buildingCenter(b,DEFS),d=Math.hypot(c.x-state.player.x,c.z-state.player.z);
   if(d<distance){best={building:b,...action};distance=d;}
@@ -114,9 +114,9 @@ let lineCache={key:'',line:[]};
 /** Cells to paint with their validity, spending materials cumulatively in drag order. */
 function paintLine(){
  const path=paintPath??(hover?[{x:hover.x,z:hover.z}]:[]),cost=DEFS[selectedType].cost;
- const key=`${selectedType}|${JSON.stringify(path)}|${state.buildings.length}|${count(state.inventory,'metal')}|${count(state.inventory,'silicon')}`;
+ const key=`${selectedType}|${JSON.stringify(path)}|${state.buildings.length}|${available(state,'metal')}|${available(state,'silicon')}`;
  if(lineCache.key===key)return lineCache.line;
- const budget=Object.fromEntries(Object.keys(cost).map(item=>[item,count(state.inventory,item)]));
+ const budget=Object.fromEntries(Object.keys(cost).map(item=>[item,available(state,item)]));
  const line=path.map(c=>{
   const check=validatePlacement(state,selectedType,c.x,c.z,0),afford=Object.entries(cost).every(([item,n])=>budget[item]>=n);
   if(check.ok&&afford)for(const [item,n] of Object.entries(cost))budget[item]-=n;
@@ -135,6 +135,7 @@ function useNearby(){
  if(use?.drop)notify(recoverDrop(state).reason);
  else if(use?.sample){const r=takeSample(state);notify(r.reason);if(r.wake)rouse(hunt,state,r.wake);}
  else if(use?.cave){const r=takeLoot(state);notify(r.reason);if(r.say)ui.say(r.say);}
+ else if(use?.building.type==='storage'){if(ui.crateId===use.building.id)ui.closeStore();else ui.openCrate(use.building.id);}
  else if(use)notify(interact(state,use.building.id).reason);
 }
 /** The selected slot if it holds food, otherwise the most filling food carried. */
@@ -143,6 +144,11 @@ function foodSlot(){
  let slot=selectedSlot,best=0;
  state.inventory.forEach((s,i)=>{const food=ITEM_INFO[s?.item]?.food??0;if(food>best){best=food;slot=i;}});
  return slot;
+}
+/** A transfer in the open crate panel; failures always explain themselves, bulk moves also report success. */
+function crateMove(id,move,report=false){
+ const b=state.buildings.find(o=>o.id===id&&o.built&&o.slots);if(!b)return;
+ const r=move(b);if(!r.ok||report)notify(r.reason);ui.update(state,view());canvas.focus({preventScroll:true});
 }
 function eatSelected(){notify(eat(state,foodSlot()).reason);}
 const MAX_BELT_PATH=80;
@@ -164,7 +170,7 @@ function extendBeltPath(cell){
 function beltLine(){
  const path=beltPath??(hover?[{x:hover.x,z:hover.z}]:[]);
  const dirTo=(a,b)=>DIRS.findIndex(([dx,dz])=>dx===b.x-a.x&&dz===b.z-a.z);
- let metal=count(state.inventory,'metal');
+ let metal=available(state,'metal');
  return path.map((c,i)=>{
   const dir=path[i+1]?dirTo(c,path[i+1]):path[i-1]?dirTo(path[i-1],c):rotation;
   const existing=state.buildings.find(b=>b.type==='conveyor'&&b.x===c.x&&b.z===c.z);
@@ -300,7 +306,7 @@ async function start(){
  try{
   let restored=false;
   try{const raw=localStorage.getItem(KEY);if(raw){state=deserialize(raw);resetPlayer();restored=true;saveStatus='Restored local save';}}catch(e){saveStatus='New colony · save unreadable';}
-  ui=createUI(document.querySelector('#ui'),{onSelect:select,onAssign:(robot,area)=>{const r=assignRover(state,robot,area);if(!r.ok)notify(r.reason);},onRemoveZone:id=>notify(removeMiningArea(state,id).reason),onSlot:i=>{if(selectedSlot===i)eatSelected();pickSlot(i);},onRotate:()=>{rotation=(rotation+1)%4;refreshGhost();},onSave:save,onLoad:load,onReset:()=>{state=createState(Math.floor(Math.random()*999999));selectedType=null;resetPlayer();targetId=null;keys.clear();world?.clearGhost();save();notify('New lunar landing created.');},onStation:({id,crop,recipe,make})=>{const b=state.buildings.find(o=>o.id===id);if(!b)return;notify((make?craft(state,make):crop?setCrop(state,b,crop):setRecipe(state,b,recipe)).reason);canvas.focus({preventScroll:true});},onCancel:()=>select(null),onOrbit:()=>{research?.close();orbit?.toggle();},onResearch:()=>{orbit?.close();research?.toggle();},onTimeToggle:()=>{speed=speed===1?12:1;notify(speed===1?'Normal day/night speed.':'Day/night simulation ×12. Movement stays normal.');}});
+  ui=createUI(document.querySelector('#ui'),{onSelect:select,onAssign:(robot,area)=>{const r=assignRover(state,robot,area);if(!r.ok)notify(r.reason);},onRemoveZone:id=>notify(removeMiningArea(state,id).reason),onSlot:i=>{if(selectedSlot===i)eatSelected();pickSlot(i);},onRotate:()=>{rotation=(rotation+1)%4;refreshGhost();},onSave:save,onLoad:load,onReset:()=>{state=createState(Math.floor(Math.random()*999999));selectedType=null;resetPlayer();targetId=null;keys.clear();world?.clearGhost();save();notify('New lunar landing created.');},onStation:({id,crop,recipe,make})=>{const b=state.buildings.find(o=>o.id===id);if(!b)return;notify((make?craft(state,make):crop?setCrop(state,b,crop):setRecipe(state,b,recipe)).reason);canvas.focus({preventScroll:true});},onCancel:()=>select(null),onStore:(id,i,half)=>crateMove(id,b=>{const s=state.inventory[i];return storeSlot(state,i,b,half&&s?Math.ceil(s.count/2):Infinity);}),onTake:(id,i,half)=>crateMove(id,b=>{const s=b.slots[i];return takeSlot(state,b,i,half&&s?Math.ceil(s.count/2):Infinity);}),onStoreAll:id=>crateMove(id,b=>storeAll(state,b),true),onTakeAll:id=>crateMove(id,b=>collectStorage(state,b.id),true),onCloseStore:()=>canvas.focus({preventScroll:true}),onOrbit:()=>{research?.close();orbit?.toggle();},onResearch:()=>{orbit?.close();research?.toggle();},onTimeToggle:()=>{speed=speed===1?12:1;notify(speed===1?'Normal day/night speed.':'Day/night simulation ×12. Movement stays normal.');}});
   world=await createWorld(canvas,state);
   orbit=createOrbitView({onReturn:()=>{notify(recallShip(state).reason);orbit.close();},onClose:()=>{keys.clear();canvas.focus({preventScroll:true});}});
   research=createResearchView({onResearch:id=>notify(selectResearch(state,id).reason),onClose:()=>{keys.clear();canvas.focus({preventScroll:true});}});
@@ -333,13 +339,14 @@ async function start(){
    if(k==='t'&&!e.repeat){e.preventDefault();orbit.close();research.toggle();return;}
    if(orbit.open){if(k==='escape')orbit.close();return;}
    if(research.open){if(k==='escape')research.close();return;}
-   if(['w','a','s','d','e','f','q','x',' ','r','b','g','escape'].includes(k)||SHORTCUTS[k]||/^[0-9]$/.test(k))e.preventDefault();
+   if(['w','a','s','d','e','f','q','x',' ','r','b','g','i','escape'].includes(k)||SHORTCUTS[k]||/^[0-9]$/.test(k))e.preventDefault();
    keys.add(k);if(e.repeat)return;
    if(state.player.cave!=null&&caveKey(k))return;
    if(k===' '&&!(state.player.y>0)){jumpVelocity=1.8;}
    if(k==='escape')select(null);
    if(k==='b')ui.toggleMenu();
    if(k==='g')ui.toggleRobots();
+   if(k==='i')ui.toggleStock();
    if(k==='r'){if(drawn()){const r=reload(state);if(r.reason)notify(r.reason);}else{rotation=(rotation+1)%4;refreshGhost();}}
    const mission=k==='e'?missionAction(state):null;
    const ship=k==='e'&&!mission?shipAction(state):null;
@@ -373,6 +380,7 @@ async function start(){
    if(state.ship.status!==shipStatus){if(state.ship.status==='orbit'&&shipStatus==='ascent'){notify(`Satellites deployed. ${state.satellites} in orbit.`);orbit.show();}if(state.ship.status==='pad'&&shipStatus==='descent')notify('The Starship is back on the pad.');shipStatus=state.ship.status;}
    if((state.goo?.breaches??0)>breaches){breaches=state.goo.breaches;notify('Containment breach! The goo vat lost power.');ui.say('The vat has breached. Goo is spreading through the base and something hatched. Flares burn both: press X for flares, Q to throw.');}
    orbit.update(state,dt);research.update(state);
+   if(ui.crateId!=null){const b=state.buildings.find(o=>o.id===ui.crateId);if(!b||state.player.cave!=null||crateDistance(state,b)>3.6)ui.closeStore();}
    if(uiClock>.1){ui.update(state,view());refreshGhost();uiClock=0;}
    if(autoClock>20){try{localStorage.setItem(KEY,serialize(state));saveStatus='Autosaved locally';}catch{}autoClock=0;}
    requestAnimationFrame(frame);

@@ -4,6 +4,8 @@
   "items": {
     "metal": "Metal",
     "silicon": "Silicon",
+    "regolith": "Regolith",
+    "ice": "Ice",
     "crop": "Potatoes",
     "greens": "Greens",
     "soy": "Soybeans",

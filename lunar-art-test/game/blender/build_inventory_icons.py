@@ -171,6 +171,29 @@ def titanium(p):
     beam('Titanium / exposed vein',(-.38,-.24,.49),(-.04,-.27,.66),.055,p['rust'])
 
 
+def regolith(p):
+    materials(p)
+    p.setdefault('regolith', mat('lunar regolith', (.11,.1,.088), 0,.97))
+    p.setdefault('regolith_dark', mat('regolith shadow grit', (.05,.046,.04), 0,1))
+    rng=random.Random(5)
+    for i,(loc,scale) in enumerate([((-.2,.1,.24),(.36,.33,.26)),((.24,.06,.2),(.3,.28,.21)),((.02,-.24,.17),(.27,.24,.18)),((-.02,.18,.42),(.22,.2,.17))]):
+        ico('Regolith / clod',loc,scale,p['regolith'],i+21)
+    for i in range(14):
+        a=rng.uniform(0,math.tau); r=rng.uniform(.32,.6)
+        ico('Regolith / grit',(math.cos(a)*r,math.sin(a)*r,.05),(rng.uniform(.05,.09),)*2+(.05,),p['regolith_dark' if i%2 else 'regolith'],i+40)
+
+
+def ice(p):
+    materials(p)
+    p.setdefault('ice', mat('water ice', (.12,.42,.75), .05,.1,.25))
+    p.setdefault('ice_frost', mat('frosted ice face', (.55,.8,.95), 0,.45))
+    for i,(loc,scale) in enumerate([((-.16,.06,.3),(.38,.33,.32)),((.27,-.04,.23),(.3,.27,.25)),((0,-.27,.17),(.24,.22,.19))]):
+        o=ico('Ice / chunk',loc,scale,p['ice'],i+31)
+        o.data.materials.append(p['ice_frost'])
+        for face in o.data.polygons:
+            if face.index%4==i: face.material_index=1
+
+
 def crystal(p,name,loc,radius,height,rotation=0):
     x,y,z=loc
     sides=5
@@ -469,7 +492,7 @@ def fuel(p):
     for z in [.24,.76]: cylinder('Fuel cell / band',(0,0,z),.31,.05,p['dark'],24)
 
 
-BUILDERS = [('metal',study['metal']),('silicon',silicon),('crop',study['potatoes']),('greens',greens),
+BUILDERS = [('metal',study['metal']),('silicon',silicon),('regolith',regolith),('ice',ice),('crop',study['potatoes']),('greens',greens),
             ('soy',soy),('tomato',tomato),('algae',algae),('wheat',wheat),('mushroom',mushroom),
             ('flour',flour),('protein',protein),('meal',meal),('salad',salad),('bread',bread),('stew',stew),
             ('broth',broth),('algaecake',algaecake),('pizza',pizza),('medkit',medkit),('core',core),

@@ -1,6 +1,7 @@
 import { CELL_SIZE, DEFS, PARTS, footprint } from './defs.js';
 import { RECIPES, createRover } from './production.js';
 import * as inv from './inventory.js';
+import { pay } from './storage.js';
 
 /** Starship fuelling, launches, orbit and research. Pure and serializable, like the rest of the sim. */
 export const SHIP_PAD = Object.freeze({ x: 0, z: -10, reach: 6.5 });
@@ -138,8 +139,7 @@ export function buildRobot(state, id) {
   if (!kind) return { ok: false, reason: 'Nothing to build here.' };
   const name = kind === 'hauler' ? 'hauler' : 'mining rover';
   if (state.robots.filter(r => r.kind === kind).length >= ROBOT_LIMIT[kind]) return { ok: false, reason: `The colony can run ${ROBOT_LIMIT[kind]} ${name}s for now.` };
-  for (const [item, n] of Object.entries(ROBOT_COST[kind])) if (inv.count(state.inventory, item) < n) return { ok: false, reason: `A ${name} needs ${costText(ROBOT_COST[kind])}.` };
-  for (const [item, n] of Object.entries(ROBOT_COST[kind])) inv.remove(state.inventory, item, n);
+  if (!pay(state, ROBOT_COST[kind])) return { ok: false, reason: `A ${name} needs ${costText(ROBOT_COST[kind])}.` };
   const robotId = 1 + Math.max(0, ...state.robots.map(r => r.id));
   const cells = footprint(b.type, b.x, b.z, b.rotation), x = Math.max(...cells.map(c => c.x)) + 1, z = Math.min(...cells.map(c => c.z));
   const robot = kind === 'hauler' ? createHauler(robotId, b.id) : createRover(robotId);

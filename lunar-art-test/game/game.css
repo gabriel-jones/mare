@@ -247,3 +247,38 @@ body[data-research=open] .game-ui, body[data-research=open] .building-status-lay
 .buff[data-buff=calm] { color:#e8c787; }
 .buff[data-buff=stamina] { color:#ef9a7e; }
 .buff[data-buff=sight] { color:#9ec9ef; }
+/* Storage: one crate's slots beside the base-wide ledger; the hotbar below doubles as the pocket side. */
+.store-panel { position:absolute;left:50%;bottom:96px;transform:translateX(-50%);display:flex;align-items:flex-end;gap:6px;pointer-events:auto;font-size:12px;max-height:calc(100vh - 230px); }
+.store-panel>div { display:flex;flex-direction:column;padding:8px 10px 10px;border:1px solid var(--line);border-radius:6px;background:var(--panel);box-shadow:0 6px 30px #0005;backdrop-filter:blur(12px);min-height:0; }
+.store-panel header { display:flex;align-items:baseline;gap:10px;margin-bottom:8px; }
+.store-panel header strong { font-size:13px; }
+.store-panel header small { color:#8d979c;font-variant-numeric:tabular-nums; }
+.crate-side { display:none !important;width:340px; }
+.store-panel.with-crate .crate-side { display:flex !important; }
+.crate-slots { display:grid;grid-template-columns:repeat(6,50px);gap:5px;justify-content:start; }
+.game-ui .crate-slot:hover,.game-ui.crate-open .hotbar .slot:hover { border-color:var(--amber);background:#3a3326; }
+.crate-help { margin:9px 0 8px;color:#8d979c;font-size:11px;line-height:1.4; }
+.crate-help kbd { font:600 10px Inter,ui-sans-serif,sans-serif;padding:0 3px;border:1px solid var(--line);border-radius:2px; }
+.crate-actions { display:flex;gap:6px; }
+.game-ui .crate-actions button { padding:7px 12px;border-radius:4px;font-size:12px;font-weight:600; }
+.game-ui .crate-actions button[data-action=close-store] { margin-left:auto;padding:5px 10px;font-size:17px;line-height:1; }
+.store-panel.with-crate .ledger-close { display:none; }
+.game-ui .ledger-close { margin-left:auto;border:0;background:transparent;font-size:17px;line-height:1;padding:0 4px; }
+.ledger-side { width:360px; }
+.ledger-rows { overflow:auto;min-height:0;display:grid;gap:2px;align-content:start;max-height:min(420px,calc(100vh - 330px)); }
+.ledger-row { display:flex;gap:9px;padding:6px 6px;border-radius:3px;background:#ffffff06; }
+.ledger-row>img { width:34px;height:34px;flex:none;object-fit:contain; }
+.ledger-row>div { flex:1;min-width:0; }
+.ledger-row header { margin:0 0 2px;justify-content:space-between; }
+.ledger-row header strong { font-size:12px;font-weight:600; }
+.ledger-row header b { font-size:13px;font-variant-numeric:tabular-nums;color:#f2f2e9; }
+.ledger-row header b small { margin-left:4px;font-size:9.5px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:#7d888d; }
+.ledger-row header b.none { color:#6d787d;font-size:11px;font-weight:500; }
+.ledger-row p { margin:1px 0 0;display:flex;flex-wrap:wrap;gap:3px 10px;color:#9aa5aa;font-size:10.5px;letter-spacing:.02em; }
+.ledger-row p b { color:#dfe3dd;font-weight:600;font-variant-numeric:tabular-nums; }
+.ledger-where span:not(.pockets) { color:#c9b48f; }
+.ledger-machines::before { content:'in machines';color:#6d787d; }
+.ledger-moving::before { content:'moving';color:#6d787d; }
+.ledger-moving span { color:#9fd8c0; }
+.ledger-flow { margin:8px 2px 0;color:#7d888d;font-size:10.5px;line-height:1.45; }
+.game-ui .stock-toggle[aria-expanded=true] { border-color:var(--amber); }

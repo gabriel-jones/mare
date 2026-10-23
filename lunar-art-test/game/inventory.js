@@ -2,7 +2,7 @@ import { ITEM_INFO } from './defs.js';
 
 /** Ten fixed carry slots. Each slot is null or { item, count } with count up to the item's stack size. */
 export const SLOT_COUNT = 10;
-export const createInventory = (contents = {}) => { const slots = Array(SLOT_COUNT).fill(null); for (const [item, n] of Object.entries(contents)) add(slots, item, n); return slots; };
+export const createInventory = (contents = {}, size = SLOT_COUNT) => { const slots = Array(size).fill(null); for (const [item, n] of Object.entries(contents)) add(slots, item, n); return slots; };
 export const count = (slots, item) => slots.reduce((s, slot) => s + (slot?.item === item ? slot.count : 0), 0);
 /** How many of `item` would fit. */
 export function room(slots, item) {
@@ -33,8 +33,8 @@ export function canFit(slots, goods) {
   const copy = slots.map(s => s && { ...s });
   return Object.entries(goods).every(([item, n]) => add(copy, item, n) === 0);
 }
-export function restore(raw) {
-  if (!Array.isArray(raw) || raw.length !== SLOT_COUNT) throw new Error('Invalid inventory.');
+export function restore(raw, size = SLOT_COUNT) {
+  if (!Array.isArray(raw) || raw.length !== size) throw new Error('Invalid inventory.');
   return raw.map(slot => {
     if (slot == null) return null;
     const info = ITEM_INFO[slot.item];

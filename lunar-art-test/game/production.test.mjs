@@ -90,14 +90,15 @@ test('mined regolith flows from the rover through the processor into a crate', (
   const before = remainingRegolith(s);
   run(s, 110);
   assert.ok(remainingRegolith(s) < before - 40, 'mining depletes the designated area');
-  assert.ok(crate.inv.metal >= 10, `crate metal ${crate.inv.metal}`);
-  assert.ok(crate.inv.silicon >= 5, `crate silicon ${crate.inv.silicon}`);
-  assert.ok(Math.abs(crate.inv.metal - 2 * crate.inv.silicon) <= 4, 'products keep the recipe ratio');
+  const held = item => count(crate.slots, item);
+  assert.ok(held('metal') >= 10, `crate metal ${held('metal')}`);
+  assert.ok(held('silicon') >= 5, `crate silicon ${held('silicon')}`);
+  assert.ok(Math.abs(held('metal') - 2 * held('silicon')) <= 4, 'products keep the recipe ratio');
   assert.ok(s.reserves.oxygen >= 5);
   const metal = count(s.inventory, 'metal'), result = collectStorage(s, crate.id);
   assert.equal(result.ok, true);
-  assert.equal(count(s.inventory, 'metal'), metal + result.metal);
-  assert.equal(crate.inv.metal + crate.inv.silicon, 0);
+  assert.equal(count(s.inventory, 'metal'), metal + result.taken.metal);
+  assert.equal(held('metal') + held('silicon'), 0);
   assert.equal(collectStorage(s, crate.id).ok, false);
   assert.ok(hopper.inv.regolith <= DEFS.hopper.capacity && processor.inv.regolith <= 16);
 });
@@ -165,10 +166,10 @@ test('production saves round-trip exactly and version 1 colonies gain the starte
 
 test('dismantling refunds the structure and any refined contents', () => {
   const s = createState(); s.inventory = createInventory({ metal: 100, silicon: 100 });
-  const crate = build(s, 'storage', 0, 2); crate.inv.metal = 7; crate.inv.regolith = 5;
+  const crate = build(s, 'storage', 0, 2); crate.slots = createInventory({ metal: 7, regolith: 5 }, crate.slots.length);
   assert.equal(count(s.inventory, 'metal'), 90);
   assert.equal(deconstruct(s, crate.id).ok, true);
-  assert.equal(count(s.inventory, 'metal'), 107); assert.equal(s.buildings.length, 0);
+  assert.equal(count(s.inventory, 'metal'), 107); assert.equal(count(s.inventory, 'regolith'), 5); assert.equal(s.buildings.length, 0);
 });
 
 test('belts fed from the side become corners; items enter them and continue', () => {

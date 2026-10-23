@@ -1,6 +1,7 @@
 import { caveLayout, caveWalkable, caveKey, CAVE_CELL, ZONE_NAMES } from './caves.js';
 import { CELL_SIZE, ITEM_INFO } from './defs.js';
 import * as inv from './inventory.js';
+import { canPay, pay } from './storage.js';
 import { stepInfest, silkBlocks } from './infest.js';
 import { BUFFS, buffed } from './farm.js';
 import { burnGoo, infested } from './goo.js';
@@ -100,9 +101,9 @@ export function recoverDrop(state) {
 /** Flares are bent from scrap metal on the spot. */
 export function craftFlares(state) {
   if (inv.count(state.inventory, 'flare') + FLARE.makes > ITEM_INFO.flare.stack) return { ok: false, reason: `You can carry ${ITEM_INFO.flare.stack} flares.` };
-  if (!inv.canAfford(state.inventory, FLARE.cost)) return { ok: false, reason: `Flares need ${FLARE.cost.metal} metal.` };
+  if (!canPay(state, FLARE.cost)) return { ok: false, reason: `Flares need ${FLARE.cost.metal} metal.` };
   if (!inv.canFit(state.inventory, { flare: FLARE.makes })) return { ok: false, reason: 'No free slot for flares.' };
-  for (const [item, n] of Object.entries(FLARE.cost)) inv.remove(state.inventory, item, n);
+  pay(state, FLARE.cost);
   inv.add(state.inventory, 'flare', FLARE.makes);
   return { ok: true, reason: `${FLARE.makes} flares made.` };
 }

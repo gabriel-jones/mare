@@ -8,6 +8,8 @@ import { ARMORY, WEAPONS, armoryKnown } from './arms.js';
 import { TECHS } from './space.js';
 import { robotStatus, lampLevel } from './building-status.js';
 import { areaKind, remainingRegolith, MAX_MINING_AREAS } from './production.js';
+import { available, canPay, crates, ledger, usedSlots, CRATE_SLOTS } from './storage.js';
+import { tagOf } from './defs.js';
 
 const ICONS = {
   solar: '<path d="M4 4h16l2 13H2L4 4Zm8 0v13M3 10h18M8 17l-1 4m9-4 1 4M6 21h12"/>',
@@ -56,6 +58,7 @@ const costText = def => def.cost ? Object.entries(def.cost).map(([item, n]) => `
 const slotKey = i => String((i + 1) % 10);
 const RESEARCH_ICON = '<path d="M9 3h6M10 3v6L5 19a1.5 1.5 0 0 0 1.3 2h11.4a1.5 1.5 0 0 0 1.3-2L14 9V3"/><path d="M7.5 15h9"/>';
 const ORBIT_ICON = '<circle cx="12" cy="12" r="4"/><ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(-25 12 12)"/><circle cx="20" cy="8" r="1.2"/>';
+const STOCK_ICON = '<path d="M3 9 12 4l9 5v11H3Z"/><path d="M7 20v-6h10v6M7 17h10"/>';
 const ROVER_ICON = '<path d="M3 15h18v-4l-3-4H9l-2 4H3zM7 11h11M12 7V4h3"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>';
 
 export function createUI(root, callbacks = {}) {
@@ -88,6 +91,7 @@ export function createUI(root, callbacks = {}) {
       <div class="robots-panel" aria-label="Robots" hidden></div>
       <button type="button" class="build-toggle" data-action="build" aria-expanded="false" aria-controls="build-menu">${buildIcon}<span>Build</span><kbd>B</kbd></button>
       <button type="button" class="build-toggle robots-toggle" data-action="robots" aria-expanded="false" aria-label="Robots" title="Robots (G)">${svg(ROVER_ICON, 1.6)}<kbd>G</kbd></button>
+      <button type="button" class="build-toggle robots-toggle stock-toggle" data-action="stock" aria-expanded="false" aria-label="Base stock" title="Base stock (I)">${svg(STOCK_ICON, 1.6)}<kbd>I</kbd></button>
       <button type="button" class="build-toggle robots-toggle orbit-toggle" data-action="orbit" aria-label="Orbit" title="Orbit (O)">${svg(ORBIT_ICON, 1.6)}<kbd>O</kbd><b class="orbit-badge" hidden></b></button>
       <button type="button" class="build-toggle robots-toggle research-toggle" data-action="research" aria-label="Research" title="Research (T)">${svg(RESEARCH_ICON, 1.6)}<kbd>T</kbd><b class="research-badge" hidden></b></button>
       <div class="selection-tools" hidden>
@@ -97,6 +101,19 @@ export function createUI(root, callbacks = {}) {
         <button type="button" data-action="cancel" aria-label="Cancel" title="Cancel (Esc)">×</button>
       </div>
     </div>
+    <section class="store-panel" aria-label="Storage" hidden>
+      <div class="crate-side">
+        <header><strong class="crate-title"></strong><small class="crate-fill"></small></header>
+        <div class="crate-slots">${Array.from({ length: CRATE_SLOTS }, (_, i) => `<button type="button" class="slot crate-slot" data-crate-slot="${i}"><span class="slot-icon"></span><strong></strong></button>`).join('')}</div>
+        <p class="crate-help">Click a slot here to take it · click your slots below to store · <kbd>Shift</kbd> moves half</p>
+        <div class="crate-actions"><button type="button" data-action="store-all" title="Everything except weapons, ammo, flares and food">Store all</button><button type="button" data-action="take-all">Take all</button><button type="button" data-action="close-store" aria-label="Close" title="Close (Esc)">×</button></div>
+      </div>
+      <div class="ledger-side">
+        <header><strong>Base stock</strong><small class="ledger-summary"></small><button type="button" class="ledger-close" data-action="close-store" aria-label="Close" title="Close (Esc)">×</button></header>
+        <div class="ledger-rows"></div>
+        <p class="ledger-flow">Every crate counts as one store. Building, crafting and cooking use your pockets first, then crate stock while you're within 30 m of a crate. Haulers carry crate stock to fabricators, assemblers and the Starship; belts and haulers drop surplus in the nearest crate with room.</p>
+      </div>
+    </section>
     <div class="notification" role="status" aria-live="polite" hidden></div>`;
   const fields = Object.fromEntries([...root.querySelectorAll('[data-value]')].map(el => [el.dataset.value, el]));
   const menu = root.querySelector('.build-menu'), toggle = root.querySelector('.build-toggle'), tools = root.querySelector('.selection-tools'), label = root.querySelector('.selected-name'), reasonLabel = root.querySelector('.selected-reason'), notice = root.querySelector('.notification'), hint = root.querySelector('.context-hint');
@@ -105,9 +122,45 @@ export function createUI(root, callbacks = {}) {
   const panel = root.querySelector('.objective'), panelMessage = panel.querySelector('.objective-message'), panelTask = panel.querySelector('.objective-task strong'), panelStep = panel.querySelector('.objective-step'), panelDistance = panel.querySelector('.objective-distance');
   let noticeTimer, hintKey = '', objectiveKey = '', aiNote = null, freshTimer;
   const robotsPanel = root.querySelector('.robots-panel'), robotsToggle = root.querySelector('.robots-toggle');
-  const setRobots = open => { robotsPanel.hidden = !open; robotsToggle.setAttribute('aria-expanded', String(open)); if (open) { menu.hidden = true; toggle.setAttribute('aria-expanded', 'false'); robotsKey = ''; robotsAt = 0; } };
-  const setOpen = open => { menu.hidden = !open; toggle.setAttribute('aria-expanded', String(open)); if (open) setRobots(false); };
+  const setRobots = open => { robotsPanel.hidden = !open; robotsToggle.setAttribute('aria-expanded', String(open)); if (open) { menu.hidden = true; toggle.setAttribute('aria-expanded', 'false'); robotsKey = ''; robotsAt = 0; if (storeOpen) setStore(false); } };
+  const setOpen = open => { menu.hidden = !open; toggle.setAttribute('aria-expanded', String(open)); if (open) { setRobots(false); if (storeOpen) setStore(false); } };
   let robotsKey = '', robotsAt = 0, stationKey = '', buffsKey = '';
+  const store = root.querySelector('.store-panel'), crateSlots = [...root.querySelectorAll('[data-crate-slot]')], stockToggle = root.querySelector('.stock-toggle');
+  let storeOpen = false, crateId = null, ledgerKey = '', ledgerAt = 0;
+  const setStore = (open, id = null) => {
+    storeOpen = open; crateId = open ? id : null; store.hidden = !open; store.classList.toggle('with-crate', crateId != null);
+    root.classList.toggle('crate-open', crateId != null); stockToggle.setAttribute('aria-expanded', String(open && crateId == null)); ledgerKey = ''; ledgerAt = 0;
+    if (open) { menu.hidden = true; toggle.setAttribute('aria-expanded', 'false'); setRobots(false); }
+  };
+  const fillSlot = (el, slot) => {
+    const k = slot ? `${slot.item}:${slot.count}` : '';
+    if (el.dataset.content === k) return;
+    el.dataset.content = k; el.classList.toggle('empty', !slot);
+    el.querySelector('.slot-icon').innerHTML = slot ? `<img src="${ITEM_ICON_URLS[slot.item]}" width="256" height="256" alt="" aria-hidden="true" draggable="false">` : '';
+    el.querySelector('strong').textContent = slot && slot.count > 1 ? slot.count : '';
+    el.title = slot ? `${ITEM_INFO[slot.item].name} × ${slot.count}` : 'Empty';
+  };
+  const place = list => list.map(({ tag, n, role }) => `<span>${tag}${role ? ` ${role === 'input' ? 'in' : 'out'}` : ''} <b>${number(n)}</b></span>`).join('');
+  function renderStore(state) {
+    const crate = crateId != null ? state.buildings.find(b => b.id === crateId && b.built && b.slots) : null;
+    if (crateId != null && !crate) { setStore(false); return; }
+    if (crate) {
+      store.querySelector('.crate-title').textContent = `${tagOf(crate)} · Storage crate`;
+      store.querySelector('.crate-fill').textContent = `${usedSlots(crate)} / ${CRATE_SLOTS} slots`;
+      crateSlots.forEach((el, i) => fillSlot(el, crate.slots[i]));
+    }
+    const now = performance.now(); if (now - ledgerAt < 250) return; ledgerAt = now;
+    const rows = ledger(state), all = crates(state), used = all.reduce((s, b) => s + usedSlots(b), 0);
+    const key = JSON.stringify(rows) + used + all.length;
+    if (key === ledgerKey) return; ledgerKey = key;
+    store.querySelector('.ledger-summary').textContent = all.length ? `${all.length} crate${all.length > 1 ? 's' : ''} · ${used} / ${all.length * CRATE_SLOTS} slots` : 'No crates yet';
+    store.querySelector('.ledger-rows').innerHTML = rows.length ? rows.map(r => {
+      const moving = [r.belts && `<span>belts <b>${r.belts}</b></span>`, ...r.robots.map(m => `<span>${m.kind === 'hauler' ? 'Hauler' : 'Rover'} ${m.id} <b>${m.n}</b>${m.to ? ` → ${m.to}` : ''}</span>`)].filter(Boolean).join('');
+      return `<div class="ledger-row" data-item="${r.item}">${icon(r.item)}<div><header><strong>${ITEM_INFO[r.item].name}</strong>${r.stored ? `<b title="Held in crates">${number(r.stored)}<small>stored</small></b>` : '<b class="none">none stored</b>'}</header>
+        <p class="ledger-where">${place(r.crates)}${r.pockets ? `<span class="pockets">pockets <b>${number(r.pockets)}</b></span>` : ''}</p>
+        ${r.machines.length ? `<p class="ledger-machines" title="Held inside machines">${place(r.machines)}</p>` : ''}${moving ? `<p class="ledger-moving" title="On the move">${moving}</p>` : ''}</div></div>`;
+    }).join('') : '<p class="robots-empty">Nothing stored yet.</p>';
+  }
   const station = root.querySelector('.station'), buffs = root.querySelector('.buffs');
   const icon = item => `<img src="${ITEM_ICON_URLS[item]}" alt="" aria-hidden="true" draggable="false">`;
   const clock = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
@@ -123,14 +176,14 @@ export function createUI(root, callbacks = {}) {
         <div class="station-options">${crops.map(id => { const c = CROPS[id]; return `<button type="button" data-crop="${id}" data-station="${b.id}" aria-pressed="${id === b.crop}" title="${c.name}: ${c.yield} every ${c.time}s · water ${c.water}${c.power ? ` · ${c.power} kW` : ' · no power'}">${icon(id)}<span>${c.name}</span><small>${c.time}s · ${c.yield}×</small></button>`; }).join('')}</div>`;
     } else if (b.type === 'armory') {
       const recipes = Object.keys(ARMORY), known = id => armoryKnown(state, id);
-      const has = id => Object.entries(ARMORY[id].input).every(([item, n]) => count(state.inventory, item) >= n);
+      const has = id => canPay(state, ARMORY[id].input);
       key = `${b.id}|${recipes.map(id => `${id}${known(id)}${has(id)}`)}`;
       if (key === stationKey) return;
-      html = `<header><strong>Armory</strong><small>Click to craft from your pack</small></header>
+      html = `<header><strong>Armory</strong><small>Click to craft from your pack and base storage</small></header>
         <div class="station-options">${recipes.map(id => { const r = ARMORY[id], inputs = Object.entries(r.input); return `<button type="button" data-make="${id}" data-station="${b.id}" class="${!known(id) ? 'locked' : has(id) ? '' : 'missing'}" ${known(id) ? '' : 'disabled'} title="${ITEM_INFO[id].name}${r.makes > 1 ? ` ×${r.makes}` : ''}: ${inputs.map(([item, n]) => `${n} ${ITEM_INFO[item].name.toLowerCase()}`).join(' + ')}${known(id) ? '' : ` · research ${TECHS[r.tech].name} first`}">${icon(id)}<span>${ITEM_INFO[id].name}${r.makes > 1 ? ` ×${r.makes}` : ''}</span><small class="station-inputs">${inputs.map(([item, n]) => `${n > 1 ? `<b>${n}</b>` : ''}${icon(item)}`).join('')}</small><em>${known(id) ? (WEAPONS[id] ? 'Weapon' : 'Ammo') : 'Needs research'}</em></button>`; }).join('')}</div>`;
     } else {
       const dishes = Object.keys(RECIPES).filter(id => recipeKnown(state, id));
-      const has = id => Object.entries(RECIPES[id].input).every(([item, n]) => count(state.inventory, item) >= n);
+      const has = id => canPay(state, RECIPES[id].input);
       const next = galleyRecipe(state, b);
       key = `${b.id}|${b.recipe}|${dishes.map(id => `${id}${has(id)}`)}|${next}`;
       if (key === stationKey) return;
@@ -172,6 +225,12 @@ export function createUI(root, callbacks = {}) {
   const onClick = event => {
     const button = event.target.closest('button'); if (!button) return;
     if (button.dataset.station) { const id = Number(button.dataset.station); callbacks.onStation?.(button.dataset.make ? { id, make: button.dataset.make } : button.dataset.crop ? { id, crop: button.dataset.crop } : { id, recipe: button.dataset.recipe || null }); stationKey = ''; button.blur(); return; }
+    if (button.dataset.crateSlot != null) { callbacks.onTake?.(crateId, Number(button.dataset.crateSlot), event.shiftKey); button.blur(); return; }
+    if (button.dataset.slot && crateId != null) { callbacks.onStore?.(crateId, Number(button.dataset.slot), event.shiftKey); button.blur(); return; }
+    if (button.dataset.action === 'store-all') { callbacks.onStoreAll?.(crateId); button.blur(); return; }
+    if (button.dataset.action === 'take-all') { callbacks.onTakeAll?.(crateId); button.blur(); return; }
+    if (button.dataset.action === 'close-store') { setStore(false); callbacks.onCloseStore?.(); button.blur(); return; }
+    if (button.dataset.action === 'stock') { setStore(!(storeOpen && crateId == null)); button.blur(); return; }
     if (button.dataset.build) { callbacks.onSelect?.(button.dataset.build); setOpen(false); setRobots(false); }
     else if (button.dataset.removeZone) callbacks.onRemoveZone?.(Number(button.dataset.removeZone));
     else if (button.dataset.action === 'robots') setRobots(robotsPanel.hidden);
@@ -183,17 +242,22 @@ export function createUI(root, callbacks = {}) {
     else if (button.dataset.action === 'cancel') { callbacks.onCancel?.(); setOpen(false); }
     button.blur();
   };
-  const onKey = event => { if (event.key === 'Escape') { setOpen(false); setRobots(false); } };
+  const onKey = event => { if (event.key === 'Escape') { setOpen(false); setRobots(false); setStore(false); } };
   const onChange = event => { const id = event.target.dataset?.assign; if (id) { callbacks.onAssign?.(Number(id), event.target.value ? Number(event.target.value) : null); event.target.blur(); } };
   root.addEventListener('click', onClick); root.addEventListener('change', onChange); window.addEventListener('keydown', onKey);
   return {
     toggleMenu() { setOpen(menu.hidden); },
     toggleRobots() { setRobots(robotsPanel.hidden); },
+    toggleStock() { setStore(!(storeOpen && crateId == null)); },
+    openCrate(id) { setStore(true, id); },
+    closeStore() { setStore(false); },
+    get crateId() { return crateId; },
     update(state, view = {}) {
       const selected = view.selectedType || null;
       root.querySelector('.construction').dataset.underground = String(state.player.cave != null);
       const now = performance.now();
       if (!robotsPanel.hidden && now - robotsAt > 250) { robotsAt = now; renderRobots(state); }
+      if (storeOpen) renderStore(state);
       const badge = root.querySelector('.orbit-badge'), sats = state.satellites ?? 0;
       if (badge.textContent !== String(sats)) { badge.textContent = String(sats); badge.hidden = !sats; }
       // Points waiting with nothing being researched.
@@ -235,14 +299,14 @@ export function createUI(root, callbacks = {}) {
       if (state.player.cave != null || infested(state) || view.night) {
         const flares = count(state.inventory, 'flare');
         if (flares) lines.push(`<kbd>Q</kbd> Throw flare · ${flares}`);
-        else if (count(state.inventory, 'metal') >= 2) lines.push('<kbd>X</kbd> Make 3 flares · 2 metal');
+        else if (available(state, 'metal') >= 2) lines.push('<kbd>X</kbd> Make 3 flares · 2 metal');
       }
       if (edible && (status.label || satiety < 70)) lines.push(`<kbd>F</kbd> Eat ${RECIPES[held.item] ? ITEM_INFO[held.item].name.toLowerCase() : `raw ${ITEM_INFO[held.item].name.toLowerCase()}`}`);
       const next = lines.join('<span class="hint-gap"></span>');
       if (next !== hintKey) { hintKey = next; hint.innerHTML = next; hint.hidden = !next; }
       for (const item of items) {
         const active = item.dataset.build === selected; item.setAttribute('aria-pressed', String(active)); item.classList.toggle('selected', active);
-        const def = TOOLS[item.dataset.build]; item.classList.toggle('unaffordable', Object.entries(def.cost ?? {}).some(([key, cost]) => count(state.inventory, key) < cost));
+        const def = TOOLS[item.dataset.build]; item.classList.toggle('unaffordable', !canPay(state, def.cost ?? {}));
         const locked = view.locked?.[item.dataset.build];
         if (item.classList.contains('locked') !== !!locked) {
           item.classList.toggle('locked', !!locked);
