@@ -1,5 +1,14 @@
 # Frontier asset library, revision 2
 
+Inventory icons: `inventory/256/` contains the 14 transparent Blender-rendered carried-item
+images used by the hotbar. Masters, an editable `inventory-library.blend`, and a manifest
+live in `inventory/`; the complete review board is `../art-direction/inventory-icons.png`.
+Rebuild with `../blender/build_inventory_icons.py` and `../blender/preview_inventory_icons.py`.
+The same source meshes are exported to `inventory/items.glb` by
+`../blender/export_inventory_models.py`. All 14 carried items and the two bulk belt
+resources share normalized ground origins; `../item-models.js` provides shared
+templates and material-part instancing for belts, cargo and world pickups.
+
 Authored in Blender, exported as self-contained GLB assets. Blender sources and reproducible scripts are included; no external textures or generated meshes are required.
 
 Art direction: graphic lunar industrialism. Strong functional silhouettes, selective beveled edges, warm ivory shells, graphite mechanisms, oxide-orange service accents, dark blue photovoltaics/glazing, and restrained warm illumination. Smooth pressure equipment contrasts with angular protection and terrain.

@@ -21,6 +21,20 @@ Input, movement/collision, interaction, placement raycast, fixed-step tick, pers
 Definitions move to `defs.js` (re-exported by `sim.js`): adds `conveyor` (1×1, walkable), `processor` (2×3), `storage` (1×1); habitat and conveyor are `walkable`. Rotation is 0–3 (odd rotations swap w/d); models face +Z at rotation 0, turned by `rotation*PI/2`. Directions `DIRS=[[0,1],[1,0],[0,-1],[-1,0]]`. Definitions may declare `inputs`/`outputs` ports `{x,z,dir}` in local cells; `ports(b,kind)` returns world `{cell,dir,neighbor}`.
 State version 2 adds `reserves:{oxygen}`, `robots:[{id,type:'rover',x,z,heading,task,cargo,charge,...}]`, `miningArea:{x,z}|null`, `mined:{'x:z':remaining}`; buildings may carry `items`, `inventory`, `input`, `output`, `progress`. Version 1 saves migrate with the starter rover. New sim exports: `deconstruct(state,id)`, `collectStorage(state,id)`, `setMiningArea(state,x,z)`, all returning `{ok,reason}`. Production advances inside `tick` only when `dt>0`; machines use the previous tick's `power.powered`. Paths are runtime-only caches, never saved.
 `world.setGhost(type,x,z,rotation,valid,line)` accepts `type:'mine'` and an optional belt route of cells.
+
+## Shared inventory presentation
+
+`item-models.js` loads `assets/inventory/items.glb`, exported from the icon library's
+actual Blender meshes. `loadItemLibrary(loader)` returns shared ground-centred,
+unit-size templates: `get(item)`, `create(item,size)`, `batch(item,capacity,size)`,
+`replace(root,target,item,size)` and `dispose()`. A batch has `root`, `meshes`,
+`set(index,matrix)`, `finish(count)` and `dispose()`. Each material part is one
+instanced draw; disposing a batch does not dispose shared geometry or materials.
+The owning world disposes the library after disposing its views. Belts, rover/hauler
+cargo, food, salvage and cave loot use the same meshes as the inventory icons.
+Cave views accept an optional item library after `zone` and retain collection and
+discovery visibility. The orbital view owns its separate library for its renderer.
+This is presentation only: simulation items, recipes and saves are unchanged.
 Belts: `rotateBelt(state,id,rotation)` redirects an existing belt; `beltTurns(state)` (production.js) maps belt id to 0 straight, 1/-1 corner fed from the right/left side, derived from neighbours (never saved).
 ## Phase C additions
 Definitions gain `key` (build shortcut letter), `layer` (`'floor'` room squares: `habitat`, `greenhouse`, `airlock`; `'interior'` fittings: `growbed`, `galley`, `recycler`, which need finished floor of the `needs` room type), `paint` (drag-painted), `power` (kW per finished square) and `inset` (fitting collision shrink). A fitting may share its cell with a floor square; nothing else overlaps. `ITEM_INFO` lists carried items (`metal`, `silicon`, `crop`, `meal`) with stack sizes and `food` value.

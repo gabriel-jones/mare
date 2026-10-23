@@ -76,13 +76,11 @@ body[data-hurt=true]::after { content:'';position:fixed;inset:0;pointer-events:n
 .hotbar { position:absolute;left:50%;bottom:22px;transform:translateX(-50%);display:flex;gap:5px;padding:5px;border:1px solid var(--line);border-radius:6px;background:rgba(14,18,22,.72);backdrop-filter:blur(8px); }
 .game-ui .slot { position:relative;width:50px;height:50px;padding:0;border-radius:4px;background:#1c2328e6;display:grid;place-items:center; }
 .game-ui .slot.selected { border-color:var(--amber);background:#3a3326; }
-.slot kbd { position:absolute;left:4px;top:2px;font:600 9px Inter,ui-sans-serif,sans-serif;color:#8d979c; }
+.slot kbd { position:absolute;left:4px;top:2px;z-index:1;font:600 9px Inter,ui-sans-serif,sans-serif;color:#8d979c;text-shadow:0 1px 2px #000,0 0 3px #000; }
 .slot.selected kbd { color:var(--amber); }
-.slot-icon svg { width:24px;height:24px;display:block;color:#d6dbd8; }
-.slot[data-item=silicon] .slot-icon svg { color:#8dc5d9; }
-.slot[data-item=crop] .slot-icon svg { color:#d4b07a; }
-.slot[data-item=meal] .slot-icon svg { color:#f3b475; }
-.slot strong { position:absolute;right:4px;bottom:2px;font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;color:#f2f2e9; }
+.slot-icon { position:absolute;inset:3px;display:grid;place-items:center;pointer-events:none; }
+.slot-icon img { display:block;width:100%;height:100%;object-fit:contain; }
+.slot strong { position:absolute;right:4px;bottom:2px;z-index:1;font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;color:#f2f2e9;text-shadow:0 1px 2px #000,0 0 3px #000; }
 .build-menu { width:392px;display:grid;grid-template-columns:1fr 1fr;column-gap:3px;max-height:calc(100vh - 140px);overflow:auto; }
 .build-menu h3 { grid-column:1/-1;margin:8px 10px 3px;font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#8d979c; }
 .game-ui .build-item { padding:8px 9px;gap:10px; }
@@ -92,7 +90,8 @@ body[data-hurt=true]::after { content:'';position:fixed;inset:0;pointer-events:n
 .build-item kbd:empty { visibility:hidden; }
 .build-toggle kbd { min-width:18px;height:18px;display:inline-grid;place-items:center;margin-left:2px;border:1px solid #ffffff2a;border-radius:3px;font:600 10px Inter,ui-sans-serif,sans-serif;color:#aab3b6; }
 .build-item.selected kbd { border-color:#edbd7980;color:var(--amber); }
-@media(max-width:900px) { .hotbar { left:auto;right:14px;transform:none; } .game-ui .slot { width:40px;height:40px; } }
+@media(max-width:1100px) { .hotbar { left:auto;right:14px;transform:none; } }
+@media(max-width:900px) { .game-ui .slot { width:40px;height:40px; } }
 @media(max-width:600px) { .context-hint { bottom:78px; } .build-menu { width:min(392px,calc(100vw - 28px)); } }
 .objective { position:absolute;top:74px;left:24px;width:min(340px,calc(100% - 48px));padding:11px 14px 12px;border:1px solid var(--line);border-left:2px solid #7fe3ff;border-radius:4px;background:rgba(14,18,22,.78);backdrop-filter:blur(8px);transition:border-color .4s,box-shadow .4s; }
 .objective header { display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px; }

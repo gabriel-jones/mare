@@ -1,0 +1,82 @@
+{
+  "metal": {
+    "triangles": 216,
+    "materialParts": 1,
+    "originalTriangles": 216
+  },
+  "silicon": {
+    "triangles": 650,
+    "materialParts": 3,
+    "originalTriangles": 756
+  },
+  "crop": {
+    "triangles": 960,
+    "materialParts": 3,
+    "originalTriangles": 960
+  },
+  "meal": {
+    "triangles": 1032,
+    "materialParts": 5,
+    "originalTriangles": 1032
+  },
+  "core": {
+    "triangles": 1100,
+    "materialParts": 6,
+    "originalTriangles": 1296
+  },
+  "frame": {
+    "triangles": 1000,
+    "materialParts": 3,
+    "originalTriangles": 1944
+  },
+  "wing": {
+    "triangles": 1200,
+    "materialParts": 5,
+    "originalTriangles": 1808
+  },
+  "chip": {
+    "triangles": 1600,
+    "materialParts": 7,
+    "originalTriangles": 3024
+  },
+  "satellite": {
+    "triangles": 2000,
+    "materialParts": 5,
+    "originalTriangles": 3968
+  },
+  "titanium": {
+    "triangles": 168,
+    "materialParts": 2,
+    "originalTriangles": 168
+  },
+  "rareearth": {
+    "triangles": 89,
+    "materialParts": 3,
+    "originalTriangles": 89
+  },
+  "artifact": {
+    "triangles": 150,
+    "materialParts": 2,
+    "originalTriangles": 296
+  },
+  "heart": {
+    "triangles": 112,
+    "materialParts": 2,
+    "originalTriangles": 112
+  },
+  "flare": {
+    "triangles": 850,
+    "materialParts": 4,
+    "originalTriangles": 924
+  },
+  "regolith": {
+    "triangles": 60,
+    "materialParts": 1,
+    "originalTriangles": 60
+  },
+  "ice": {
+    "triangles": 60,
+    "materialParts": 1,
+    "originalTriangles": 60
+  }
+}

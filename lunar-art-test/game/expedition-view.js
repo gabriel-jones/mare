@@ -5,7 +5,7 @@ import { objective } from './mission.js';
 
 // Presentation for the crater mission: the derelict lander, the tracks around it, the crater's
 // ice, the objective waypoint and the watcher on the rim.
-export function createExpeditionView(scene, models) {
+export function createExpeditionView(scene, models, itemModels = null) {
   const root = new THREE.Group(); scene.add(root);
   const geometries = [], materials = [];
   const own = (list, item) => { list.push(item); return item; };
@@ -18,6 +18,7 @@ export function createExpeditionView(scene, models) {
   if (template) {
     lander = template.clone(true);
     lander.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } if (o.name.replace(/\.?\d{3}$/, '') === 'Core') core = o; });
+    if (core && itemModels) core = itemModels.replace(lander, core, 'core', .56);
     lander.rotation.y = site.lander.angle; root.add(lander);
   }
   const coreLight = new THREE.PointLight('#7fdcff', 0, 6, 2); root.add(coreLight);

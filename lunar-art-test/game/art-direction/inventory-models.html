@@ -1,0 +1,52 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Inventory models · in-game review</title><link rel="stylesheet" href="../game.css">
+<style>html,body{margin:0;height:100%;overflow:hidden;background:#090f1a}canvas{position:fixed;inset:0;width:100%;height:100%}header{position:fixed;top:20px;left:24px;right:24px;z-index:5;color:#eeeede;font:13px system-ui;pointer-events:none}header div{display:inline-block;padding:12px 16px;border:1px solid #ffffff22;border-radius:6px;background:#10171de8;pointer-events:auto}h1{margin:0 0 8px;font-size:16px}nav{display:flex;flex-wrap:wrap;gap:12px}a{color:#9ed1e0;text-decoration:none}a[aria-current=page]{color:#ffca89}#stats{position:fixed;left:24px;bottom:20px;z-index:5;background:#10171de8;color:#bdcbd0;padding:9px 12px;border-radius:5px;font:12px system-ui}</style>
+<script type="importmap">{"imports":{"three":"../../node_modules/three/build/three.module.js","three/addons/":"../../node_modules/three/examples/jsm/"}}</script></head>
+<body><canvas id="game" tabindex="0"></canvas><header><div><h1>Inventory models in the game</h1><nav>
+<a href="art-direction/inventory-models.html?view=belts">Conveyors & cargo</a><a href="art-direction/inventory-models.html?view=food">Food</a><a href="art-direction/inventory-models.html?view=core">Salvage</a><a href="art-direction/inventory-models.html?view=ore">Titanium</a><a href="art-direction/inventory-models.html?view=crystal">Rare earth</a><a href="art-direction/inventory-models.html?view=artifact">Artifact</a><a href="art-direction/inventory-models.html?view=heart">Heart</a><a href="art-direction/inventory-models.html?view=flare">Flare</a>
+</nav><button id="take-find" hidden style="margin-top:10px">Take nearby find</button><span id="take-result" style="margin-left:10px"></span></div></header><div id="stats">Loading models…</div><script type="module">
+// Uses the actual world, item library, belt simulation and cave discovery renderer.
+// Review states are throwaway objects; this page never reads or writes colony saves.
+import{createWorld}from'../world.js';import{createState,tick}from'../sim.js';
+import{ensureBuildingState,stepProduction}from'../production.js';import{ensureLifeState}from'../life.js';
+import{caveLayout}from'../caves.js';import{caveMemoryKey}from'../cave-view.js';import{missionSite}from'../terrain.js';
+import{takeLoot}from'../delve.js';
+const view=new URLSearchParams(location.search).get('view')??'belts',state=createState();
+const base=document.createElement('base');base.href='../';document.head.append(base);
+document.querySelectorAll('nav a').forEach(a=>{if(a.getAttribute('href')===`art-direction/inventory-models.html?view=${view}`)a.setAttribute('aria-current','page');});
+state.time=25;state.robots=[];state.buildings=[];state.player.animation='idle';state.player.facing=Math.PI;
+const add=(type,x,z,rotation=0,extra={})=>{const b=Object.assign(ensureLifeState(ensureBuildingState({id:state.nextId++,type,x,z,rotation,built:true,progress:1,serial:1})),extra);state.buildings.push(b);return b;};
+let height=14;
+if(view==='belts'){
+ const ring=[[-2,0,1],[-1,0,1],[0,0,1],[1,0,1],[2,0,0],[2,1,0],[2,2,3],[1,2,3],[0,2,3],[-1,2,3],[-2,2,2],[-2,1,2]];
+ const types=['metal','silicon','frame','wing','chip','satellite','regolith','ice'];
+ ring.forEach(([x,z,r],i)=>add('conveyor',x,z,r,{items:[{type:types[i%8],p:.15},{type:types[(i+3)%8],p:.65}]}));
+ state.robots=[{id:1,kind:'hauler',x:-2,z:6.5,facing:Math.PI,cargo:1,load:'satellite',charge:1,task:'toDrop'},
+  {id:2,kind:'hauler',x:1,z:6.5,facing:Math.PI,cargo:3,load:'chip',charge:1,task:'toDrop'},
+  {id:3,kind:'miner',x:4,z:6.5,facing:Math.PI,cargo:20,load:'ice',charge:1,task:'toDock'}];
+ Object.assign(state.player,{x:0,z:2});
+}else if(view==='food'){
+ add('galley',-1,1,0,{meals:2});add('growbed',1,1,0,{grow:1,watered:true});
+ Object.assign(state.player,{x:0,z:3.8});height=9;
+}else if(view==='core'){
+ const site=missionSite();Object.assign(state.player,{x:site.lander.x,z:site.lander.z+1.8});height=10;
+}else{
+ const kind=view==='flare'?'artifact':view,zone=kind==='heart'?2:1,cave=caveLayout(state.seed,0,zone),find=cave.loot.find(l=>l.kind===kind);
+ if(!find)throw new Error(`No ${kind} found in review seed`);
+ const position=[...cave.cells].map(k=>k.split(',').map(Number)).map(([x,z])=>({x:x*2,z:z*2})).filter(p=>Math.hypot(p.x-find.x*2,p.z-find.z*2)>.6).sort((a,b)=>Math.hypot(a.x-find.x*2,a.z-find.z*2)-Math.hypot(b.x-find.x*2,b.z-find.z*2))[0];
+ Object.assign(state.player,{cave:0,zone,x:position.x,z:position.z,facing:Math.atan2(find.x*2-position.x,find.z*2-position.z)});
+ state.exploredCaves={[caveMemoryKey(0,zone)]:[...cave.cells]};
+ if(view==='flare')state.flares=[{cave:0,zone,x:position.x+1,z:position.z+1,t:40}];
+ height=11;
+}
+tick(state,0);
+const take=document.querySelector('#take-find');take.hidden=state.player.cave==null;take.addEventListener('click',()=>{const result=takeLoot(state);document.querySelector('#take-result').textContent=result.reason;});
+const canvas=document.querySelector('canvas'),world=await createWorld(canvas,state);
+function resize(){world.resize();const aspect=canvas.clientWidth/canvas.clientHeight;Object.assign(world.camera,{left:-height*aspect/2,right:height*aspect/2,top:height/2,bottom:-height/2});world.camera.updateProjectionMatrix();}
+resize();window.addEventListener('resize',resize);
+let last=performance.now(),frames=0,elapsed=0;
+function frame(now){const dt=Math.min((now-last)/1000,.1);last=now;if(view==='belts')stepProduction({...state,robots:[]},dt,true);world.update(state,dt);frames++;elapsed+=dt;
+ if(elapsed>.5){document.querySelector('#stats').textContent=`${view} · ${Math.round(frames/elapsed)} fps · ${canvas.dataset.drawCalls} draws · ${Number(canvas.dataset.triangles).toLocaleString()} triangles`;frames=0;elapsed=0;}
+ requestAnimationFrame(frame);
+}requestAnimationFrame(frame);
+</script></body></html>

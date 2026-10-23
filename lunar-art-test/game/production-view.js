@@ -2,14 +2,15 @@ import * as THREE from 'three';
 import { DIRS } from './defs.js';
 import { surfaceHeightAt as heightAt } from './terrain.js';
 import { ROVER, MINING_RADIUS, REGOLITH_PER_CELL, beltTurns } from './production.js';
+import { BELT_ITEM_SIZES } from './item-models.js';
 
 // Presentation for the Phase B logistics layer: rovers, belt items and the mining zones.
-export function createProductionView(scene, models) {
+export function createProductionView(scene, models, itemModels = null) {
   const root = new THREE.Group(); scene.add(root);
   const geometries = [], materials = [];
   const own = (list, item) => { list.push(item); return item; };
 
-  // Belt items: one instanced batch per material type.
+  // Fallbacks keep a failed asset request from hiding the production simulation.
   const itemLooks = {
     regolith: [own(geometries, new THREE.IcosahedronGeometry(.2, 0)), own(materials, new THREE.MeshStandardMaterial({ color: '#8f877b', roughness: 1, flatShading: true }))],
     metal: [own(geometries, new THREE.BoxGeometry(.42, .16, .24)), own(materials, new THREE.MeshStandardMaterial({ color: '#d4dbe0', metalness: .8, roughness: .3 }))],
@@ -22,7 +23,12 @@ export function createProductionView(scene, models) {
   };
   const batches = {}, dummy = new THREE.Object3D();
   for (const [type, [geo, mat]] of Object.entries(itemLooks)) {
-    const mesh = new THREE.InstancedMesh(geo, mat, 4096); mesh.castShadow = true; mesh.count = 0; mesh.frustumCulled = false; root.add(mesh); batches[type] = mesh;
+    const authored = itemModels?.batch(type, 4096, BELT_ITEM_SIZES[type]);
+    if (authored) { root.add(authored.root); batches[type] = authored; continue; }
+    // Old primitives were centred; give the fallback the same ground origin as the GLB.
+    geo.computeBoundingBox(); geo.translate(0, -geo.boundingBox.min.y, 0);
+    const mesh = new THREE.InstancedMesh(geo, mat, 4096); mesh.castShadow = true; mesh.count = 0; mesh.frustumCulled = false; root.add(mesh);
+    batches[type] = { set: (i, matrix) => mesh.setMatrixAt(i, matrix), finish: n => { mesh.count = n; mesh.instanceMatrix.needsUpdate = true; }, dispose: () => mesh.dispose() };
   }
   function updateItems(state, time) {
     const counts = Object.fromEntries(Object.keys(batches).map(type => [type, 0])), turns = beltTurns(state);
@@ -39,12 +45,12 @@ export function createProductionView(scene, models) {
           x = cx + sx + fx - fx * c - sx * s; z = cz + sz + fz - fz * c - sz * s;
           heading = Math.atan2(fx * s - sx * c, fz * s - sz * c);
         } else { const offset = (item.p - .5) * 2; x = cx + fx * offset; z = cz + fz * offset; }
-        dummy.position.set(x, heightAt(state.seed, cx, cz) + .5, z);
+        dummy.position.set(x, heightAt(state.seed, cx, cz) + .38, z);
         dummy.rotation.set(0, heading + (item.type === 'regolith' ? item.p * 2 + time * .1 : 0), 0);
-        dummy.updateMatrix(); mesh.setMatrixAt(counts[item.type]++, dummy.matrix);
+        dummy.scale.setScalar(1); dummy.updateMatrix(); mesh.set(counts[item.type]++, dummy.matrix);
       }
     }
-    for (const [type, mesh] of Object.entries(batches)) { mesh.count = counts[type]; mesh.instanceMatrix.needsUpdate = true; }
+    for (const [type, batch] of Object.entries(batches)) batch.finish(counts[type]);
   }
 
   // Rovers: wheels roll with distance travelled, the drill digs, and the cargo mound fills.
@@ -61,6 +67,12 @@ export function createProductionView(scene, models) {
       body.position.y = .6; body.castShadow = true; model.add(body); view = { model, wheels: [], drill: null, cargo: null };
     }
     view.root = new THREE.Group(); view.root.add(view.model); root.add(view.root);
+    view.loadRoot = new THREE.Group(); view.loadRoot.name = 'Carried item'; view.model.add(view.loadRoot);
+    if (view.cargo) {
+      view.model.updateMatrixWorld(true);
+      view.cargo.getWorldPosition(view.loadRoot.position); view.model.worldToLocal(view.loadRoot.position);
+    } else view.loadRoot.position.set(0, .8, -.3);
+    view.loadItem = null;
     view.beacon = new THREE.PointLight('#ffb35c', 0, 7, 2); view.beacon.position.set(.36, 2.1, .45); view.root.add(view.beacon);
     view.display = null; view.digTime = 0;
     return view;
@@ -83,8 +95,17 @@ export function createProductionView(scene, models) {
       view.digTime += dt;
       if (view.drill) view.drill.rotation.x += ((mining ? .32 + Math.sin(view.digTime * 7) * .1 : 0) - view.drill.rotation.x) * Math.min(1, dt * 8);
       view.model.position.y = mining ? Math.abs(Math.sin(view.digTime * 14)) * .025 : 0;
-      if (view.cargo && r.kind === 'hauler') view.cargo.visible = r.cargo >= 1;
-      else if (view.cargo) { const load = Math.max(0, Math.min(1, r.cargo / ROVER.capacity)); view.cargo.visible = load > .02; view.cargo.scale.set(.6 + .4 * load, Math.max(.05, load), .6 + .4 * load); }
+      const item = r.cargo >= 1 ? r.load ?? 'regolith' : null;
+      if (item !== view.loadItem) {
+        view.loadRoot.clear(); view.loadItem = item;
+        const prop = item && itemModels?.create(item, r.kind === 'hauler' ? .9 : .7);
+        if (prop) view.loadRoot.add(prop);
+      }
+      const modeled = view.loadRoot.children.length > 0;
+      view.loadRoot.visible = modeled && r.cargo >= 1;
+      if (modeled && r.kind !== 'hauler') view.loadRoot.scale.setScalar(.65 + .35 * Math.min(1, r.cargo / ROVER.capacity));
+      if (view.cargo && r.kind === 'hauler') view.cargo.visible = !modeled && r.cargo >= 1;
+      else if (view.cargo) { const load = Math.max(0, Math.min(1, r.cargo / ROVER.capacity)); view.cargo.visible = !modeled && load > .02; view.cargo.scale.set(.6 + .4 * load, Math.max(.05, load), .6 + .4 * load); }
       view.beacon.intensity = r.task === 'idle' || r.task === 'charging' ? 0 : (1 - daylight) * 5 + .6;
     }
     for (const [id, view] of rovers) if (!live.has(id)) { root.remove(view.root); rovers.delete(id); }
@@ -151,6 +172,6 @@ export function createProductionView(scene, models) {
   return {
     rovers,
     update(state, dt, daylight) { time += dt; updateItems(state, time); updateRovers(state, dt, daylight); updateMining(state); },
-    dispose() { scene.remove(root); digMesh?.geometry.dispose(); for (const p of plates.values()) { p.material.map.dispose(); p.material.dispose(); } geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); },
+    dispose() { scene.remove(root); Object.values(batches).forEach(b => b.dispose()); dashes.dispose(); digMesh?.geometry.dispose(); for (const p of plates.values()) { p.material.map.dispose(); p.material.dispose(); } geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); },
   };
 }

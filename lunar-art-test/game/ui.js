@@ -30,22 +30,8 @@ const ICONS = {
   mine: '<path d="M4 4h16v16H4z" stroke-dasharray="3 2"/><path d="m8 15 3-5 2 2 1.5-2L17 15Z"/>',
   dismantle: '<path d="M5 19 15 9m-1-4 5 5-2 2-5-5Z"/><path d="m4 4 4 4M8 4 4 8"/>',
 };
-const ITEM_ICONS = {
-  metal: '<path d="M3 15 8 9h13l-5 6Z"/><path d="M3 15v3h13l5-6V9M16 15v3"/>',
-  silicon: '<path d="m12 3 8 5v8l-8 5-8-5V8Z"/><path d="m4 8 8 5 8-5M12 13v8"/>',
-  crop: '<path d="M7 11c0-4 3-7 6-7s5 3 5 6c0 5-3 10-7 10-3 0-4-3-4-9Z"/><path d="M11 9h.01M14 13h.01M10 15h.01"/>',
-  meal: '<path d="M3 12h18a9 9 0 0 1-18 0Z"/><path d="M9 8c0-2 2-2 2-4m3 4c0-2 2-2 2-4"/>',
-  frame: '<path d="M5 5h14v14H5ZM5 5l14 14M19 5 5 19"/>',
-  wing: '<path d="M3 8h18v8H3ZM9 8v8m6-8v8M3 12h18"/>',
-  chip: '<path d="M7 7h10v10H7Z"/><path d="M10 3v4m4-4v4m-4 10v4m4-4v4M3 10h4m-4 4h4m10-4h4m-4 4h4"/>',
-  satellite: '<path d="M9 9h6v6H9ZM2 10h5v4H2Zm15 0h5v4h-5ZM7 12h2m6 0h2M12 9V5m-2 0h4"/>',
-  titanium: '<path d="M4 17 7 8l6-3 7 5-2 8-8 2Z"/><path d="m7 8 5 4 8-2m-8 2-2 8"/>',
-  rareearth: '<path d="m12 2 4 6-4 14-4-14Z"/><path d="M8 8h8M5 10l3-2m11 2-3-2"/>',
-  artifact: '<path d="M9 21h6l-1-4h-4Zm1-4V9l2-6 2 6v8"/><path d="M12 9v2m-2 2h4"/>',
-  heart: '<path d="M12 21c-5-3-8-7-8-11a4 4 0 0 1 8-1 4 4 0 0 1 8 1c0 4-3 8-8 11Z"/><path d="m9 11 2 2-1 3m4-6-1 4 2 2"/>',
-  flare: '<path d="m8 21 7-12M14 10l2-3 2 1-1 3Z"/><path d="M17 4c1-1 1-2 .5-3M20 6c1 0 2-.5 2.5-1.5M19.5 2.5 21 1"/>',
-  core: '<path d="M7 4h10v16H7Z"/><path d="M10 8h4v8h-4ZM4 7h3m-3 5h3m-3 5h3m10-10h3m-3 5h3m-3 5h3"/>',
-};
+const ITEM_ICON_URLS = Object.freeze(Object.fromEntries(Object.keys(ITEM_INFO).map(item =>
+  [item, new URL(`./assets/inventory/256/${item}.png`, import.meta.url).href])));
 const LOCK = '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>';
 const TOOLS = {
   ...DEFS,
@@ -171,7 +157,7 @@ export function createUI(root, callbacks = {}) {
         el.classList.toggle('selected', active); el.setAttribute('aria-pressed', String(active));
         if (el.dataset.content === k) return;
         el.dataset.content = k; el.classList.toggle('empty', !slot);
-        el.querySelector('.slot-icon').innerHTML = slot ? svg(ITEM_ICONS[slot.item]) : '';
+        el.querySelector('.slot-icon').innerHTML = slot ? `<img src="${ITEM_ICON_URLS[slot.item]}" width="256" height="256" alt="" aria-hidden="true" draggable="false">` : '';
         el.querySelector('strong').textContent = slot && slot.count > 1 ? slot.count : '';
         el.dataset.item = slot?.item ?? '';
         el.title = slot ? `${ITEM_INFO[slot.item].name} × ${slot.count}${ITEM_INFO[slot.item].food ? ' · F to eat' : ''}` : 'Empty';

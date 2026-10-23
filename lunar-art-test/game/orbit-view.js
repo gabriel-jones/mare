@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { loadItemLibrary } from './item-models.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -35,7 +36,7 @@ export function createOrbitView(callbacks = {}) {
   const canvas = root.querySelector('canvas'), fields = Object.fromEntries([...root.querySelectorAll('[data-orbit-field]')].map(el => [el.dataset.orbitField, el]));
   const returnButton = root.querySelector('.orbit-return'), techs = root.querySelector('.orbit-techs'), labelLayer = root.querySelector('.orbit-labels');
   const labels = new Map(BODIES.map(b => { const el = document.createElement('button'); el.type = 'button'; el.className = 'orbit-label'; el.dataset.focus = b.id; el.innerHTML = `<i></i>${b.name}`; labelLayer.append(el); return [b.id, el]; }));
-  let renderer = null, composer, scene, camera, system, network, ringGroup, satGroup, ship, flame, satTemplate = null, colony;
+  let renderer = null, composer, scene, camera, system, network, ringGroup, satGroup, ship, flame, satTemplate = null, colony, itemModels = null, disposed = false;
   let yaw = .6, pitch = .32, distance = viewDistance('moon'), focusId = 'moon', flight = null, drag = null, time = 0, ringKey = -1;
   const target = new THREE.Vector3(), goal = new THREE.Vector3();
   const disposables = [];
@@ -63,7 +64,7 @@ export function createOrbitView(callbacks = {}) {
     flame = new THREE.Mesh(keep(new THREE.ConeGeometry(.035, .16, 12)), keep(new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 1.6, .6), transparent: true, opacity: .85, blending: THREE.AdditiveBlending, depthWrite: false })));
     flame.rotation.x = Math.PI; flame.position.y = -.09; ship.add(flame);
     const loader = new GLTFLoader();
-    loader.loadAsync('./assets/satellite.glb').then(g => { satTemplate = g.scene; ringKey = -1; }).catch(() => {});
+    loadItemLibrary(loader).then(library => { if(disposed){library?.dispose();return;}itemModels=library;satTemplate=library?.get('satellite')??null;ringKey=-1; });
     loader.loadAsync('./assets/starship.glb').then(g => { const model = g.scene.clone(true); model.scale.setScalar(.013); ship.add(model); }).catch(() => {});
 
     canvas.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY, moved: 0 }; canvas.setPointerCapture(e.pointerId); });
@@ -100,7 +101,7 @@ export function createOrbitView(callbacks = {}) {
     for (let i = 0; i < count; i++) {
       const p = plane(i), r = ring(p.radius, '#72d7ec', .3); r.rotation.copy(new THREE.Euler(p.tilt, p.node, 0, 'YXZ')); ringGroup.add(r);
       const sat = satTemplate ? satTemplate.clone(true) : new THREE.Mesh(keep(new THREE.BoxGeometry(.04, .04, .04)), keep(new THREE.MeshStandardMaterial({ color: '#d9a441' })));
-      if (satTemplate) sat.scale.setScalar(.05);
+      if (satTemplate) sat.scale.setScalar(.12);
       satGroup.add(sat);
     }
   }
@@ -232,7 +233,7 @@ export function createOrbitView(callbacks = {}) {
       composer.render();
       root.dataset.drawn = String(Number(root.dataset.drawn ?? 0) + 1);
     },
-    dispose() { root.removeEventListener('click', onClick); disposables.forEach(d => d.dispose()); system?.dispose(); composer?.dispose(); renderer?.dispose(); root.remove(); },
+    dispose() { disposed=true;root.removeEventListener('click', onClick); disposables.forEach(d => d.dispose()); itemModels?.dispose();system?.dispose(); composer?.dispose(); renderer?.dispose(); root.remove(); },
   };
   return api;
 }
