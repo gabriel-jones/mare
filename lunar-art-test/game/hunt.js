@@ -1,5 +1,5 @@
 import {caveLayout,cavePassable,CAVE_CELL} from './caves.js';
-import {FLARE} from './peril.js';
+import {FLARE,flareNow} from './peril.js';
 import * as inv from './inventory.js';
 import {CRAWLER,PISTOL,PLAYER_RADIUS,createCrawler,stepCrawler,struggle,hurtCrawler,createGun,stepGun,fireGun,reloadGun,shotEnd,createDodge,startDodge,stepDodge} from './crawler.js';
 
@@ -68,7 +68,7 @@ export function stepHunt(hunt,state,dt,rng=Math.random){
  }
  hunt.rolling=dash.rolling;
  const held=grabber(hunt);
- const flares=(state.flares??[]).filter(f=>f.cave===p.cave&&(f.zone??0)===zone).map(f=>({x:f.x,z:f.z,r:FLARE.radius}));
+ const flares=(state.flares??[]).filter(f=>f.cave===p.cave&&(f.zone??0)===zone).map(f=>{const n=flareNow(f,p);return {x:n.x,z:n.z,r:FLARE.radius*n.lit};}).filter(f=>f.r>0);
  const hurt=amount=>{p.health=Math.max(0,(p.health??100)-amount);p.calm=0;};
  for(const c of hunt.crawlers){
   // One at a time: while something has hold of the player the others cannot land a blow.

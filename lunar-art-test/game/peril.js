@@ -4,7 +4,7 @@ import * as inv from './inventory.js';
 
 /** The player's health, what hurts it underground, what happens at zero, and the flares that push back the dark. */
 export const HEALTH = Object.freeze({ max: 100, regen: 4, regenDelay: 5, vent: 14, toxic: 6 });
-export const FLARE = Object.freeze({ life: 45, radius: 6, range: 7, cost: { metal: 2 }, makes: 3, limit: 6 });
+export const FLARE = Object.freeze({ life: 45, radius: 6, range: 9, cost: { metal: 2 }, makes: 3, limit: 6, strike: .42, release: .8, flight: .38 });
 export const MAX_DROPS = 5;
 export const DROP_REACH = 2;
 
@@ -29,7 +29,11 @@ export function stepPeril(state, dt) {
     p.calm = (p.calm ?? HEALTH.regenDelay) + dt;
     if (p.cave == null && p.calm >= HEALTH.regenDelay) p.health = Math.min(HEALTH.max, p.health + HEALTH.regen * dt);
   }
-  if (state.flares?.length) state.flares = state.flares.filter(f => (f.t -= dt) > 0);
+  if (state.flares?.length) state.flares = state.flares.filter(f => {
+    if (f.age != null && f.age < FLARE.release && f.age + dt >= FLARE.release) { f.fromX = p.x; f.fromZ = p.z; }
+    if (f.age != null) f.age += dt;
+    return (f.t -= dt) > 0;
+  });
   if (p.health <= 0) return blackout(state);
   return hazard ? { hazard } : null;
 }
@@ -91,19 +95,38 @@ export function craftFlares(state) {
   inv.add(state.inventory, 'flare', FLARE.makes);
   return { ok: true, reason: `${FLARE.makes} flares made.` };
 }
-/** Throws a flare ahead; it lands short of the first wall in the way. Only worth it in the dark. */
-export function throwFlare(state) {
+/**
+ * Strikes a flare in hand and throws it at `target` (cave-local {x,z}; straight ahead without one), landing short of the
+ * first wall in the way. It burns from the strike: `age` runs from the throw, `t` is the burn left once it lands.
+ */
+export function throwFlare(state, target = null) {
   const p = state.player;
   if (p.cave == null) return { ok: false, reason: 'Save flares for the dark.' };
   if (!inv.count(state.inventory, 'flare')) return { ok: false, reason: 'No flares. Press X to make some from metal.' };
-  const zone = p.zone ?? 0, fx = Math.sin(p.facing ?? 0), fz = Math.cos(p.facing ?? 0);
+  if (state.flares?.some(f => (f.age ?? Infinity) < FLARE.release)) return { ok: false, reason: '' };
+  const zone = p.zone ?? 0, aimed = target && Math.hypot(target.x - p.x, target.z - p.z) > .5;
+  const angle = aimed ? Math.atan2(target.x - p.x, target.z - p.z) : p.facing ?? 0, fx = Math.sin(angle), fz = Math.cos(angle);
+  const want = aimed ? Math.min(FLARE.range, Math.hypot(target.x - p.x, target.z - p.z)) : FLARE.range * .7;
   let reach = 0;
-  for (let d = .25; d <= FLARE.range; d += .25) { if (!caveWalkable(state.seed, p.cave, p.x + fx * d, p.z + fz * d, .1, zone)) break; reach = d; }
+  for (let d = .25; d <= want; d += .25) { if (!caveWalkable(state.seed, p.cave, p.x + fx * d, p.z + fz * d, .1, zone)) break; reach = d; }
   inv.remove(state.inventory, 'flare', 1);
   state.flares ??= [];
-  state.flares.push({ cave: p.cave, zone, x: p.x + fx * reach, z: p.z + fz * reach, t: FLARE.life });
+  const flight = FLARE.flight + reach * .05;
+  state.flares.push({ cave: p.cave, zone, x: p.x + fx * reach, z: p.z + fz * reach, fromX: p.x, fromZ: p.z, age: 0, flight, t: FLARE.life + FLARE.release + flight });
   while (state.flares.length > FLARE.limit) state.flares.shift();
   return { ok: true, reason: `Flare · ${inv.count(state.inventory, 'flare')} left` };
+}
+
+/**
+ * Where a flare is now and how bright: `stage` is 'hand' (being struck and wound up; it is wherever the player is),
+ * 'flight' (`k` 0..1 along the arc) or 'down'. `lit` is 0 before the cap is struck and sputters out at the end.
+ */
+export function flareNow(f, player) {
+  const age = f.age ?? Infinity, lit = age < FLARE.strike ? 0 : Math.min(1, (age - FLARE.strike) / .15, f.t / 4);
+  if (age < FLARE.release) return { stage: 'hand', x: player?.x ?? f.fromX, z: player?.z ?? f.fromZ, lit, k: 0 };
+  const k = (age - FLARE.release) / f.flight;
+  if (k < 1) return { stage: 'flight', x: f.fromX + (f.x - f.fromX) * k, z: f.fromZ + (f.z - f.fromZ) * k, lit, k };
+  return { stage: 'down', x: f.x, z: f.z, lit, k: 1 };
 }
 
 /** Health and dropped packs survive a reload; burning flares do not. */

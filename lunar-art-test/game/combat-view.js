@@ -3,6 +3,8 @@ import {createCrawlerView} from './crawler-view.js';
 import {CRAWLER,DODGE,walkable} from './crawler.js';
 import {caveLayout} from './caves.js';
 import {grabbedBy} from './hunt.js';
+import {FLARE} from './peril.js';
+import {createFlareView} from './flare-view.js';
 
 /**
  * The hunt drawn underground: crawlers, their smoke, the aimed pistol and everything it throws (rounds, brass,
@@ -123,7 +125,7 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF}){
  const flash=new THREE.Sprite(new THREE.SpriteMaterial({map:flashTex,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,opacity:0}));flash.scale.setScalar(1.4);fx.add(flash);
  const impactFlash=new THREE.Sprite(new THREE.SpriteMaterial({map:flashTex,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,opacity:0}));impactFlash.scale.setScalar(.9);fx.add(impactFlash);
  const ichor=particles(fx,80,{additive:false,color:'#020203',size:10}),sparks=particles(fx,60,{additive:true,color:'#ffb066',size:7}),dust=particles(fx,40,{additive:true,color:'#2c323c',size:30});
- const smoke=createSmoke(fx);
+ const smoke=createSmoke(fx),flares=createFlareView(fx),thrown=new WeakSet();
  const aimMarker=new THREE.Mesh(new THREE.RingGeometry(.18,.24,24).rotateX(-Math.PI/2),new THREE.MeshBasicMaterial({color:'#ffcf9a',transparent:true,opacity:.6,depthWrite:false}));aimMarker.position.y=.05;aimMarker.visible=false;fx.add(aimMarker);
 
  const localOf=(o,v=new THREE.Vector3())=>caveView.root.worldToLocal(o.getWorldPosition(v));
@@ -132,7 +134,7 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF}){
 
  function play(clip,rate=1){if(act?.clip===clip)actor.restart();act={clip,t:0,len:actor.duration(clip)/rate,rate};}
  function clearViews(){views.forEach(v=>v.view.dispose());views.clear();wisps.clear();}
- function clearEffects(){bullets.forEach(b=>{b.live=false;b.mesh.visible=false;});hideCases();ichor.clear();sparks.clear();dust.clear();smoke.clear();flash.material.opacity=0;impactFlash.material.opacity=0;muzzleLight.intensity=0;pending=[];}
+ function clearEffects(){bullets.forEach(b=>{b.live=false;b.mesh.visible=false;});hideCases();ichor.clear();sparks.clear();dust.clear();smoke.clear();flares.clear();flash.material.opacity=0;impactFlash.material.opacity=0;muzzleLight.intensity=0;pending=[];}
 
  /** The cave the player is now in. Effects move into its space; crawlers of the last cave are dropped. */
  function enter(view,state){
@@ -170,6 +172,7 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF}){
  /** The astronaut's pose for this frame. Sets the body's yaw under the aim; the caller runs the actor. */
  function pose(state,renderPose,hunt,dt){
   syncViews(hunt);drain(hunt);
+  for(const f of state.flares??[])if(f.age!=null&&f.age<FLARE.release&&!thrown.has(f)){thrown.add(f);actor.throwFlare();}
   const p=state.player,facing=renderPose.facing??0;
   if(bodyYaw==null)bodyYaw=facing;
   const airborne=renderPose.animation==='jump';
@@ -269,6 +272,7 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF}){
    wisps.set(c,clock);
   }
   smoke.update(dt,viewDir.value);
+  flares.update(state,dt,{root:caveView.root,actor});
   shake=Math.max(0,shake-dt);
  }
 
@@ -305,6 +309,6 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF}){
   setAim(point){aimMarker.visible=!!point&&!!caveView;if(point)aimMarker.position.set(point.x,.05,point.z);},
   get shake(){return shake*.5;},
   get active(){return !!caveView;},
-  dispose(){leave();hud.dispose();bulletGeo.dispose();bulletMat.dispose();caseMesh.geometry.dispose();caseMesh.material.dispose();caseMesh.dispose();flashTex.dispose();flash.material.dispose();impactFlash.material.dispose();ichor.dispose();sparks.dispose();dust.dispose();smoke.dispose();aimMarker.geometry.dispose();aimMarker.material.dispose();},
+  dispose(){leave();hud.dispose();bulletGeo.dispose();bulletMat.dispose();caseMesh.geometry.dispose();caseMesh.material.dispose();caseMesh.dispose();flashTex.dispose();flash.material.dispose();impactFlash.material.dispose();ichor.dispose();sparks.dispose();dust.dispose();smoke.dispose();flares.dispose();aimMarker.geometry.dispose();aimMarker.material.dispose();},
  };
 }

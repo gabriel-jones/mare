@@ -410,5 +410,18 @@ test('flares are made from metal, thrown short of walls underground, and light t
  assert.equal(P.throwFlare(s).ok,true);const f=s.flares[0];assert.ok(f.x<4&&f.x>=0,'stops before the side wall');
  const cave=caveLayout(s.seed,0),dark=visibleCaveCells(cave,0,30,Math.PI),lit=visibleCaveCells(cave,0,30,Math.PI,[{x:0,z:40,r:P.FLARE.radius}]);
  assert.ok(lit.size>dark.size);
- P.stepPeril(s,P.FLARE.life+1);assert.equal(s.flares.length,0);
+ P.stepPeril(s,P.FLARE.life+P.FLARE.release+2);assert.equal(s.flares.length,0);
+});
+test('a flare is struck in hand, thrown at the aim point and burns where it lands',async()=>{
+ const P=await import('./peril.js');const s=createState();s.inventory=createInventory({flare:2});
+ s.player={x:0,z:4,y:0,satiety:100,cave:0,facing:0};
+ assert.equal(P.throwFlare(s,{x:0,z:7}).ok,true);const f=s.flares[0];
+ assert.ok(Math.abs(f.x)<.01&&Math.abs(f.z-7)<.01,'lands on the aim point');
+ assert.equal(P.throwFlare(s,{x:0,z:7}).ok,false,'one throw at a time');
+ let n=P.flareNow(f,s.player);assert.equal(n.stage,'hand');assert.equal(n.lit,0,'dark until the cap is struck');
+ P.stepPeril(s,P.FLARE.strike+.2);n=P.flareNow(f,s.player);assert.equal(n.stage,'hand');assert.ok(n.lit>0,'lit in hand');
+ s.player.x=1;P.stepPeril(s,P.FLARE.release-P.FLARE.strike-.2+.01);n=P.flareNow(f,s.player);assert.equal(n.stage,'flight');assert.ok(Math.abs(n.x-1)<.1,'leaves from where the player stands');
+ P.stepPeril(s,f.flight);n=P.flareNow(f,s.player);assert.equal(n.stage,'down');assert.equal(n.x,f.x);
+ assert.ok(f.t>P.FLARE.life-.5,'burns its full life once down');
+ assert.equal(P.flareNow({x:1,z:2,t:20},s.player).stage,'down','older flares are already down');
 });

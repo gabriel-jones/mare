@@ -12,13 +12,14 @@ import {createWorld} from './world.js';
 import {createState,DEFS} from './sim.js';
 import {caveLayout} from './caves.js';
 import {movePlayer,resetLocomotion,interpolatePose} from './controller.js';
-import {stepPeril} from './peril.js';
+import {stepPeril,throwFlare} from './peril.js';
+import {add} from './inventory.js';
 import {createHunt,stepHunt,fire,roll,wrench,pinned,grabbedBy,reload,craftRounds} from './hunt.js';
 import {worldVectorToCave} from './cave-space.js';
 
 const params=new URLSearchParams(location.search),zone=Number(params.get('zone')??1);
 const state=createState(1847),start=caveLayout(state.seed,0,zone).start;
-Object.assign(state.player,{cave:0,zone,x:start.x*2,z:start.z*2+(zone?2:1),facing:0});resetLocomotion(state.player);
+Object.assign(state.player,{cave:0,zone,x:start.x*2,z:start.z*2+(zone?2:1),facing:0});resetLocomotion(state.player);add(state.inventory,'flare',6);
 const canvas=document.getElementById('game'),world=await createWorld(canvas,state),hunt=createHunt(),keys=new Set();
 let previous={...state.player},jumpVelocity=0,accumulator=0,last=performance.now(),aimClient=null;
 canvas.addEventListener('pointermove',e=>{aimClient={x:e.clientX,y:e.clientY};});
@@ -26,6 +27,7 @@ canvas.addEventListener('pointerdown',e=>{aimClient={x:e.clientX,y:e.clientY};fi
 addEventListener('keydown',e=>{const k=e.key.toLowerCase();keys.add(k);if(e.repeat)return;const p=state.player;
  if(k===' '){e.preventDefault();const dx=(keys.has('d')?1:0)-(keys.has('a')?1:0),dz=(keys.has('s')?1:0)-(keys.has('w')?1:0);const w=dx||dz?worldVectorToCave(state.seed,0,(dx+dz)*Math.SQRT1_2,(-dx+dz)*Math.SQRT1_2):{x:Math.sin(p.facing),z:Math.cos(p.facing)};roll(hunt,state,w.x,w.z);}
  if(k==='shift'&&!(p.y>0)&&!pinned(hunt))jumpVelocity=1.8;
+ if(k==='q')throwFlare(state,aimClient&&world.aim(aimClient.x,aimClient.y));
  if(k==='e')wrench(hunt,state);if(k==='r')reload(state);if(k==='c')craftRounds(state);});
 addEventListener('keyup',e=>keys.delete(e.key.toLowerCase()));
 function fixed(dt){
@@ -44,6 +46,9 @@ function frame(now){
  const g=state.player.gun;document.getElementById('note').textContent=`zone ${zone} · crawlers ${hunt.crawlers.map(c=>c.state).join(', ')}\nsuit ${Math.ceil(state.player.health??100)} · ammo ${g?.mag}/${g?.reserve}${grabbedBy(hunt)?' · GRABBED':''}${state.player.cave==null?' · BLACKED OUT':''}`;
  requestAnimationFrame(frame);
 }
-window.harness={state,hunt,world,keys,paused:false,aimAt(x,y){aimClient={x,y};},fire:()=>fire(hunt,state),roll:(x,z)=>roll(hunt,state,x,z),wrench:()=>wrench(hunt,state),step:(seconds)=>{for(let t=0;t<seconds;t+=1/30)fixed(1/30);},jump:()=>{jumpVelocity=1.8;}};
+window.harness={state,hunt,world,keys,paused:false,aimAt(x,y){aimClient={x,y};},fire:()=>fire(hunt,state),roll:(x,z)=>roll(hunt,state,x,z),wrench:()=>wrench(hunt,state),step:(seconds)=>{for(let t=0;t<seconds;t+=1/30)fixed(1/30);},jump:()=>{jumpVelocity=1.8;},
+ flare:(x,y)=>throwFlare(state,world.aim(x,y)),
+ /** Sim and render in lockstep, for stills of exact moments while the tab is in the background. */
+ advance:(seconds)=>{for(let t=0;t<seconds-1e-6;t+=1/30){fixed(1/30);world.update(state,1/30,interpolatePose(previous,state.player,1),null,hunt);}}};
 requestAnimationFrame(frame);
 </script></body></html>

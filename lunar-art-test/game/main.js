@@ -317,7 +317,7 @@ async function start(){
    else if(ship&&!ship.hold)notify(loadSatellite(state).reason);
    else if(k==='e'&&!mission&&!ship&&!nearby())useNearby();
    if(k==='f')eatSelected();
-   if(k==='q')notify(throwFlare(state).reason);
+   if(k==='q'){const r=throwFlare(state,aimClient&&world.aim(aimClient.x,aimClient.y)).reason;if(r)notify(r);}
    if(k==='x')notify(craftFlares(state).reason);
    if(k==='delete'||k==='backspace')cancel();
    if(/^[0-9]$/.test(k)){selectedSlot=(Number(k)+9)%10;ui.update(state,view());}
