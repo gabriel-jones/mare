@@ -84,6 +84,21 @@ export function takeSlot(state, crate, index, n = Infinity) {
   slot.count -= moved; if (!slot.count) crate.slots[index] = null;
   return { ok: true, reason: `Took ${moved} ${ITEM_INFO[item].name.toLowerCase()}.`, moved };
 }
+/** Moves a stack (or half) between any two slots of pockets and `crate`. `to.i` null drops it into
+ * whichever slots on that side take it. `from`/`to` are `{ crate: bool, i }`. */
+export function moveStack(state, crate, from, to, half = false) {
+  const side = s => (s.crate ? crate?.slots : state.inventory), a = side(from), b = side(to);
+  if (!a || !b) return { ok: false, reason: 'Open a crate first.' };
+  const slot = a[from.i];
+  if (!slot) return { ok: false, reason: 'That slot is empty.' };
+  if (a === b && (to.i == null || to.i === from.i)) return { ok: true, moved: 0, reason: '' };
+  const item = slot.item, n = half ? Math.ceil(slot.count / 2) : slot.count, target = to.i == null ? null : b[to.i];
+  let moved;
+  if (to.i == null) { moved = n - inv.add(b, item, n); slot.count -= moved; if (!slot.count) a[from.i] = null; }
+  else moved = inv.moveSlot(a, from.i, b, to.i, n);
+  if (!moved) return { ok: false, reason: target && target.item !== item ? 'Only a whole stack can swap places.' : target ? 'That stack is full.' : to.crate ? 'This crate is full.' : 'No room in your pockets.' };
+  return { ok: true, moved, reason: `Moved ${moved} ${ITEM_INFO[item].name.toLowerCase()}.` };
+}
 /** Stores everything carried except weapons, ammunition, flares and food. */
 export const KEEP = item => ['pistol', 'rifle', 'flamethrower', 'rounds', 'fuel', 'flare', 'medkit'].includes(item) || !!ITEM_INFO[item]?.food;
 export function storeAll(state, crate) {

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createState, placeBlueprint, tick, serialize, deserialize, deconstruct, validatePlacement, interact, DEFS } from './sim.js';
 import { count, createInventory } from './inventory.js';
-import { BASE_REACH, CRATE_SLOTS, baseCount, inReach, ledger, storeAll, storeSlot, takeSlot } from './storage.js';
+import { BASE_REACH, CRATE_SLOTS, baseCount, inReach, ledger, moveStack, storeAll, storeSlot, takeSlot } from './storage.js';
 import { craftFlares } from './peril.js';
 import { ensureBuildingState } from './production.js';
 
@@ -29,6 +29,23 @@ test('crates have slots, take any item, and open a transfer panel', () => {
   assert.equal(count(s.inventory, 'pistol') + count(s.inventory, 'rounds') + count(s.inventory, 'meal'), 1 + 24 + 3, 'weapons, ammo and food stay carried');
   assert.equal(count(s.inventory, 'metal') + count(s.inventory, 'silicon'), 0);
   assert.equal(baseCount(s, 'metal'), metal);
+});
+
+test('stacks drag between any slots: move, merge, swap and split', () => {
+  const s = createState(), crate = build(s, 'storage', 0, 2);
+  s.inventory = createInventory({ metal: 10, silicon: 4, pistol: 1 });
+  const at = item => s.inventory.findIndex(x => x?.item === item), metal = at('metal'), silicon = at('silicon');
+  assert.equal(moveStack(s, null, { crate: false, i: metal }, { crate: false, i: 7 }).moved, 10);
+  assert.equal(s.inventory[metal], null); assert.deepEqual(s.inventory[7], { item: 'metal', count: 10 });
+  moveStack(s, null, { crate: false, i: 7 }, { crate: false, i: silicon });
+  assert.deepEqual([s.inventory[7].item, s.inventory[silicon].item], ['silicon', 'metal'], 'different items swap');
+  assert.equal(moveStack(s, crate, { crate: false, i: silicon }, { crate: true, i: 5 }, true).moved, 5, 'shift moves half');
+  assert.deepEqual(crate.slots[5], { item: 'metal', count: 5 });
+  assert.equal(moveStack(s, crate, { crate: false, i: silicon }, { crate: true, i: 5 }).moved, 5, 'same items merge');
+  assert.equal(crate.slots[5].count, 10); assert.equal(s.inventory[silicon], null);
+  assert.equal(moveStack(s, crate, { crate: false, i: 7 }, { crate: true, i: 5 }, true).ok, false, 'half a stack cannot swap');
+  assert.equal(moveStack(s, crate, { crate: true, i: 5 }, { crate: false, i: null }).moved, 10, 'dropping on the hotbar fills free slots');
+  assert.equal(count(s.inventory, 'metal'), 10); assert.equal(count(crate.slots, 'metal'), 0);
 });
 
 test('building and crafting draw on pockets first, then the base stock while at the base', () => {

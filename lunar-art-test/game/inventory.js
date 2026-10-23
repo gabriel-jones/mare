@@ -27,6 +27,19 @@ export function remove(slots, item, n) {
   }
   return true;
 }
+/** Moves up to `n` from a[i] onto b[j]: fills an empty slot, tops up a matching stack, or swaps whole
+ * stacks of different items (a partial stack can't swap). Returns how many moved. */
+export function moveSlot(a, i, b, j, n = Infinity) {
+  const from = a[i], to = b[j];
+  if (!from || (a === b && i === j)) return 0;
+  let k = Math.min(n, from.count);
+  if (to && to.item !== from.item) { if (k < from.count) return 0; a[i] = to; b[j] = from; return k; }
+  if (to) k = Math.min(k, (ITEM_INFO[from.item]?.stack ?? 0) - to.count);
+  if (k <= 0) return 0;
+  if (to) to.count += k; else b[j] = { item: from.item, count: k };
+  from.count -= k; if (!from.count) a[i] = null;
+  return k;
+}
 export const canAfford = (slots, cost) => Object.entries(cost).every(([item, n]) => count(slots, item) >= n);
 /** Whether a refund of `cost` would fit alongside what is carried. */
 export function canFit(slots, goods) {

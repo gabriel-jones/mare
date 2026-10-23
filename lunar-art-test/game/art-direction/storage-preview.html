@@ -2,7 +2,7 @@
 // Isolated review of crate slots, goods on crate lids, the crate transfer panel and the base ledger. Never reads or writes colony saves.
 // ?ledger=1 opens the ledger alone (the I key); otherwise the first crate is open beside it.
 import{createWorld}from'../world.js';import{createState,tick,collectStorage}from'../sim.js';import{ensureBuildingState}from'../production.js';import{createInventory}from'../inventory.js';
-import{createUI}from'../ui.js';import{storeAll,storeSlot,takeSlot}from'../storage.js';
+import{createUI}from'../ui.js';import{moveStack,storeAll,storeSlot,takeSlot}from'../storage.js';
 const params=new URLSearchParams(location.search),state=createState();
 state.time=25;state.player.facing=Math.PI*.8;state.player.animation='idle';state.mission.installed=true;
 state.inventory=createInventory({metal:140,silicon:60,titanium:12,pistol:1,rounds:24,meal:3,flare:6});
@@ -19,7 +19,7 @@ tick(state,0);state.power.stored=state.power.capacity;tick(state,0);
 const base=document.createElement('base');base.href='../';document.head.append(base);
 const world=await createWorld(document.querySelector('canvas'),state);window.addEventListener('resize',world.resize);
 const crate=id=>state.buildings.find(b=>b.id===id),note=r=>ui.notify(r.reason);
-const ui=createUI(document.querySelector('#ui'),{onStore:(id,i,half)=>note(storeSlot(state,i,crate(id),half?Math.ceil(state.inventory[i].count/2):Infinity)),onTake:(id,i,half)=>note(takeSlot(state,crate(id),i,half?Math.ceil(crate(id).slots[i].count/2):Infinity)),onStoreAll:id=>note(storeAll(state,crate(id))),onTakeAll:id=>note(collectStorage(state,id))});
+const ui=createUI(document.querySelector('#ui'),{onMoveSlot:({crate:id,from,to,half})=>note(moveStack(state,crate(id),from,to,half)),onStore:(id,i,half)=>note(storeSlot(state,i,crate(id),half?Math.ceil(state.inventory[i].count/2):Infinity)),onTake:(id,i,half)=>note(takeSlot(state,crate(id),i,half?Math.ceil(crate(id).slots[i].count/2):Infinity)),onStoreAll:id=>note(storeAll(state,crate(id))),onTakeAll:id=>note(collectStorage(state,id))});
 if(params.has('ledger'))ui.toggleStock();else ui.openCrate(1);
 const view={selectedSlot:0,objective:null};
 window.harness={state,world,ui,view};

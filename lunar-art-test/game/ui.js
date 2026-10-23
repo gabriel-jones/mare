@@ -105,7 +105,7 @@ export function createUI(root, callbacks = {}) {
       <div class="crate-side">
         <header><strong class="crate-title"></strong><small class="crate-fill"></small></header>
         <div class="crate-slots">${Array.from({ length: CRATE_SLOTS }, (_, i) => `<button type="button" class="slot crate-slot" data-crate-slot="${i}"><span class="slot-icon"></span><strong></strong></button>`).join('')}</div>
-        <p class="crate-help">Click a slot here to take it · click your slots below to store · <kbd>Shift</kbd> moves half</p>
+        <p class="crate-help">Drag stacks between any slots · click to move straight across · <kbd>Shift</kbd> moves half</p>
         <div class="crate-actions"><button type="button" data-action="store-all" title="Everything except weapons, ammo, flares and food">Store all</button><button type="button" data-action="take-all">Take all</button><button type="button" data-action="close-store" aria-label="Close" title="Close (Esc)">×</button></div>
       </div>
       <div class="ledger-side">
@@ -222,7 +222,50 @@ export function createUI(root, callbacks = {}) {
       robotsPanel.querySelector(`[data-zone="${a.id}"] [data-field=zone]`).textContent = kind && left ? `${kind === 'ice' ? 'Ice' : 'Regolith'} · ${left} left${crew ? ` · ${crew} assigned` : ''}` : 'Exhausted';
     }
   }
+  // Dragging a stack: hotbar and crate slots are both sources and targets. A drop on empty panel
+  // space sends it to the first free slot on that side; a short press stays a click.
+  let drag = null, swallowClick = false;
+  const slotRef = el => el?.dataset.slot != null ? { crate: false, i: Number(el.dataset.slot) } : el?.dataset.crateSlot != null && crateId != null ? { crate: true, i: Number(el.dataset.crateSlot) } : null;
+  const dropRef = (x, y) => {
+    const el = document.elementFromPoint(x, y), slot = el?.closest('[data-slot],[data-crate-slot]');
+    if (slot) return slotRef(slot);
+    if (el?.closest('.hotbar')) return { crate: false, i: null };
+    if (crateId != null && el?.closest('.crate-side')) return { crate: true, i: null };
+    return null;
+  };
+  const onDown = event => {
+    if (event.button !== 0) return;
+    const el = event.target.closest('[data-slot],[data-crate-slot]'), from = slotRef(el);
+    if (!from || el.classList.contains('empty')) return;
+    drag = { from, el, x: event.clientX, y: event.clientY, half: event.shiftKey, ghost: null, id: event.pointerId };
+  };
+  const onMove = event => {
+    if (!drag || event.pointerId !== drag.id) return;
+    if (!drag.ghost) {
+      if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 6) return;
+      drag.ghost = document.createElement('div'); drag.ghost.className = 'slot-ghost';
+      const count = Number(drag.el.querySelector('strong').textContent || 1), n = drag.half ? Math.ceil(count / 2) : count;
+      drag.ghost.innerHTML = `${drag.el.querySelector('.slot-icon').innerHTML}${n > 1 ? `<strong>${n}</strong>` : ''}`;
+      root.append(drag.ghost); drag.el.classList.add('dragging'); root.classList.add('slot-dragging');
+    }
+    drag.ghost.style.transform = `translate(${event.clientX - 24}px,${event.clientY - 24}px)`;
+    root.querySelectorAll('.drop-target').forEach(e => e.classList.remove('drop-target'));
+    document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-slot],[data-crate-slot]')?.classList.add('drop-target');
+  };
+  const endDrag = event => {
+    if (!drag || event.pointerId !== drag.id) return;
+    const d = drag; drag = null;
+    if (!d.ghost) return;
+    d.ghost.remove(); d.el.classList.remove('dragging'); root.classList.remove('slot-dragging');
+    root.querySelectorAll('.drop-target').forEach(e => e.classList.remove('drop-target'));
+    swallowClick = true; setTimeout(() => { swallowClick = false; }, 0);
+    const to = event.type === 'pointerup' ? dropRef(event.clientX, event.clientY) : null;
+    if (to) callbacks.onMoveSlot?.({ crate: crateId, from: d.from, to, half: d.half || event.shiftKey });
+  };
+  root.addEventListener('pointerdown', onDown); window.addEventListener('pointermove', onMove);
+  window.addEventListener('pointerup', endDrag); window.addEventListener('pointercancel', endDrag);
   const onClick = event => {
+    if (swallowClick) { event.stopPropagation(); return; }
     const button = event.target.closest('button'); if (!button) return;
     if (button.dataset.station) { const id = Number(button.dataset.station); callbacks.onStation?.(button.dataset.make ? { id, make: button.dataset.make } : button.dataset.crop ? { id, crop: button.dataset.crop } : { id, recipe: button.dataset.recipe || null }); stationKey = ''; button.blur(); return; }
     if (button.dataset.crateSlot != null) { callbacks.onTake?.(crateId, Number(button.dataset.crateSlot), event.shiftKey); button.blur(); return; }
@@ -334,6 +377,6 @@ export function createUI(root, callbacks = {}) {
     /** A passing remark from the ship AI, shown over the current objective for a while. */
     say(text) { aiNote = { text, until: performance.now() + 14000 }; panel.classList.add('fresh'); clearTimeout(freshTimer); freshTimer = setTimeout(() => panel.classList.remove('fresh'), 4000); },
     notify(message) { clearTimeout(noticeTimer); notice.textContent = message; notice.hidden = false; noticeTimer = setTimeout(() => { notice.hidden = true; }, 2600); },
-    dispose() { clearTimeout(noticeTimer); clearTimeout(freshTimer); root.removeEventListener('click', onClick); root.removeEventListener('change', onChange); window.removeEventListener('keydown', onKey); root.replaceChildren(); root.classList.remove('game-ui'); },
+    dispose() { clearTimeout(noticeTimer); clearTimeout(freshTimer); root.removeEventListener('click', onClick); root.removeEventListener('change', onChange); window.removeEventListener('keydown', onKey); root.removeEventListener('pointerdown', onDown); window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', endDrag); window.removeEventListener('pointercancel', endDrag); drag?.ghost?.remove(); root.replaceChildren(); root.classList.remove('game-ui'); },
   };
 }
