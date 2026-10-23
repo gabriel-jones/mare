@@ -92,10 +92,10 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
 
  const localOf=(o,v=new THREE.Vector3())=>caveView.root.worldToLocal(o.getWorldPosition(v));
  let bodyYaw=null,turning=false,act=null,strain=0,wasAirborne=false,flicker=0,stutter=0,shake=0,hurtFlash=0,lastHealth=null,pending=[];
- const wisps=new Map(),wispFrom=new THREE.Vector3();
+ const wisps=new Map(),wispFrom=new THREE.Vector3(),burns=new Map();
 
  function play(clip,rate=1){if(act?.clip===clip)actor.restart();act={clip,t:0,len:actor.duration(clip)/rate,rate};}
- function clearViews(){views.forEach(v=>v.view.dispose());views.clear();wisps.clear();}
+ function clearViews(){views.forEach(v=>v.view.dispose());views.clear();wisps.clear();burns.clear();}
  function clearEffects(){bullets.forEach(b=>{b.live=false;b.mesh.visible=false;});hideCases();ichor.clear();sparks.clear();dust.clear();smoke.clear();flares.clear();flash.material.opacity=0;impactFlash.material.opacity=0;muzzleLight.intensity=0;jet.clear();pending=[];}
 
  /** The cave the player is now in. Effects move into its space; crawlers of the last cave are dropped. */
@@ -106,7 +106,7 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
   view.root.add(fx);view.root.updateMatrixWorld(true);
   toCave.value.copy(view.root.matrixWorld).invert();
   viewDir.value.set(26,34,26).normalize().applyAxisAngle(UP,-view.root.rotation.y);
-  hive?.dispose();hive=cave?createHiveView(view,cave,{zone:state.player.zone??0,toCave,viewDir,smoke}):null;
+  hive?.dispose();hive=cave?createHiveView(view,cave,{zone:state.player.zone??0,toCave,viewDir,smoke,fire:jet}):null;
  }
  function leave(){
   if(!caveView)return;
@@ -235,21 +235,29 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
    for(;clock>1;clock--)smoke.emit(wispFrom.copy(at),v.vel,s==='dead'?.6:.15);
    wisps.set(c,clock);
   }
-  hive?.update(state,dt);
+  hive?.update(state,dt,hunt.flame?.points??[]);
   smoke.update(dt,viewDir.value);
   if(cave)flares.update(state,dt,{root:caveView.root,actor});
   // The flamethrower: the jet from the nozzle out to where the sim says it stops, and fire on whatever is burning.
   const weapon=heldWeapon(state);
   if(hunt.flame&&weapon==='flamethrower'){
    const nozzle=localOf(actor.marker('Nozzle')),ahead=localOf(actor.marker('NozzleAhead')).sub(nozzle).normalize();
-   const pts=hunt.flame.points,reach=pts.length?Math.hypot(pts.at(-1).x-p.x,pts.at(-1).z-p.z)+.5:.4;
-   jet.emit(nozzle,ahead,reach,dt);shake=Math.max(shake,.025);flicker=Math.max(flicker,.02);
+   const pts=hunt.flame.points,full=Math.floor((WEAPONS.flamethrower.range-.9)/.7)+1,reach=pts.length?Math.hypot(pts.at(-1).x-p.x,pts.at(-1).z-p.z)+.5:.4;
+   jet.emit(nozzle,ahead,reach,dt,pts.length<full);shake=Math.max(shake,.025);flicker=Math.max(flicker,.02);
   }
+  // Whatever the jet touches catches: it burns on for a while after, chars, and dies as a pyre.
   for(const c of [...hunt.crawlers,...(cave?[]:state.brood??[])]){
-   const burning=c.scorched>0;if(burning)c.burntAt=c.t;
-   if(!burning&&!(c.state==='dead'&&c.burntAt!=null&&c.t<1.4))continue;
-   const v=viewFor(c);if(v)jet.ignite(v.position,burning?1:.5,dt);
+   const v=viewFor(c);if(!v?.burning)continue;
+   let b=burns.get(c);
+   if(!b){if(!(c.scorched>0))continue;b={heat:0,char:0,alive:true};burns.set(c,b);}
+   const dead=c.state==='dead';
+   if(c.scorched>0)b.heat=Math.min(1,b.heat+dt*5);else b.heat=Math.max(0,b.heat-dt*(dead?.17:.4));
+   if(dead&&b.alive){b.alive=false;if(b.heat>.15){b.heat=1;const at=v.position;for(let i=0;i<40;i++)jet.ember(at,.6,4.5);}}
+   b.char=Math.min(1,b.char+dt*b.heat*.45);
+   v.burn?.(b.heat,b.char);
+   if(b.heat>.03)jet.blaze(c,{points:()=>viewFor(c)?.burning?.()??null,radius:dead?.2:.13,height:dead?1.1:.75,strength:b.heat*(dead?1.5:1.1),life:.35,smoke:dead?1.5:.8,scorch:dead?1.6:0,billow:dead?.6:.15});
   }
+  for(const c of burns.keys())if(!hunt.crawlers.includes(c)&&!(state.brood??[]).includes(c))burns.delete(c);
   jet.update(dt,{pilotAt:weapon==='flamethrower'?localOf(actor.marker('Pilot')):null});
   hudUpdate(state,hunt,dt);
   shake=Math.max(0,shake-dt);
@@ -278,6 +286,9 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
   // Night eyes steady the lamp.
   if(buffed(p,'sight'))sight.uFlicker.value=1-(1-sight.uFlicker.value)*.35;
   headlamp.intensity=145*sight.uFlicker.value;
+  // Fire lights the rock round it: the brightest fires take over the cave's farthest glow slots.
+  const glow=sight.uGlow.value,glowColor=sight.uGlowColor.value;
+  jet.glows.slice(0,3).forEach((g,i)=>{const k=glow.length-1-i,f=.85+Math.random()*.3;glow[k].set(g.x,g.z,Math.min(2,g.strength*.7)*f,3.5+Math.min(3.5,g.strength*1.4));glowColor[k].setRGB(1,.3,.06);});
  }
  function hudUpdate(state,hunt,dt){
   const p=state.player,health=p.health??100;if(lastHealth!=null&&health<lastHealth)hurtFlash=Math.min(1,hurtFlash+(lastHealth-health)/14);lastHealth=health;

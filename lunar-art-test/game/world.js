@@ -231,7 +231,8 @@ export async function createWorld(canvas, initialState) {
   // Weapons drawn on the surface fire in surfaceFx, where sim x,z are local x,z; hatchlings are found in their holders.
   const surfaceSpace={root:surfaceFx,surface:true},broodAt=new THREE.Vector3();
   const broodLookup=c=>{const v=broodViews.get(c);if(!v)return null;
-    return {position:broodAt.copy(v.view.position).multiplyScalar(HATCHLING).add(v.holder.position),hit:(at,dir)=>v.view.hit(at.clone().sub(v.holder.position).divideScalar(HATCHLING),dir)};};
+    return {position:broodAt.copy(v.view.position).multiplyScalar(HATCHLING).add(v.holder.position),hit:(at,dir)=>v.view.hit(at.clone().sub(v.holder.position).divideScalar(HATCHLING),dir),
+      burn:(h,c)=>v.view.burn(h,c),burning:()=>v.view.burning().map(p=>p.clone().multiplyScalar(HATCHLING).add(v.holder.position))};};
   const combat=actor&&crawlerGLTF?createCombatView({actor,player,headlamp,crawlerGLTF,lookup:broodLookup}):null;
   const gooView=createGooView(scene,(x,z)=>habitatView.floorAt(state,x,z)??heightAt(state.seed,x,z));
   function updateSurfaceHunt(dt,underground){

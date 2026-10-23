@@ -133,7 +133,7 @@ function stalk(a,b,r0,r1){
 const bead=(at,r)=>new THREE.SphereGeometry(r,8,6).translate(at.x,at.y,at.z);
 const merged=(parts,uv)=>{if(!parts.length)return null;const g=mergeGeometries(parts.map(p=>{const q=p.index?p.toNonIndexed():p;if(!uv)q.deleteAttribute('uv');q.deleteAttribute('uv1');return q;}));parts.forEach(p=>p.dispose());return g;};
 
-export function createHiveView(caveView,cave,{zone,toCave,viewDir,smoke}){
+export function createHiveView(caveView,cave,{zone,toCave,viewDir,smoke,fire=null}){
  const root=new THREE.Group();root.name='hive';caveView.root.add(root);
  const sight=caveView.sight,owned=[],keep=x=>(x&&owned.push(x),x);
  const time={value:0},beat={value:0},shared={uTime:time,uSag:{value:new THREE.Vector3()},uPulse:{value:0}};
@@ -220,13 +220,29 @@ export function createHiveView(caveView,cave,{zone,toCave,viewDir,smoke}){
   view.root.position.set(n.x*C+n.dx,0,n.z*C+n.dz);view.root.rotation.y=Math.atan2(-n.dx,-n.dz);return {n,view,burnt:null};});
 
  const from=new THREE.Vector3(),carry=new THREE.Vector3();
- function update(state,dt){
+ // A nest goes up from the throat outward: a roaring column out of the mouth, flames all over the mound.
+ const nestFire=s=>{
+  const r=s.view.root,out=new THREE.Vector3(-s.n.dx,0,-s.n.dz).normalize(),side=new THREE.Vector3(-out.z,0,out.x),pts=[];
+  for(let i=0;i<9;i++){const a=(i/9-.5)*2.4,d=.15+(i%3)*.35;pts.push(new THREE.Vector3(r.position.x+out.x*d+side.x*a*.55,.15+(i%2)*.55+Math.random()*.3,r.position.z+out.z*d+side.z*a*.55));}
+  fire.blaze(`nest:${s.n.key}`,{points:pts,radius:.55,height:2.1,strength:2.6,life:8,smoke:2.4,scorch:2.2,billow:2.2});
+  for(let i=0;i<60;i++)fire.ember(pts[i%pts.length],.8,6);
+ };
+ // Points on each silk sheet, for flames to run along the burning front.
+ const sheetPoints=m=>{const pos=m.geometry.attributes.position,uv=m.geometry.attributes.uv,out=[];for(let i=0;i<pos.count;i+=2)out.push({p:new THREE.Vector3().fromBufferAttribute(pos,i),u:uv.getX(i),v:uv.getY(i)});return out;};
+ const lickFront=(s,u,size,dt,rate)=>{
+  if(!fire||!s.sheet)return;
+  const front=s.burnT*1.3,ig=u.uIgnite.value,sz=u.uSize.value;
+  for(let n=dt*rate;n>0;n--){if(n<1&&Math.random()>n)break;
+   for(let tries=0;tries<6;tries++){const q=s.sheet[Math.floor(Math.random()*s.sheet.length)],d=Math.hypot((q.u-ig.x)*sz.x,(q.v-ig.y)*sz.y);
+    if(Math.abs(d-front+.05)<.35){fire.lick(q.p,size*(.7+Math.random()*.6),.75,1.6);if(Math.random()<.3)fire.ember(q.p,.2,2);break;}}}
+ };
+ function update(state,dt,flame=[]){
   time.value+=dt;const ph=time.value%BEAT;beat.value=Math.exp(-((ph/.09)**2))+.55*Math.exp(-(((ph-.3)/.1)**2));
   const p=state.player,id=p.cave;
   for(const s of nests){
    const burnt=isBurnt(state,id,zone,s.n.key);
    if(s.burnt===null&&burnt){s.view.burn();s.view.update(9,{});}
-   else if(burnt&&!s.burnt)s.view.burn();
+   else if(burnt&&!s.burnt){s.view.burn();if(fire)nestFire(s);}
    else if(!burnt&&s.burnt)s.view.reset();
    s.burnt=burnt;
    const d=Math.hypot(p.x-(s.n.x*C+s.n.dx),p.z-(s.n.z*C+s.n.dz));
@@ -241,6 +257,8 @@ export function createHiveView(caveView,cave,{zone,toCave,viewDir,smoke}){
    else if(!burnt&&s.burnt){s.burnT=-1;u.uGrow.value=0;}
    s.burnt=burnt;
    if(s.burnT>=0){s.burnT+=dt;
+    s.sheet??=sheetPoints(s.mesh);if(s.burnT<4.6)lickFront(s,u,.5,dt,240);
+    if(fire&&s.burnT<dt*1.5)fire.blaze(`silk:${s.key}`,{points:[new THREE.Vector3(s.x,.05,s.z)],radius:.7,height:1,strength:.8,life:4.8,smoke:1.2,scorch:1.8});
     // Smoke off the burning silk.
     if(smoke?.space&&s.burnT<4.5&&Math.random()<dt*24){const a=(Math.random()-.5)*s.D,t=(Math.random()-.5)*s.W;
      from.set(s.x+(s.along?a:t),Math.random()*s.H,s.z+(s.along?t:a));carry.set(0,1.5,0);smoke.emit(from,carry,.3,.4);}
@@ -248,10 +266,11 @@ export function createHiveView(caveView,cave,{zone,toCave,viewDir,smoke}){
    u.uBurn.value=s.burnT>=0?s.burnT:-1;s.mesh.visible=s.burnT<5.5;
    if(u.uGrow.value<1)u.uGrow.value=Math.min(1,u.uGrow.value+dt/5);
   }
-  const fires=(state.flares??[]).map(f=>flareNow(f,p)).filter(n=>n.stage==='down'&&n.lit>0);
+  const fires=[...(state.flares??[]).map(f=>flareNow(f,p)).filter(n=>n.stage==='down'&&n.lit>0),...flame];
   for(const w of webs){
    if(w.burnT<0&&fires.some(f=>Math.hypot(f.x-w.x,f.z-w.z)<1.8))w.burnT=0;
-   if(w.burnT>=0){w.burnT+=dt;w.mesh.material.uniforms.uBurn.value=w.burnT;w.mesh.visible=w.burnT<2.5;}
+   if(w.burnT>=0){w.burnT+=dt;const u=w.mesh.material.uniforms;u.uBurn.value=w.burnT;w.mesh.visible=w.burnT<2.5;
+    w.sheet??=sheetPoints(w.mesh);if(w.burnT<2)lickFront(w,u,.2,dt,60);}
   }
  }
  return {root,update,dispose(){nests.forEach(s=>s.view.dispose());caveView.root.remove(root);owned.forEach(o=>o.dispose());}};

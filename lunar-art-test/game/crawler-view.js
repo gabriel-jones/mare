@@ -45,6 +45,17 @@ vec3 gooNormal(vec3 p,vec3 n){float e=.01,d=gooD(p);vec3 g=vec3(gooD(p+vec3(e,0,
  // Wet in patches, dulled skin between, slowly drifting.
  shader.fragmentShader=shader.fragmentShader.replace('#include <common>','#include <common>\nuniform float uTime;varying vec3 vGoo;\nfloat gooWet(){return smoothstep(-.2,.6,sin(vGoo.x*23.+uTime*.4)*sin(vGoo.z*19.-uTime*.3)+sin(vGoo.y*31.+vGoo.x*7.)*.45);}');
  if(shader.fragmentShader.includes('#include <roughnessmap_fragment>'))shader.fragmentShader=shader.fragmentShader.replace('#include <roughnessmap_fragment>','#include <roughnessmap_fragment>\nroughnessFactor=mix(.62,.16,gooWet());');
+ // Burning: the goo chars to a dull ash-black crust that cracks open on glowing heat underneath.
+ shader.uniforms.uHeat??={value:0};shader.uniforms.uChar??={value:0};
+ shader.fragmentShader=shader.fragmentShader.replace('#include <common>','#include <common>\nuniform float uHeat;uniform float uChar;')
+  .replace('#include <opaque_fragment>',`#include <opaque_fragment>
+   if(uChar+uHeat>.001){
+    vec3 g=vGoo*vec3(38.,44.,40.);
+    float n=sin(g.x+sin(g.z*.9+uTime*.3)*2.1)*sin(g.z+sin(g.y*1.1)*2.3)*sin(g.y*1.2+sin(g.x*.8)*1.7);
+    float crack=smoothstep(.82,.99,1.0-abs(n)),pulse=.65+.35*sin(uTime*11.+g.x*.4+g.z*.3);
+    gl_FragColor.rgb=mix(gl_FragColor.rgb,vec3(.045,.038,.034)+gl_FragColor.rgb*.25,uChar*.85);
+    gl_FragColor.rgb+=vec3(1.,.32,.05)*(crack*2.2+.18)*uHeat*pulse+vec3(1.,.55,.2)*crack*uChar*.12;
+   }`);
 }
 
 /**
@@ -103,7 +114,8 @@ export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=n
  const root=new THREE.Group(),time={value:0},owned=[];parent.add(root);
  const keep=x=>(owned.push(x),x);
  const sag={value:new THREE.Vector3()},pulse={value:0};
- const shared={uTime:time,uSag:sag,uPulse:pulse};
+ const heat={value:0},char={value:0};
+ const shared={uTime:time,uSag:sag,uPulse:pulse,uHeat:heat,uChar:char};
  const ink=(amount,body=false)=>keep(gooInk({mode,shared,sight,toCave,viewDir},amount,body));
  // Teeth are black needles; only a wet glint picks them out from the goo.
  const bone=mode==='studio'?keep(new THREE.MeshStandardMaterial({color:'#060607',roughness:.12,envMapIntensity:1.6})):keep(new THREE.MeshBasicMaterial({color:'#0b0b0d',fog:false}));
@@ -366,5 +378,14 @@ export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=n
  }
  /** Snap to the next update's position instead of gliding there, for spawns and respawns. */
  function reset(){started=false;legs.forEach(l=>{l.step=0;l.free=false;});}
- return {root,body,legs,update,reset,hit,get position(){return body.position;},dispose(){parent.remove(root);owned.forEach(o=>o.dispose());drops.dispose();splats.dispose();}};
+ /** How hot it is burning (0–1) and how charred it is (0–1). */
+ function burn(h,c){heat.value=h;char.value=c;}
+ /** Where flames take hold, in the root's space: the body and every knee and ankle. */
+ const burnPoints=Array.from({length:21},()=>new THREE.Vector3()),shellAt=[[0,.05,0],[.1,.12,.12],[-.1,.12,.12],[.08,.1,-.14],[-.08,.1,-.14]];
+ function burning(){
+  // The body burns hardest: five points over the shells, then every knee and ankle.
+  shellAt.forEach((o,i)=>burnPoints[i].set(o[0],o[1],o[2]).applyQuaternion(body.quaternion).add(body.position));
+  legs.forEach((l,i)=>{burnPoints[5+i*2].copy(l.knee);burnPoints[6+i*2].copy(l.ankle);});return burnPoints;
+ }
+ return {root,body,legs,update,reset,hit,burn,burning,get position(){return body.position;},dispose(){parent.remove(root);owned.forEach(o=>o.dispose());drops.dispose();splats.dispose();}};
 }
