@@ -12,6 +12,7 @@ export const CRAWLER=Object.freeze({
  speed:{lurk:1.3,stalk:2.6,close:3.6,flee:8,drag:1.7},
  sense:24,ring:8,darkRing:4.5,patience:[3.5,6.5],
  lungeRange:[2.5,7],lungeSpeed:14,lungeTime:.42,shriekTime:.9,quickShriek:.55,recoverTime:1,
+ throwDelay:.15,throwTime:.35,throwSpeed:7.5,
  burnRate:1.3,burnCool:.6,evadeTime:.5,evadeSpeed:6.5,evadeCooldown:1.1,provoked:5.5,
  recoilTime:.55,hitTime:.35,fleeTime:2.4,deathTime:1.4,
  grabDamage:7,slashDamage:16,shortTime:5,escapePerPress:.13,escapeDecay:.35,escapePerShot:.3,
@@ -170,7 +171,13 @@ export function stepCrawler(c,env,dt,rng=Math.random){
    if(c.t>=CRAWLER.evadeTime){enter(c,'stalk',rng);c.goal=null;}
    break;}
   case 'recoil':
-   c.speed=0;if(c.t>=CRAWLER.recoilTime){enter(c,'flee',rng);c.goal=null;}break;
+   c.speed=0;
+   // Torn off the helmet: it hangs on a moment while the astronaut wrenches, then is flung out ahead of them.
+   if(c.thrown&&c.t>CRAWLER.throwDelay&&c.t<CRAWLER.throwDelay+CRAWLER.throwTime){
+    const step=CRAWLER.throwSpeed*dt,nx=c.x+Math.sin(c.thrown.facing)*step,nz=c.z+Math.cos(c.thrown.facing)*step;
+    if(walkable(cave,nx,nz)){c.x=nx;c.z=nz;c.speed=CRAWLER.throwSpeed;}
+   }
+   if(c.t>=CRAWLER.recoilTime+(c.thrown?CRAWLER.throwTime:0)){c.thrown=null;enter(c,'flee',rng);c.goal=null;}break;
   case 'hit':
    c.speed=0;if(c.t>=CRAWLER.hitTime){
     const next=c.after??'stalk';c.after=null;
@@ -186,11 +193,11 @@ export function stepCrawler(c,env,dt,rng=Math.random){
  return events;
 }
 
-/** A struggle key press while held. Returns true when the player breaks free. */
-export function struggle(c,amount=CRAWLER.escapePerPress){
+/** A struggle key press while held. Returns true when the player breaks free; pass the player's facing to throw it. */
+export function struggle(c,amount=CRAWLER.escapePerPress,facing=null){
  if(c.state!=='grab')return false;
  c.escape+=amount;if(c.escape<1)return false;
- enter(c,'recoil',Math.random);return true;
+ enter(c,'recoil',Math.random);c.thrown=facing==null?null:{facing};return true;
 }
 
 /** Damage from a shot. Doubled while it rears or recovers from a missed lunge; a hit during the shriek breaks the attack. */

@@ -27,6 +27,7 @@ input[type=range]{width:100%;accent-color:#8a70ff}
 <div class="bar"><b>CRAWLER LAB</b><button id="tab-specimen" class="on">Specimen</button><button id="tab-hunt">Hunt</button><button id="sound">Sound: off</button></div>
 <div class="panel" id="specimen-panel">
  <h3>Poses</h3><div class="clips" id="clips"></div>
+ <h3>Astronaut</h3><div class="clips" id="astro-clips"></div>
  <div class="row"><button id="play">Replay</button><span id="frame" style="font:11px ui-monospace,monospace;color:#9fb0c4"></span></div>
  <div class="row"><button data-speed="0.25">¼×</button><button data-speed="0.5">½×</button><button data-speed="1" class="on">1×</button></div>
  <h3 style="margin-top:12px">View</h3>
@@ -39,7 +40,7 @@ input[type=range]{width:100%;accent-color:#8a70ff}
  <div class="row"><button id="mode-watch" class="on">Watch dummy</button><button id="mode-play">Play</button></div>
  <div class="row"><button id="respawn">Reset</button><button id="behind">Spawn behind</button></div>
  <div class="keys" id="keys">
-  <kbd>WASD</kbd><span>move</span><kbd>Mouse</kbd><span>aim lamp and pistol</span><kbd>Click</kbd><span>fire</span><kbd>Space</kbd><span>dodge roll</span>
+  <kbd>WASD</kbd><span>move</span><kbd>Mouse</kbd><span>aim lamp and pistol</span><kbd>Click</kbd><span>fire</span><kbd>Space</kbd><span>dodge roll</span><kbd>Shift</kbd><span>jump</span>
   <kbd>E</kbd><span>struggle when grabbed</span><kbd>Q</kbd><span>throw flare</span><kbd>R</kbd><span>reload</span><kbd>C</kbd><span>craft 4 rounds (1 metal)</span><kbd>X</kbd><span>craft 3 flares (2 metal)</span>
  </div>
  <div class="readout" id="readout"></div>
@@ -67,7 +68,7 @@ const params=new URLSearchParams(location.search),$=id=>document.getElementById(
 const canvas=$('lab'),renderer=new THREE.WebGLRenderer({canvas,antialias:true});
 renderer.setPixelRatio(Math.min(devicePixelRatio||1,1.75));renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.1;renderer.shadowMap.enabled=true;
 const loader=new GLTFLoader();
-const [crawlerGLTF,astronautGLTF]=await Promise.all([loader.loadAsync('../assets/crawler.glb'),loader.loadAsync('../assets/astronaut-v2.glb')]);
+const [crawlerGLTF,astronautGLTF]=await Promise.all([loader.loadAsync('../assets/crawler.glb'),loader.loadAsync('../assets/astronaut-v3.glb')]);
 
 // ---------------- Specimen ----------------
 const studio=new THREE.Scene();studio.background=new THREE.Color('#0b1018');
@@ -91,7 +92,13 @@ const poseButtons=new Map();
 for(const name of Object.keys(POSES)){const b=document.createElement('button');b.textContent=name[0].toUpperCase()+name.slice(1);b.onclick=()=>selectPose(name);$('clips').append(b);poseButtons.set(name,b);}
 function selectPose(name){pose=name;poseButtons.forEach((b,n)=>b.classList.toggle('on',n===name));phase=0;phaseT=0;Object.assign(stand,{x:0,z:name==='attack'?-2.2:0,facing:0,state:'idle',t:0,speed:0});lap=0;}
 selectPose(pose);
-$('play').onclick=()=>selectPose(pose);
+/** The astronaut beside the specimen: `auto` reacts to the pose (struggles under a grab, flinches from a slash), the rest loop one clip. */
+const ASTRO=['auto','aimidle','aimwalk','aimrun','fire','hurt','roll','jump','land','struggle','throwoff','collapse'],astroButtons=new Map();
+let refClip=params.get('astro')??'auto',refT=0;
+for(const name of ASTRO){const b=document.createElement('button');b.textContent=name==='aimidle'?'Aim':name==='aimwalk'?'Walk':name==='aimrun'?'Run':name==='throwoff'?'Throw off':name[0].toUpperCase()+name.slice(1);b.onclick=()=>selectAstro(name);$('astro-clips').append(b);astroButtons.set(name,b);}
+function selectAstro(name){refClip=name;refT=0;astroButtons.forEach((b,n)=>b.classList.toggle('on',n===name));reference.restart();}
+selectAstro(refClip);
+$('play').onclick=()=>{selectPose(pose);selectAstro(refClip);};
 document.querySelectorAll('[data-speed]').forEach(b=>b.onclick=()=>{speed=Number(b.dataset.speed);document.querySelectorAll('[data-speed]').forEach(x=>x.classList.toggle('on',x===b));});
 $('turntable').onchange=e=>orbit.autoRotate=e.target.checked;
 $('scale').onchange=e=>reference.root.visible=e.target.checked;
@@ -105,9 +112,14 @@ function updateStudio(dt){
   if(phaseT>=length){phaseT=0;phase=(phase+1)%p.loop.length;if(phase===0&&pose==='attack')stand.z=-2.2;}}
  else{stand.state='idle';stand.speed=0;}
  // The astronaut stands where the attacks land, or off to the side for scale.
- const target=pose==='grab'||pose==='slash'||pose==='attack';
+ const target=refClip==='auto'&&(pose==='grab'||pose==='slash'||pose==='attack');
  reference.root.position.set(target?0:-2.2,0,target?1.3:-.6);reference.root.rotation.y=target?Math.PI:.5;
- orbit.update();specimen.update(stand,step,{player:{x:reference.root.position.x,z:reference.root.position.z}});reference.update({animation:'idle'},step);
+ orbit.update();specimen.update(stand,step,{player:{x:reference.root.position.x,z:reference.root.position.z}});
+ let anim=refClip==='fire'?'aimidle':refClip;refT+=step;
+ if(refClip==='auto')anim=pose==='grab'?'struggle':pose==='slash'&&stand.state==='slash'?'hurt':'aimidle';
+ else if(refClip==='fire'){if(refT>.6){refT=0;reference.fire();}}
+ else if(refT>reference.duration(refClip)+.8){refT=0;reference.restart();}
+ reference.update({animation:anim,gun:true,speed:anim==='aimwalk'?2.7:anim==='aimrun'?4.8:0},step);
  $('frame').textContent=stand.state;
  renderer.render(studio,studioCam);
 }
@@ -122,17 +134,25 @@ const view=createCaveView(SEED,CAVE_ID,hunt,ZONE);view.root.rotation.y=angle;vie
 const toCave={value:new THREE.Matrix4().copy(view.root.matrixWorld).invert()};
 hunt.add(new THREE.HemisphereLight('#3a4a66','#0a0a10',.25));
 // The astronaut is lit the way the game lights it underground.
-const player=new THREE.Group(),roll=new THREE.Group();roll.position.y=.85;player.add(roll);view.root.add(player);
-const actor=createAstronaut(astronautGLTF);actor.root.position.y=-.85;roll.add(actor.root);
+const player=new THREE.Group();view.root.add(player);
+const actor=createAstronaut(astronautGLTF);player.add(actor.root);
 actor.root.traverse(o=>{if(o.isMesh){o.material=o.material.clone();o.material.color.multiplyScalar(.3);o.material.envMapIntensity=.05;}});
 const suitFill=new THREE.PointLight('#bddaff',9,6,2);suitFill.position.set(0,2,0);player.add(suitFill);
 const headlamp=new THREE.SpotLight('#cfe8ff',145,20,.52,.65,1.5);headlamp.position.set(0,1.55,.25);const lampTarget=new THREE.Object3D();lampTarget.position.set(0,.1,9);player.add(lampTarget,headlamp);headlamp.target=lampTarget;
 // Toward the isometric camera, in cave coordinates; the crawler's wet highlights are computed against it.
 const viewDir={value:new THREE.Vector3(104,136,104).normalize().applyAxisAngle(THREE.Object3D.DEFAULT_UP,-angle)};
 const beast=createCrawlerView(crawlerGLTF,view.root,{mode:'sight',sight:view.sight,toCave,viewDir});
-// Shot tracers and muzzle flash.
-const tracerGeo=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3(0,0,1)]);
-const tracer=new THREE.Line(tracerGeo,new THREE.LineBasicMaterial({color:'#ffe2a8',transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false}));tracer.frustumCulled=false;view.root.add(tracer);
+// Muzzle flash, bullets, brass.
+const localOf=(o,v=new THREE.Vector3())=>view.root.worldToLocal(o.getWorldPosition(v));
+const muzzleLight=new THREE.PointLight('#ffc27a',0,7,2);view.root.add(muzzleLight);
+const BULLET_SPEED=90,bulletGeo=new THREE.CylinderGeometry(.03,.012,1,6).rotateX(Math.PI/2);
+const bullets=Array.from({length:8},()=>{const mesh=new THREE.Mesh(bulletGeo,new THREE.MeshBasicMaterial({color:'#ffdcaa',transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));mesh.visible=false;mesh.frustumCulled=false;view.root.add(mesh);
+ return {mesh,from:new THREE.Vector3(),to:new THREE.Vector3(),dir:new THREE.Vector3(),travelled:0,length:0,live:false,hit:null,target:null};});
+const CASES=40,caseMesh=new THREE.InstancedMesh(new THREE.CylinderGeometry(.03,.03,.1,8),new THREE.MeshBasicMaterial(),CASES);caseMesh.frustumCulled=false;caseMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);view.root.add(caseMesh);
+const cases=Array.from({length:CASES},()=>({p:new THREE.Vector3(),v:new THREE.Vector3(),q:new THREE.Quaternion(),lie:new THREE.Quaternion(),spin:new THREE.Vector3(),age:99,bounces:0}));
+const brass=new THREE.Color('#4a3a1c'),hotBrass=new THREE.Color('#ffd08a'),caseColor=new THREE.Color(),caseMatrix=new THREE.Matrix4(),spinQ=new THREE.Quaternion(),one=new THREE.Vector3(1,1,1);
+for(let i=0;i<CASES;i++){caseMesh.setColorAt(i,brass);caseMesh.setMatrixAt(i,caseMatrix.makeScale(0,0,0));}
+let nextCase=0;
 const flashTex=(()=>{const c=document.createElement('canvas');c.width=c.height=64;const g=c.getContext('2d'),f=g.createRadialGradient(32,32,0,32,32,32);f.addColorStop(0,'rgba(255,240,200,1)');f.addColorStop(.3,'rgba(255,170,80,.5)');f.addColorStop(1,'rgba(255,120,40,0)');g.fillStyle=f;g.fillRect(0,0,64,64);return new THREE.CanvasTexture(c);})();
 const flash=new THREE.Sprite(new THREE.SpriteMaterial({map:flashTex,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,opacity:0}));flash.scale.setScalar(1.4);view.root.add(flash);
 /** Soft particles. Additive ones glow; the others are drawn as darkness over the scene (smoke, spattered goo). */
@@ -151,17 +171,20 @@ function particles(count,{additive,color,size}){
  };
 }
 const ink=particles(60,{additive:false,color:'#040406',size:22}),ichor=particles(80,{additive:false,color:'#020203',size:10});
+const sparks=particles(60,{additive:true,color:'#ffb066',size:7}),dust=particles(40,{additive:true,color:'#2c323c',size:30});
+const impactFlash=new THREE.Sprite(new THREE.SpriteMaterial({map:flashTex,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,opacity:0}));impactFlash.scale.setScalar(.9);view.root.add(impactFlash);
 const aimMarker=new THREE.Mesh(new THREE.RingGeometry(.18,.24,24).rotateX(-Math.PI/2),new THREE.MeshBasicMaterial({color:'#ffcf9a',transparent:true,opacity:.6,depthWrite:false}));aimMarker.position.y=.05;view.root.add(aimMarker);
 
 const rand=Math.random;
 let wispClock=0;
-let crawler,gun,dodge,health,hurtPause,lampShort,metal,flareStock,stutter=0,blackout=0,watch=!params.has('play'),hurtFlash=0,flicker=0,shakeT=0,tracerT=0;
+let crawler,gun,dodge,health,hurtPause,lampShort,metal,flareStock,stutter=0,blackout=0,watch=!params.has('play'),hurtFlash=0,flicker=0,shakeT=0,pendingShot=null,strain=0,act=null;
+const hop={t:0},JUMP=.55,LAND=.3;
 const aim={x:0,z:1};let mouse={x:innerWidth/2,y:innerHeight/2};const keys=new Set();
 function spawnAt(x,z){crawler=createCrawler(x,z,rand);crawler.facing=Math.atan2(state.player.x-x,state.player.z-z);beast.reset();}
 function farRoom(){const p=state.player;let best=cave.rooms[0];for(const r of cave.rooms){const d=Math.hypot(r.x*2-p.x,r.z*2-p.z);if(d>16&&d<26&&walkable(cave,r.x*2,r.z*2))return r;if(Math.hypot(best.x*2-p.x,best.z*2-p.z)<d)best=r;}return best;}
 function reset(){
  Object.assign(state.player,{x:cave.start.x*2,z:cave.start.z*2+2,facing:0});state.flares=[];
- gun=createGun(12);dodge=createDodge();health=HEALTH.max;hurtPause=0;lampShort=0;metal=10;flareStock=3;blackout=0;patrol=0;
+ gun=createGun(12);dodge=createDodge();act=null;hop.t=0;health=HEALTH.max;hurtPause=0;lampShort=0;metal=10;flareStock=3;blackout=0;patrol=0;
  const r=farRoom();spawnAt(r.x*2,r.z*2);
 }
 function spawnBehind(){
@@ -188,6 +211,8 @@ function sound(kind,distance=4){
  if(kind==='hit'||kind==='slash'){const o=audio.createOscillator();o.type='square';o.frequency.setValueAtTime(kind==='hit'?220:120,t);o.frequency.exponentialRampToValueAtTime(60,t+.2);env(o,.25,.005,.22);o.start(t);o.stop(t+.25);const n=noise(.2);env(n,.3,.002,.15);n.start(t);}
  if(kind==='chitter'){for(let i=0;i<5;i++){const o=audio.createOscillator();o.type='square';o.frequency.value=1800+Math.random()*900;const g=audio.createGain();g.gain.setValueAtTime(0,t+i*.045);g.gain.linearRampToValueAtTime(.05,t+i*.045+.005);g.gain.linearRampToValueAtTime(0,t+i*.045+.025);o.connect(g);g.connect(out);o.start(t+i*.045);o.stop(t+i*.045+.03);}}
  if(kind==='tick'){const o=audio.createOscillator();o.type='triangle';o.frequency.setValueAtTime(2400+Math.random()*1200,t);const g=audio.createGain();g.gain.setValueAtTime(.06,t);g.gain.exponentialRampToValueAtTime(.0001,t+.03);o.connect(g);g.connect(out);o.start(t);o.stop(t+.04);}
+ if(kind==='tink'){const o=audio.createOscillator();o.type='triangle';o.frequency.setValueAtTime(3800+Math.random()*900,t);const g=audio.createGain();g.gain.setValueAtTime(.05,t);g.gain.exponentialRampToValueAtTime(.0001,t+.09);o.connect(g);g.connect(out);o.start(t);o.stop(t+.1);}
+ if(kind==='ricochet'){const n=noise(.15),hp=audio.createBiquadFilter();hp.type='highpass';hp.frequency.value=2500;n.connect(hp);env(hp,.25,.002,.12);n.start(t);}
  if(kind==='death'){const o=audio.createOscillator();o.type='sawtooth';o.frequency.setValueAtTime(900,t);o.frequency.exponentialRampToValueAtTime(90,t+1.2);env(o,.12,.02,1.3);o.start(t);o.stop(t+1.4);}
 }
 
@@ -199,8 +224,9 @@ addEventListener('keydown',e=>{
  if(mode!=='hunt')return;const k=e.key.toLowerCase();if(k===' ')e.preventDefault();if(e.repeat)return;
  if(k==='f'){setWatch(!watch);return;}
  if(watch)return;keys.add(k);
- if(k==='e'&&crawler.state==='grab'&&struggle(crawler))release();
- if(k===' '&&crawler.state!=='grab'){const m=moveIntent(),still=!m.x&&!m.z;startDodge(dodge,still?Math.sin(state.player.facing):m.x,still?Math.cos(state.player.facing):m.z);}
+ if(k==='e'&&crawler.state==='grab')wrench();
+ if(k===' '&&crawler.state!=='grab'&&!busy()){const m=moveIntent(),still=!m.x&&!m.z;startDodge(dodge,still?Math.sin(state.player.facing):m.x,still?Math.cos(state.player.facing):m.z);}
+ if(k==='shift')jump();
  if(k==='r')reloadGun(gun);
  if(k==='c')craftAmmoNow();
  if(k==='x'&&metal>=2){metal-=2;flareStock+=3;}
@@ -218,14 +244,64 @@ function updateAim(){
  const r=canvas.getBoundingClientRect();ndc.set((mouse.x-r.left)/r.width*2-1,-(mouse.y-r.top)/r.height*2+1);ray.setFromCamera(ndc,huntCam);
  if(ray.ray.intersectPlane(groundPlane,hitPoint)){view.root.worldToLocal(hitPoint);aim.x=hitPoint.x-state.player.x;aim.z=hitPoint.z-state.player.z;aimMarker.position.set(hitPoint.x,.05,hitPoint.z);}
 }
-function shoot(target){
- if(!fireGun(gun))return;const p=state.player,from={x:p.x+Math.sin(p.facing)*.5,z:p.z+Math.cos(p.facing)*.5};
- const dir=target??{x:Math.sin(p.facing),z:Math.cos(p.facing)},end=shotEnd(cave,from,dir,[crawler]);
- tracerGeo.attributes.position.setXYZ(0,from.x,1.1,from.z);tracerGeo.attributes.position.setXYZ(1,end.x,.9,end.z);tracerGeo.attributes.position.needsUpdate=true;tracerT=.08;
- flash.position.set(from.x,1.15,from.z);flash.material.opacity=1;flicker=Math.max(flicker,.05);sound('shot',0);
- if(end.hit){const result=hurtCrawler(end.hit.crawler,PISTOL.damage,rand);
-  for(let i=0;i<16;i++){const a=Math.random()*Math.PI*2,s=1.5+Math.random()*3;ichor.spawn(end.x,beast.position.y,end.z,Math.cos(a)*s-dir.x*2,1+Math.random()*2.5,Math.sin(a)*s-dir.z*2,.35+Math.random()*.35);}sound(result.killed?'death':'hit',end.hit.distance);if(result.released)release();}
+/** Pull the trigger now; the round leaves the muzzle on the next frame, once the pose is up to date. */
+function shoot(){if(blackout<=0&&!pendingShot&&fireGun(gun))pendingShot=true;}
+function fireShot(){
+ const p=state.player,from={x:p.x+Math.sin(p.facing)*.5,z:p.z+Math.cos(p.facing)*.5},dir={x:Math.sin(p.facing),z:Math.cos(p.facing)},end=shotEnd(cave,from,dir,[crawler]);
+ actor.fire();actor.root.updateMatrixWorld(true);
+ const muzzle=localOf(actor.marker('Muzzle')),ahead=localOf(actor.marker('MuzzleAhead')).sub(muzzle).normalize();
+ flash.position.copy(muzzle).addScaledVector(ahead,.12);flash.scale.setScalar(.8+Math.random()*.5);flash.material.rotation=Math.random()*6.28;flash.material.opacity=1;
+ muzzleLight.position.copy(flash.position);muzzleLight.intensity=40;
+ for(let i=0;i<4;i++)sparks.spawn(flash.position.x,flash.position.y,flash.position.z,ahead.x*4+(Math.random()-.5)*2,ahead.y*4+Math.random(),ahead.z*4+(Math.random()-.5)*2,.08+Math.random()*.08);
+ flicker=Math.max(flicker,.05);shakeT=Math.max(shakeT,.07);sound('shot',0);
+ const b=bullets.find(b=>!b.live)??bullets[0];
+ b.from.copy(muzzle);b.to.set(end.x,end.hit?beast.position.y:.95,end.z);b.dir.copy(b.to).sub(b.from);b.length=b.dir.length();b.dir.normalize();
+ Object.assign(b,{travelled:0,live:true,hit:end.hit,target:crawler});b.mesh.visible=true;
+ eject();
 }
+function eject(){
+ const port=localOf(actor.marker('Port')),out=localOf(actor.marker('PortOut')).sub(port).normalize(),c=cases[nextCase];nextCase=(nextCase+1)%CASES;
+ c.p.copy(port);c.v.copy(out).multiplyScalar(2.2+Math.random()*1.2).add(new THREE.Vector3((Math.random()-.5)*.6,2.2+Math.random()*1.2,(Math.random()-.5)*.6));
+ c.q.setFromEuler(new THREE.Euler(Math.random()*6,Math.random()*6,0));c.lie.setFromEuler(new THREE.Euler(Math.PI/2,0,Math.random()*6.28,'YXZ'));
+ c.spin.set((Math.random()-.5)*50,(Math.random()-.5)*20,(Math.random()-.5)*50);c.age=0;c.bounces=0;
+}
+function arrive(b){
+ b.live=false;b.mesh.visible=false;const at=b.to;
+ if(b.hit&&b.target===crawler&&crawler.state!=='dead'){
+  const result=hurtCrawler(crawler,PISTOL.damage,rand),hitAt=new THREE.Vector3(at.x,beast.position.y,at.z);
+  beast.hit(hitAt,b.dir);impactFlash.position.copy(hitAt).addScaledVector(b.dir,-.2);impactFlash.material.opacity=1;
+  for(let i=0;i<16;i++){const a=Math.random()*Math.PI*2,s=1.5+Math.random()*3;ichor.spawn(hitAt.x,hitAt.y,hitAt.z,Math.cos(a)*s+b.dir.x*2,1+Math.random()*2.5,Math.sin(a)*s+b.dir.z*2,.35+Math.random()*.35);}
+  sound(result.killed?'death':'hit',Math.hypot(at.x-state.player.x,at.z-state.player.z));if(result.released)release();
+  return;
+ }
+ // Rock: sparks off the wall and a puff of dust.
+ for(let i=0;i<12;i++)sparks.spawn(at.x,at.y,at.z,-b.dir.x*(2+Math.random()*3)+(Math.random()-.5)*3,Math.random()*3,-b.dir.z*(2+Math.random()*3)+(Math.random()-.5)*3,.15+Math.random()*.25);
+ for(let i=0;i<5;i++)dust.spawn(at.x,at.y,at.z,-b.dir.x*.6+(Math.random()-.5)*.5,.1+Math.random()*.3,-b.dir.z*.6+(Math.random()-.5)*.5,.8+Math.random()*.6);
+ impactFlash.position.copy(at);impactFlash.material.opacity=.6;sound('ricochet',Math.hypot(at.x-state.player.x,at.z-state.player.z));
+}
+function updateShots(dt){
+ for(const b of bullets){if(!b.live)continue;b.travelled+=BULLET_SPEED*dt;if(b.travelled>=b.length){arrive(b);continue;}
+  const streak=Math.min(1.1,b.travelled);b.mesh.scale.set(1,1,streak);b.mesh.position.copy(b.from).addScaledVector(b.dir,b.travelled-streak/2);b.mesh.quaternion.setFromUnitVectors(THREE.Object3D.DEFAULT_UP.clone().set(0,0,1),b.dir);}
+ for(let i=0;i<CASES;i++){const c=cases[i];if(c.age>9)continue;c.age+=dt;
+  c.v.y-=9*dt;const nx=c.p.x+c.v.x*dt,nz=c.p.z+c.v.z*dt;
+  if(walkable(cave,nx,nz,.05)){c.p.x=nx;c.p.z=nz;}else{c.v.x*=-.4;c.v.z*=-.4;}
+  c.p.y+=c.v.y*dt;
+  if(c.p.y<.03&&c.v.y<0){c.p.y=.03;if(c.v.y<-.8&&c.bounces<3)sound('tink',Math.hypot(c.p.x-state.player.x,c.p.z-state.player.z));c.bounces++;c.v.y*=-.35;c.v.x*=.55;c.v.z*=.55;c.spin.multiplyScalar(.45);c.q.slerp(c.lie,.6);}
+  if(c.bounces&&c.v.lengthSq()<.05){c.v.set(0,0,0);c.q.slerp(c.lie,.3);}
+  else{spinQ.setFromEuler(new THREE.Euler(c.spin.x*dt,c.spin.y*dt,c.spin.z*dt));c.q.multiply(spinQ);}
+  const fade=c.age>8?Math.max(0,9-c.age):1;
+  caseMatrix.compose(c.p,c.q,one.set(fade,fade,fade));caseMesh.setMatrixAt(i,caseMatrix);
+  caseMesh.setColorAt(i,caseColor.copy(brass).lerp(hotBrass,Math.max(0,1-c.age/1.4)));
+ }
+ caseMesh.instanceMatrix.needsUpdate=true;caseMesh.instanceColor.needsUpdate=true;
+ sparks.update(dt,9,1);dust.update(dt,0,2);
+ flash.material.opacity=Math.max(0,flash.material.opacity-dt*16);impactFlash.material.opacity=Math.max(0,impactFlash.material.opacity-dt*10);muzzleLight.intensity=Math.max(0,muzzleLight.intensity-dt*800);
+}
+/** One-shot body animations, timed in seconds of game time. */
+function play(clip,rate=1){if(act?.clip===clip)actor.restart();act={clip,t:0,len:actor.duration(clip)/rate,rate};}
+const busy=()=>act?.clip==='throwoff'||blackout>0;
+function wrench(){strain+=.8;if(struggle(crawler,undefined,state.player.facing)){release();play('throwoff');}}
+function jump(){if(hop.t>0||dodge.t>0||crawler.state==='grab'||busy())return;hop.t=JUMP;act=null;}
 function throwFlare(dx,dz){
  if(!flareStock||state.flares.length>=FLARE.limit)return;const p=state.player,l=Math.hypot(dx,dz)||1,reach=Math.min(FLARE.range,l);
  let d=0;while(d<reach&&walkable(cave,p.x+dx/l*(d+.3),p.z+dz/l*(d+.3),.1))d+=.25;
@@ -241,7 +317,7 @@ function dummyIntent(dt){
  const p=state.player,c=crawler,d=Math.hypot(c.x-p.x,c.z-p.z);
  if(c.state==='shriek'){dummyPlan.reaction+=dt;if(!dummyPlan.dodged&&dummyPlan.reaction>CRAWLER.shriekTime-.15){dummyPlan.dodged=true;if(Math.random()<.5)startDodge(dodge,Math.cos(p.facing),-Math.sin(p.facing));}return {x:0,z:0,face:Math.atan2(c.x-p.x,c.z-p.z)};}
  dummyPlan.reaction=0;dummyPlan.dodged=false;
- if(c.state==='grab'){dummyPlan.struggleT-=dt;if(dummyPlan.struggleT<=0){dummyPlan.struggleT=.16+Math.random()*.12;if(struggle(c))release();}return {x:0,z:0};}
+ if(c.state==='grab'){dummyPlan.struggleT-=dt;if(dummyPlan.struggleT<=0){dummyPlan.struggleT=.16+Math.random()*.12;wrench();}return {x:0,z:0};}
  if(c.state!=='dead'&&d<6&&Math.random()<dt*.2)return {x:0,z:0,face:Math.atan2(c.x-p.x,c.z-p.z)};
  const route=[cave.rooms[0],...cave.rooms.slice(1,6)];const r=route[patrol%route.length],tx=r.x*2,tz=r.z*2;
  if(Math.hypot(tx-p.x,tz-p.z)<2.5)patrol++;
@@ -256,10 +332,11 @@ function updateHunt(dt){
  if(!watch)updateAim();
  // Lamp: shorted by a slash, stuttering back to life.
  lampShort=Math.max(0,lampShort-dt);const lampOn=lampShort<=0;
- const dash=stepDodge(dodge,dt);
+ const wasRolling=dodge.t>0,dash=stepDodge(dodge,dt);
+ if(dash.rolling&&!wasRolling){play('roll',actor.duration('roll')/DODGE.time);hop.t=0;}
  if(blackout>0){blackout-=dt;if(blackout<=0)reset();}
  let intent={x:0,z:0},grabbed=crawler.state==='grab';
- if(blackout<=0&&!grabbed){
+ if(blackout<=0&&!grabbed&&!busy()){
   if(watch){intent=dummyIntent(dt);if(intent.face!=null)p.facing=intent.face;else if(intent.x||intent.z)p.facing=Math.atan2(intent.x,intent.z);}
   else{intent=moveIntent();if(Math.hypot(aim.x,aim.z)>.3)p.facing=Math.atan2(aim.x,aim.z);}
  }else if(grabbed&&watch)dummyIntent(dt);
@@ -275,7 +352,7 @@ function updateHunt(dt){
   if(e.type==='shriek'){sound('shriek',d);flicker=Math.max(flicker,.9);}
   if(e.type==='lunge')sound('lunge',d);
   if(e.type==='grab'){hurt(e.damage);sound('slash',0);shakeT=.3;}
-  if(e.type==='slash'){hurt(e.damage);lampShort=e.short;sound('slash',0);shakeT=.35;}
+  if(e.type==='slash'){hurt(e.damage);lampShort=e.short;sound('slash',0);shakeT=.35;if(!dash.rolling)play('hurt');}
   if(e.type==='drag'){if(walkable(cave,p.x+e.dx,p.z+e.dz,PLAYER_RADIUS)){p.x+=e.dx;p.z+=e.dz;}}
   if(e.type==='hurt')hurt(e.damage);
   if(e.type==='release')release();
@@ -286,16 +363,31 @@ function updateHunt(dt){
  if((crawler.state==='stalk'||crawler.state==='close')&&Math.random()<dt*.18)sound('chitter',Math.hypot(crawler.x-p.x,crawler.z-p.z));
  // Suit.
  hurtPause=Math.max(0,hurtPause-dt);if(!hurtPause&&health>0)health=Math.min(HEALTH.max,health+HEALTH.regen*dt);
- if(health<=0&&blackout<=0){blackout=2.5;prompt('BLACKED OUT');crawler.state='flee';crawler.t=0;}
+ if(health<=0&&blackout<=0){blackout=2.5;act=null;prompt('BLACKED OUT');crawler.state='flee';crawler.t=0;}
  stepGun(gun,dt);
  if(watch&&crawler.state!=='dead'&&blackout<=0){const d=Math.hypot(crawler.x-p.x,crawler.z-p.z),ahead=(Math.sin(p.facing)*(crawler.x-p.x)+Math.cos(p.facing)*(crawler.z-p.z))/(d||1);
   if(d<11&&ahead>.97&&exposure(env,crawler.x,crawler.z)>.1&&Math.random()<dt*.9)shoot();
+  if(!grabbed&&crawler.state!=='shriek'&&Math.random()<dt*.08)jump();
   if(!gun.mag&&!gun.reloading&&!gun.reserve&&metal>0)craftAmmoNow();}
  // Pose the actors.
  player.position.set(p.x,0,p.z);player.rotation.y=p.facing;
- const moving=Math.hypot(mx,mz)/dt;
- if(dash.rolling){const k=1-dodge.t/DODGE.time;roll.rotation.set(k*Math.PI*2,0,0);player.rotation.y=Math.atan2(dodge.dx,dodge.dz);}else roll.rotation.set(0,0,0);
- actor.update({animation:dash.rolling?'jump':moving>.5?'run':'idle',speed:moving},dt);
+ const moving=dt?Math.hypot(mx,mz)/dt:0;
+ if(dash.rolling)player.rotation.y=Math.atan2(dodge.dx,dodge.dz);
+ // The body: one-shots (roll, hurt, throw-off, landing) over the aimed locomotion; a hop lifts the whole astronaut.
+ if(hop.t>0){hop.t-=dt;if(hop.t<=0){hop.t=0;play('land',actor.duration('land')/LAND);}}
+ actor.root.position.y=hop.t>0?Math.sin(Math.PI*(1-hop.t/JUMP))*.55:0;
+ if(act){act.t+=dt;if(act.t>=act.len)act=null;}
+ strain*=Math.exp(-dt*2.5);
+ let anim='aimidle',rate=1;
+ if(blackout>0)anim='collapse';
+ else if(crawler.state==='grab'){anim='struggle';rate=1+Math.min(2.5,strain);act=null;}
+ else if(act){anim=act.clip;rate=act.rate;}
+ else if(hop.t>0)anim='jump';
+ else if(moving>.5)anim=moving>5.2?'aimrun':'aimwalk';
+ const backward=moving>.5&&!dash.rolling&&mx*Math.sin(p.facing)+mz*Math.cos(p.facing)<-.3*Math.hypot(mx,mz);
+ actor.update({animation:anim,speed:moving,gun:true,backward,rate},dt);
+ if(pendingShot){pendingShot=null;fireShot();}
+ updateShots(dt);
  for(const e of beast.update(crawler,dt,{player:p}))if(e.type==='plant'&&Math.random()<.3)sound('tick',Math.hypot(e.x-p.x,e.z-p.z));
  const s=crawler.state,near=Math.hypot(crawler.x-p.x,crawler.z-p.z);
  // It carries the dark with it; a thin wisp rises off it.
@@ -318,7 +410,6 @@ function updateHunt(dt){
  }
  view.sight.uVoid.value.set(crawler.x,crawler.z,alive*(.85-.55*Math.max(closeness,onYou)));
  headlamp.intensity=lampOn?145*view.sight.uFlicker.value:0;suitFill.intensity=lampOn?9:2;
- tracerT=Math.max(0,tracerT-dt);tracer.material.opacity=tracerT/.08;flash.material.opacity=Math.max(0,flash.material.opacity-dt*14);
  aimMarker.visible=!watch;
  hurtFlash=Math.max(0,hurtFlash-dt*1.5);$('hurt').style.opacity=String(Math.min(.85,hurtFlash));
  // Camera: the game's isometric view, shaken by hits.
@@ -342,7 +433,7 @@ function resize(){
  const viewHeight=24,aspect=w/h;Object.assign(huntCam,{left:-viewHeight*aspect/2,right:viewHeight*aspect/2,top:viewHeight/2,bottom:-viewHeight/2});huntCam.updateProjectionMatrix();
 }
 addEventListener('resize',resize);setMode(mode);
-window.lab={studioCam,orbit,selectPose,state,get crawler(){return crawler;},cave,renderer,setMode,spawnBehind,reset,setWatch,beast,specimen};
+window.lab={studioCam,orbit,selectPose,state,get crawler(){return crawler;},cave,renderer,setMode,spawnBehind,reset,setWatch,beast,specimen,actor,shoot,jump,wrench,huntCam};
 let last=performance.now();
 function frame(now){const dt=window.lab.paused?0:Math.min((now-last)/1000,.1);last=now;clock+=dt;if(mode==='hunt')updateHunt(dt);else updateStudio(dt);requestAnimationFrame(frame);}
 requestAnimationFrame(frame);

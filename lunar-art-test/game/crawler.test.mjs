@@ -87,6 +87,16 @@ test('a lunge from behind grabs and drags; mashing breaks free', () => {
  assert.equal(c.state,'recoil');
 });
 
+test('breaking free tears it off the helmet and flings it out ahead of the player', () => {
+ const cave=hall(10),player={x:0,z:0,facing:Math.PI/2,lamp:true},c=createCrawler(-.6,0);
+ Object.assign(c,{state:'grab',t:0});
+ let free=false;for(let i=0;i<40&&!free;i++)free=struggle(c,undefined,player.facing);
+ assert.ok(free);assert.equal(c.state,'recoil');
+ run(c,{cave,player},CRAWLER.throwDelay*.6);assert.ok(Math.abs(c.x+.6)<.01,'it hangs on while the astronaut wrenches');
+ run(c,{cave,player},CRAWLER.throwTime+.1);
+ assert.ok(c.x>1.5,`thrown ahead, now at x ${c.x.toFixed(1)}`);
+});
+
 test('a lunge from the front slashes and shorts the headlamp; a shorted lamp means it grabs instead', () => {
  const cave=hall(10),c=createCrawler(0,3);
  Object.assign(c,{state:'lunge',t:0,lunge:{x:0,z:-1}});
