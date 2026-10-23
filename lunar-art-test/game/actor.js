@@ -30,7 +30,7 @@ export function createAstronaut(gltf) {
   actions.set(key,action);
  }
  let current='',active=null;
- const spine=root.getObjectByName('Spine'),parentQ=new THREE.Quaternion(),twistQ=new THREE.Quaternion(),UP=new THREE.Vector3(0,1,0);
+ const spine=root.getObjectByName('Spine'),parentQ=new THREE.Quaternion(),twistQ=new THREE.Quaternion(),UP=new THREE.Vector3(0,1,0),untwisted=new THREE.Quaternion();let twisted=false;
  const tools=[],guns=[];root.traverse(o=>{if(o.name.startsWith('ConstructionTool'))tools.push(o);if(o.name==='Pistol')guns.push(o);});
  function update(pose,dt){
   const wanted=actions.has(pose.animation)?pose.animation:pose.animation?.startsWith('aim')&&actions.has(pose.animation.slice(3))?pose.animation.slice(3):'idle';
@@ -45,8 +45,11 @@ export function createAstronaut(gltf) {
   }
   tools.forEach(o=>o.visible=current==='build');
   guns.forEach(o=>o.visible=!!pose.gun&&current!=='build');
+  // The mixer skips bones whose animated value has not changed, so last frame's twist must be undone first.
+  if(twisted){spine.quaternion.copy(untwisted);twisted=false;}
   mixer.update(Math.min(dt,.1));
   if(spine&&pose.twist){
+   untwisted.copy(spine.quaternion);twisted=true;
    spine.parent.getWorldQuaternion(parentQ);twistQ.setFromAxisAngle(UP,pose.twist);
    spine.quaternion.premultiply(parentQ).premultiply(twistQ).premultiply(parentQ.invert());
   }

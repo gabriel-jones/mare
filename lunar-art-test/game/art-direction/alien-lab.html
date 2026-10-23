@@ -435,19 +435,23 @@ function updateHunt(dt){
  else if(hop.t>0)anim='jump';
  else if(moving>.5)anim=moving>5.2?'aimrun':'aimwalk';
  const backward=moving>.5&&!dash.rolling&&mx*Math.sin(p.facing)+mz*Math.cos(p.facing)<-.3*Math.hypot(mx,mz);
- // The torso swings onto the aim at once; standing, the feet only follow once it is twisted too far, stepping round.
- let twist=0;
+ // The gun is always on the cursor: the torso takes up the twist, and the hips are dragged round so it never twists
+ // past TWIST. Standing, the feet then step round under it; moving or mid-action they just swing on.
+ const TWIST=1;let twist=0;
  if(dash.rolling){bodyYaw=Math.atan2(dodge.dx,dodge.dz);turning=false;}
- else if(anim==='aimidle'){
-  const diff=wrapAngle(p.facing-bodyYaw);
-  if(Math.abs(diff)>.6)turning=true;
-  if(turning){
-   const speed=Math.min(7,Math.max(2.4,Math.abs(diff)*5));
-   bodyYaw+=Math.sign(diff)*Math.min(Math.abs(diff),speed*dt);anim=diff>0?'turnl':'turnr';rate=speed/(Math.PI/2);
-   if(Math.abs(diff)<.04)turning=false;
-  }
-  twist=THREE.MathUtils.clamp(wrapAngle(p.facing-bodyYaw),-.75,.75);
- }else{turning=false;bodyYaw+=wrapAngle(p.facing-bodyYaw)*(1-Math.exp(-dt*14));twist=wrapAngle(p.facing-bodyYaw);}
+ else{
+  let diff=wrapAngle(p.facing-bodyYaw);
+  if(Math.abs(diff)>TWIST){bodyYaw=p.facing-Math.sign(diff)*TWIST;diff=Math.sign(diff)*TWIST;}
+  if(anim==='aimidle'){
+   if(Math.abs(diff)>.5)turning=true;
+   if(turning){
+    const speed=Math.min(9,Math.max(2.6,Math.abs(diff)*6));
+    bodyYaw+=Math.sign(diff)*Math.min(Math.abs(diff),speed*dt);anim=diff>0?'turnl':'turnr';rate=speed/(Math.PI/2);
+    if(Math.abs(diff)<.04)turning=false;
+   }
+  }else{turning=false;bodyYaw+=diff*(1-Math.exp(-dt*14));}
+  twist=wrapAngle(p.facing-bodyYaw);
+ }
  player.rotation.y=bodyYaw;
  actor.update({animation:anim,speed:moving,gun:true,backward,rate,twist},dt);
  if(pendingShot){pendingShot=null;fireShot();}
