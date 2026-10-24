@@ -9,6 +9,7 @@ import { spawnRobot } from '../space.js';
 import { CELL_SIZE } from '../defs.js';
 import { asKind, createCrawler } from '../crawler.js';
 import { launchRaid } from '../raid.js';
+import { SHAPE, createCentipede } from '../centipede.js';
 
 const DUSK = 81, DAWN = 200;
 const TECHS = ['reactor', 'androids', 'containment', 'smg', 'rifle', 'railgun', 'katana'];
@@ -69,11 +70,12 @@ function atBase(s, kinds) {
 export const SCENARIOS = {
   first: { name: 'First raid', note: 'Dusk falls; one drone leaves a cave. Two armed androids.', make() { const s = colony({ crew: ['rifle', 'smg'] }); s.time = DUSK; launchRaid(s, 1, 4); return s; } },
   pack: { name: 'First brute', note: 'Fifth raid: three drones and a brute in two packs. Two armed androids.', make() { const s = colony({ crew: ['rifle', 'smg'] }); s.time = DUSK; launchRaid(s, 5, 3); return s; } },
-  swarm: { name: 'Swarm', note: 'Ninth raid: four drones and two brutes in two packs, three androids.', make() { const s = colony({ crew: ['railgun', 'rifle', 'katana'] }); s.time = DUSK; launchRaid(s, 9, 3); return s; } },
+  centipede: { name: 'Centipede', note: 'A centipede on the plain, already coming for you. It tunnels, bursts up beside you, rears and slams down: roll or run when the ground cracks. Two androids.', make() { const s = colony({ crew: ['rifle', 'smg'] }); s.time = DUSK + 5; s.raid = { wave: 7, night: 0, quiet: 0, spawns: [] }; (s.brood ??= []).push(Object.assign(createCentipede(-14, 38, { ...SHAPE, facing: Math.PI * .8 }), { raider: true })); return s; } },
+  swarm: { name: 'Swarm', note: 'Ninth raid: four drones and two brutes in two packs, and a centipede tunnelling in. Three androids.', make() { const s = colony({ crew: ['railgun', 'rifle', 'katana'] }); s.time = DUSK; launchRaid(s, 9, 3); return s; } },
   alone: { name: 'No defenders', note: 'Third raid, two drones, no androids. You and an SMG.', make() { const s = colony(); s.time = DUSK; launchRaid(s, 3, 3); return s; } },
   dark: { name: 'Lights out', note: 'No reactor and flat batteries: the base is dark, no alarm lights.', make() { const s = colony({ reactor: false, crew: ['rifle'] }); s.time = DUSK; launchRaid(s, 4, 3); return s; } },
   siege: { name: 'Holed up', note: 'You are inside the habitat, out of reach: the raiders tear at the base around you.', make() { const s = colony(); s.time = DUSK + 10; s.player = { ...s.player, x: -8, z: 7 }; atBase(s, ['drone', 'drone', 'brute']); s.raid = { wave: 4, night: 0, quiet: 0, spawns: [] }; return s; } },
-  matron: { name: 'Matron', note: 'Tenth raid: a matron leads drones and brutes. Kill her and her brood pour out. Three androids.', make() { const s = colony({ crew: ['railgun', 'rifle', 'katana'] }); s.time = DUSK; launchRaid(s, 10, 3); return s; } },
+  matron: { name: 'Matron', note: 'Tenth raid: a matron leads drones and brutes, with a centipede. Kill her and her brood pour out. Three androids.', make() { const s = colony({ crew: ['railgun', 'rifle', 'katana'] }); s.time = DUSK; launchRaid(s, 10, 3); return s; } },
   dawn: { name: 'Dawn breaks', note: 'Raiders at the base ten seconds before sunrise: they run for the caves.', make() { const s = colony({ crew: ['rifle'] }); s.time = DAWN - 10; atBase(s, ['drone', 'drone', 'brute', 'brood']); s.raid = { wave: 5, night: 0, quiet: 0, spawns: [] }; return s; } },
 };
 export const makeSave = id => serialize((SCENARIOS[id] ?? SCENARIOS.first).make());

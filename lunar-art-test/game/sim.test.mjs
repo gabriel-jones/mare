@@ -461,7 +461,7 @@ test('the infestation thickens with depth; flares burn nests and silk, which reg
  P.stepPeril(s,I.INFEST.regrow.silk+1);assert.ok(I.silkBlocks(s,web.x*2,web.z*2),'regrown');
  // Burnt nests breed fewer crawlers, but one always prowls.
  const deep=caveLayout(s.seed,0,2);s.player={x:deep.start.x*2,z:deep.start.z*2,y:0,satiety:100,cave:0,zone:2,facing:0};s.burnt={};
- const count=()=>{const h=H.createHunt();H.stepHunt(h,s,.01,()=>.5);return h.crawlers.length;};
+ const count=()=>{const h=H.createHunt();H.stepHunt(h,s,.01,()=>.5);return h.crawlers.filter(c=>c.kind!=='centipede').length;};
  assert.equal(count(),H.NEST.count[2]);
  s.flares=deep.nests.map(n=>({cave:0,zone:2,...I.nestMouth(n),t:30}));P.stepPeril(s,.1);
  assert.equal(I.liveNests(s,0,2).length,0);assert.equal(count(),1);

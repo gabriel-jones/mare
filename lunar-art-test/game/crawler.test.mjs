@@ -173,14 +173,14 @@ function underground(zone=0){
 test('each cave zone is hunted by more crawlers the deeper it lies, spawned well away from the player',()=>{
  for(const zone of [0,1,2]){
   const s=underground(zone),h=createHunt();stepHunt(h,s,1/30,seeded(zone+3));
-  assert.equal(h.crawlers.length,NEST.count[zone]);
+  assert.equal(h.crawlers.filter(c=>c.kind!=='centipede').length,NEST.count[zone]);
   for(const c of h.crawlers)assert.ok(Math.hypot(c.x-s.player.x,c.z-s.player.z)>=6,'not on top of the player');
  }
 });
 test('leaving the caves clears the hunt, and coming back rolls a fresh one',()=>{
  const s=underground(1),h=createHunt();stepHunt(h,s,1/30,seeded());
  delete s.player.cave;stepHunt(h,s,1/30,seeded());assert.equal(h.crawlers.length,0);
- s.player.cave=0;stepHunt(h,s,1/30,seeded());assert.equal(h.crawlers.length,NEST.count[1]);
+ s.player.cave=0;stepHunt(h,s,1/30,seeded());assert.equal(h.crawlers.filter(c=>c.kind!=='centipede').length,NEST.count[1]);
 });
 test('a round lands only after its flight time and a kill brings a replacement later',()=>{
  const s=underground(0),h=createHunt(),rng=seeded();stepHunt(h,s,1/30,rng);

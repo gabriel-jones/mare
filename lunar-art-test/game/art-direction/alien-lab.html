@@ -87,7 +87,7 @@ studio.add(hemi,key,rim);
 const floor=new THREE.Mesh(new THREE.CircleGeometry(6,64).rotateX(-Math.PI/2),new THREE.MeshStandardMaterial({color:'#2a2d33',roughness:.95}));floor.receiveShadow=true;studio.add(floor);
 for(let r=1;r<=5;r++){const ring=new THREE.Mesh(new THREE.RingGeometry(r-.008,r+.008,96).rotateX(-Math.PI/2),new THREE.MeshBasicMaterial({color:'#4a5466'}));ring.position.y=.002;studio.add(ring);}
 /** The specimen at a raider size with a chosen abdomen, or all four abdomens side by side. */
-const SIZES={cave:{label:'Cave',size:1,belly:0},...Object.fromEntries(Object.entries(KINDS).map(([k,v])=>[k,{label:k[0].toUpperCase()+k.slice(1),size:v.size,belly:v.belly}]))};
+const SIZES={cave:{label:'Cave',size:1,belly:0},...Object.fromEntries(Object.entries(KINDS).filter(([k])=>k!=='centipede').map(([k,v])=>[k,{label:k[0].toUpperCase()+k.slice(1),size:v.size,belly:v.belly}]))};
 let size=SIZES[params.get('size')]?params.get('size'):'drone',abdomen=ABDOMEN_STYLES[params.get('abdomen')]?params.get('abdomen'):'segments',lineup=params.has('lineup');
 let specimens=[],specimen=null;const tags=[];
 const STYLE_NAMES={bulb:'Spider bulb',sac:'Brood sac',segments:'Segmented',pustules:'Pustules'};

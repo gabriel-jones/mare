@@ -50,12 +50,13 @@ test('raids arm once alien work is built and the first comes out of a cave mouth
 });
 
 test('raids grow, and bigger raiders join as they go on', () => {
-  assert.deepEqual(waveSize(1), { drone: 1, brute: 0, matron: 0 });
-  assert.deepEqual(waveSize(3), { drone: 2, brute: 0, matron: 0 });
-  assert.deepEqual(waveSize(5), { drone: 3, brute: 1, matron: 0 });
+  assert.deepEqual(waveSize(1), { drone: 1, brute: 0, centipede: 0, matron: 0 });
+  assert.deepEqual(waveSize(3), { drone: 2, brute: 0, centipede: 0, matron: 0 });
+  assert.deepEqual(waveSize(5), { drone: 3, brute: 1, centipede: 0, matron: 0 });
+  assert.equal(waveSize(7).centipede, 1, 'the first centipede on the seventh raid');
   assert.ok(waveSize(10).matron >= 1 && waveSize(10).brute >= 2);
   const most = waveSize(99);
-  assert.ok(most.drone <= RAID.maxDrones && most.brute <= RAID.maxBrutes && most.matron <= RAID.maxMatrons);
+  assert.ok(most.drone <= RAID.maxDrones && most.brute <= RAID.maxBrutes && most.matron <= RAID.maxMatrons && most.centipede <= RAID.maxCentipedes);
 });
 
 test('the bigger the raider, the taller, tougher, harder-hitting and slower it is', () => {

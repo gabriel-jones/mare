@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { gooInk, legGeometry } from './crawler-view.js';
+import { gooInk, hardParts, legGeometry } from './crawler-view.js';
 import { along } from './centipede.js';
 
 /**
@@ -21,19 +21,23 @@ function lumpy(segments, seed, amount = .05) {
 
 /**
  * A centipede drawn from a simulated one (centipede.js). Legs are solved here: two-bone IK from hips on each segment
- * to feet planted on the ground, stepping in waves down the body. `freak` (0–1) sets how much it twitches, shudders
- * and flails. Anything below the ground (y = 0 in the parent's space) is clipped away, so it can burrow.
+ * to feet planted on the ground, stepping in waves down the body. `freak` (0–1, more for worse) sets how much it
+ * twitches, shudders and flails. The ground under it is `groundAt(x, z)` in the parent's space (flat at 0 without
+ * it). With `clip`, anything below the parent's y = 0 is cut away so it can burrow through a flat floor; on rolling
+ * ground leave it off and let the terrain hide what is underneath. `mode: 'sight'` (with `sight`, `toCave`,
+ * `viewDir`) draws it under a cave's sight, like the crawlers.
  */
-export function createCentipedeView(crawlerGLTF, parent, { style = 'needle', segments = null, freak = .6, castShadow = true, ground = new THREE.Plane(UP.clone(), .02) } = {}) {
+export function createCentipedeView(crawlerGLTF, parent, { style = 'needle', segments = null, freak = .6, castShadow = true, mode = 'studio', sight = null, toCave = null, viewDir = null, groundAt = null, clip: clipped = true } = {}) {
   const S = { ...CENTIPEDE_STYLES[style] }; if (segments) S.segments = segments;
   const root = new THREE.Group(), owned = [], keep = x => (owned.push(x), x); parent.add(root);
   const time = { value: 0 }, sag = { value: new THREE.Vector3() }, pulse = { value: 0 }, heat = { value: 0 }, char = { value: 0 };
   const shared = { uTime: time, uSag: sag, uPulse: pulse, uHeat: heat, uChar: char };
-  const clip = m => { m.clippingPlanes = [ground]; m.clipShadows = true; return m; };
-  const ink = (amount, body = false) => clip(keep(gooInk({ mode: 'studio', shared }, amount, body)));
-  const bone = clip(keep(new THREE.MeshStandardMaterial({ color: '#070708', roughness: .14, envMapIntensity: 1.6 })));
-  const maw = clip(keep(new THREE.MeshStandardMaterial({ color: '#0a0404', roughness: .25 })));
+  const ground = new THREE.Plane(UP.clone(), .02), floorAt = new THREE.Vector3(), gy = groundAt ?? (() => 0);
+  const clip = m => { if (clipped) { m.clippingPlanes = [ground]; m.clipShadows = true; } return m; };
+  const ink = (amount, body = false) => clip(keep(gooInk({ mode, shared, sight, toCave, viewDir }, amount, body)));
+  const { bone, maw } = hardParts({ mode, sight, toCave }, keep); clip(bone); clip(maw);
   const skin = ink(.016), legInk = ink(.004), headInk = ink(.022, true);
+  if (mode !== 'studio') castShadow = false;
   const mesh = (geo, mat) => { const m = new THREE.Mesh(geo, mat); m.castShadow = castShadow; m.frustumCulled = false; return m; };
 
   // Head: the crawler's split goo body, its jaws opening sideways.
@@ -59,11 +63,14 @@ export function createCentipedeView(crawlerGLTF, parent, { style = 'needle', seg
     }
   }
   // Antennae: whips that trail behind the head's motion and lash about.
+  // Everything repeated down the body (segments, plates, leg bones, antenna joints) is one instanced mesh per part,
+  // so a centipede costs a handful of draw calls rather than hundreds.
+  const batches = [], instanced = (geo, mat, count) => { const m = new THREE.InstancedMesh(geo, mat, count); m.castShadow = castShadow; m.frustumCulled = false; m.instanceMatrix.setUsage(THREE.DynamicDrawUsage); root.add(m); batches.push(m); return m; };
   const antennae = [];
   if (S.antennae) {
-    const thread = keep(new THREE.CylinderGeometry(.006, .012, 1, 5).translate(0, .5, 0));
+    const thread = keep(new THREE.CylinderGeometry(.006, .012, 1, 5).translate(0, .5, 0)), n = 9, whips = instanced(thread, legInk, 2 * (n - 1));
     for (const side of [-1, 1]) {
-      const n = 9, pts = [...Array(n)].map(() => new THREE.Vector3()), prev = pts.map(p => p.clone()), parts = [...Array(n - 1)].map(() => { const m = mesh(thread, legInk); root.add(m); return m; });
+      const pts = [...Array(n)].map(() => new THREE.Vector3()), prev = pts.map(p => p.clone()), parts = [...Array(n - 1)].map((_, i) => ({ mesh: whips, i: antennae.length * (n - 1) + i }));
       antennae.push({ side, pts, prev, parts, length: S.radius * 4.2 / (n - 1), started: false });
     }
   }
@@ -71,21 +78,23 @@ export function createCentipedeView(crawlerGLTF, parent, { style = 'needle', seg
   // Body segments, tapering toward the tail, each with a pair of legs.
   const segGeo = keep(lumpy(20, 3.1, .04)), plateGeo = S.plates ? keep(lumpy(18, 8.2, .06)) : null, spike = S.plates ? keep(new THREE.ConeGeometry(.05, .3, 6).rotateX(-1.1)) : null;
   const geo = legGeometry(keep);
+  const bodies = instanced(segGeo, skin, S.segments), plates = S.plates ? instanced(plateGeo, bone, S.segments) : null, spikes = S.plates ? instanced(spike, bone, S.segments) : null;
+  const bones = Object.fromEntries(['femur', 'tibia', 'meta', 'needle'].map(k => [k, instanced(geo[k], legInk, S.segments * 2)]));
+  const local = (x, y, z, sx, sy, sz) => new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion(), new THREE.Vector3(sx, sy, sz));
   const segs = [];
   for (let i = 0; i < S.segments; i++) {
     const k = i / (S.segments - 1), r = S.radius * (1 - .45 * k * k) * (i === 0 ? .95 : 1), g = new THREE.Group(); root.add(g);
-    const body = mesh(segGeo, skin); body.scale.set(r * 1.05, r * .78, S.spacing * .72); g.add(body);
+    const shapes = [[bodies, local(0, 0, 0, r * 1.05, r * .78, S.spacing * .72)]];
     if (S.plates) {
-      const plate = mesh(plateGeo, bone); plate.scale.set(r * 1.2, r * .5, S.spacing * .62); plate.position.set(0, r * .38, -S.spacing * .08); g.add(plate);
-      const s = mesh(spike, bone); s.position.set(0, r * .78, -S.spacing * .1); s.scale.setScalar(r / S.radius * (1 + .4 * Math.sin(i * 1.7))); g.add(s);
+      const spikeSize = r / S.radius * (1 + .4 * Math.sin(i * 1.7));
+      shapes.push([plates, local(0, r * .38, -S.spacing * .08, r * 1.2, r * .5, S.spacing * .62)], [spikes, local(0, r * .78, -S.spacing * .1, spikeSize, spikeSize, spikeSize)]);
     }
-    const legs = [-1, 1].map(side => {
-      const parts = { femur: mesh(geo.femur, legInk), tibia: mesh(geo.tibia, legInk), meta: mesh(geo.meta, legInk), needle: mesh(geo.needle, legInk) };
-      Object.values(parts).forEach(m => root.add(m));
+    const legs = [-1, 1].map((side, j) => {
+      const parts = Object.fromEntries(Object.entries(bones).map(([name, mesh]) => [name, { mesh, i: i * 2 + j }]));
       const scale = 1 - .3 * k;
       return { side, parts, foot: new THREE.Vector3(), from: new THREE.Vector3(), to: new THREE.Vector3(), step: 0, duration: .1, lift: .2, free: false, flail: new THREE.Vector3(), flailT: 0, F: S.leg[0] * scale, T: S.leg[1] * scale, knee: new THREE.Vector3(), started: false };
     });
-    segs.push({ g, r, legs, pos: new THREE.Vector3(), fwd: new THREE.Vector3(0, 0, 1), right: new THREE.Vector3(1, 0, 0), jerk: new THREE.Vector3(), jerkWant: new THREE.Vector3(), jerkT: 0 });
+    segs.push({ g, r, legs, shapes, pos: new THREE.Vector3(), fwd: new THREE.Vector3(0, 0, 1), right: new THREE.Vector3(1, 0, 0), jerk: new THREE.Vector3(), jerkWant: new THREE.Vector3(), jerkT: 0 });
   }
   // Tail cerci.
   const last = segs.at(-1);
@@ -101,7 +110,13 @@ export function createCentipedeView(crawlerGLTF, parent, { style = 'needle', seg
   const pts = [], point = { x: 0, y: 0, z: 0 };
   let clock = 0, shudder = null, open = 0, chomp = 0, chompT = 0, headJerk = new THREE.Vector3(), headJerkWant = new THREE.Vector3(), headJerkT = 0, lastPos = new THREE.Vector3(), started = false;
   const vel = new THREE.Vector3();
-  function place(m, from, to) { const d = tmp2.subVectors(to, from), l = d.length(); m.position.copy(from); m.quaternion.setFromUnitVectors(UP, d.divideScalar(l || 1)); m.scale.set(1, l, 1); }
+  const pq = new THREE.Quaternion(), ps = new THREE.Vector3(), pm = new THREE.Matrix4();
+  /** Stretches instance `part` ({mesh, i}) of a unit-tall part from `from` to `to`. */
+  function place(part, from, to, stretch = 1) {
+    const d = tmp2.subVectors(to, from), l = d.length();
+    pq.setFromUnitVectors(UP, d.divideScalar(l || 1)); ps.set(1, l * stretch, 1);
+    part.mesh.setMatrixAt(part.i, pm.compose(from, pq, ps));
+  }
   function solve(leg, hip, out) {
     const ankle = tmp.copy(leg.foot); if (!leg.free) ankle.addScaledVector(out, -.08).setY(leg.foot.y + leg.T * .38);
     const F = leg.F, T = leg.T * .7, d = new THREE.Vector3().subVectors(ankle, hip), dist = Math.min(F + T - .01, Math.max(.08, d.length())), u = d.normalize();
@@ -110,17 +125,21 @@ export function createCentipedeView(crawlerGLTF, parent, { style = 'needle', seg
     leg.knee.copy(hip).addScaledVector(u, a).addScaledVector(pole, h);
     const reached = new THREE.Vector3().copy(hip).addScaledVector(u, dist), tip = leg.free ? reached.clone().addScaledVector(new THREE.Vector3().subVectors(reached, leg.knee).normalize(), leg.T * .38) : leg.foot.clone();
     place(leg.parts.femur, hip, leg.knee); place(leg.parts.tibia, leg.knee, reached);
-    const needleStart = new THREE.Vector3().lerpVectors(reached, tip, .65); place(leg.parts.meta, reached, needleStart); place(leg.parts.needle, needleStart, tip);
-    leg.parts.needle.scale.set(1, tip.distanceTo(needleStart) / .2, 1);
+    const needleStart = new THREE.Vector3().lerpVectors(reached, tip, .65); place(leg.parts.meta, reached, needleStart); place(leg.parts.needle, needleStart, tip, 5);
   }
 
   /** `c`: the simulated centipede. Returns step events ({type:'plant', x, z}) for sound. */
   function update(c, dt, { freak: f = freak } = {}) {
     const events = []; clock += dt; time.value += dt; pulse.value *= Math.exp(-dt * 4);
+    if (clipped) { parent.getWorldPosition(floorAt); ground.constant = .02 - floorAt.y; }
+    // Dying it convulses hard, then stills, slumps onto its side and sinks into the ground.
+    const dead = c.state === 'dead', throes = dead ? Math.max(0, 1 - c.t / 3) : 0, slump = dead ? Math.min(1, c.t * .7) : 0, sink = dead ? Math.max(0, c.t - 4) * .7 : 0;
+    if (dead) f = 1.8 * throes;
     // Where each segment sits, and which way it faces, from the head's trail.
-    for (let i = 0; i <= S.segments; i++) { along(c, i * S.spacing, point); (pts[i] ??= new THREE.Vector3()).set(point.x, point.y + H, point.z); }
+    const lift = H * (1 - .6 * slump);
+    for (let i = 0; i <= S.segments; i++) { along(c, i * S.spacing, point); (pts[i] ??= new THREE.Vector3()).set(point.x, point.y + lift + gy(point.x, point.z) - sink, point.z); }
     // Now and then a shudder runs down the body from head to tail.
-    if (!shudder && Math.random() < dt * f * .35) shudder = { at: 0, side: Math.random() < .5 ? -1 : 1, power: .5 + Math.random() * .5 };
+    if (!shudder && Math.random() < dt * (f * .5 + throes * 3)) shudder = { at: 0, side: Math.random() < .5 ? -1 : 1, power: .5 + Math.random() * .5 };
     if (shudder) { shudder.at += dt * 26; if (shudder.at > S.segments + 6) shudder = null; }
     const busy = c.state === 'rear' || c.state === 'rise' || c.state === 'slam';
     for (let i = 0; i < S.segments; i++) {
@@ -129,21 +148,23 @@ export function createCentipedeView(crawlerGLTF, parent, { style = 'needle', seg
       const r = tmp.crossVectors(UP, s.fwd); if (r.lengthSq() > 1e-4) s.right.copy(r.normalize());
       const up = tmp2.crossVectors(s.fwd, s.right).normalize();
       // Twitches: each segment snaps between small held offsets; the shudder throws it sideways as it passes.
-      s.jerkT -= dt; if (s.jerkT <= 0) { s.jerkT = .05 + Math.random() * (.5 - .35 * f); s.jerkWant.set((Math.random() - .5) * .5 * f, (Math.random() - .5) * .08 * f, (Math.random() - .5) * .6 * f); }
+      s.jerkT -= dt; if (s.jerkT <= 0) { s.jerkT = .04 + Math.random() * Math.max(.03, .5 - .35 * f); s.jerkWant.set((Math.random() - .5) * .5 * f, (Math.random() - .5) * .08 * f, (Math.random() - .5) * .6 * f); }
       s.jerk.lerp(s.jerkWant, 1 - Math.exp(-dt * 40));
       const wave = shudder ? Math.exp(-((i - shudder.at) ** 2) / 3) * shudder.power * f : 0;
       s.pos.copy(p).addScaledVector(s.right, (s.jerk.x * .12 + wave * .35 * (shudder?.side ?? 0)) * s.r / .3).addScaledVector(up, s.jerk.y * .3 + Math.sin(clock * 3 + i * .5) * .015);
       m4.makeBasis(s.right, up, s.fwd); q.setFromRotationMatrix(m4);
-      s.g.position.copy(s.pos); s.g.quaternion.copy(q); s.g.rotateZ(s.jerk.z * .5 + wave * .8); s.g.rotateY(s.jerk.x);
+      s.g.position.copy(s.pos); s.g.quaternion.copy(q); s.g.rotateZ(s.jerk.z * .5 + wave * .8 + slump * (1.1 + .5 * Math.sin(i * .45))); s.g.rotateY(s.jerk.x);
+      s.g.updateMatrix();
+      for (const [mesh, shape] of s.shapes) mesh.setMatrixAt(i, pm.multiplyMatrices(s.g.matrix, shape));
     }
     // Head on the first segment's line, jaws chomping, jerking about.
     const s0 = segs[0];
-    headJerkT -= dt; if (headJerkT <= 0) { headJerkT = .04 + Math.random() * (.4 - .3 * f); headJerkWant.set((Math.random() - .5) * .7 * f, (Math.random() - .5) * .5 * f, (Math.random() - .5) * .6 * f); }
+    headJerkT -= dt; if (headJerkT <= 0) { headJerkT = .03 + Math.random() * Math.max(.03, .4 - .3 * f); headJerkWant.set((Math.random() - .5) * .7 * f, (Math.random() - .5) * .5 * f, (Math.random() - .5) * .6 * f); }
     headJerk.lerp(headJerkWant, 1 - Math.exp(-dt * 45));
     head.position.copy(s0.pos).addScaledVector(s0.fwd, S.spacing * .55 + S.radius * .5);
     head.quaternion.copy(s0.g.quaternion); head.rotateY(headJerk.x); head.rotateX(headJerk.y - (c.state === 'rear' ? .5 : 0)); head.rotateZ(headJerk.z);
     chompT -= dt; if (chompT <= 0) { chompT = .05 + Math.random() * .25; chomp = Math.random() < .2 + .5 * f ? .3 + Math.random() * .7 : 0; }
-    const wantOpen = c.state === 'rear' ? .9 + .1 * Math.sin(clock * 30) : c.state === 'rise' || c.state === 'slam' ? 1 : chomp * f;
+    const wantOpen = c.state === 'rear' ? .9 + .1 * Math.sin(clock * 30) : c.state === 'rise' || c.state === 'slam' ? 1 : dead && !throes ? .7 : chomp * Math.min(1, f);
     open += (wantOpen - open) * (1 - Math.exp(-dt * 30));
     root.updateMatrixWorld(true);
     if (shells.ShellL) shells.ShellL.rotation.y = -open * .55; if (shells.ShellR) shells.ShellR.rotation.y = open * .55;
@@ -169,27 +190,33 @@ export function createCentipedeView(crawlerGLTF, parent, { style = 'needle', seg
       for (const leg of s.legs) {
         const hip = s.g.localToWorld(new THREE.Vector3(leg.side * s.r * .8, -s.r * .25, 0)); root.worldToLocal(hip);
         const out = new THREE.Vector3().copy(s.right).multiplyScalar(leg.side).setY(0).normalize();
-        const home = new THREE.Vector3().copy(s.pos).addScaledVector(out, (leg.F + leg.T) * .78).addScaledVector(s.fwd, (i % 2 ? .1 : -.05) * S.spacing).setY(0);
-        const reach = leg.F + leg.T * .7 + leg.T * .38, canStand = hip.y > -.05 && hip.y < reach * .95 && Math.abs(s.fwd.y) < .55;
+        const home = new THREE.Vector3().copy(s.pos).addScaledVector(out, (leg.F + leg.T) * .78).addScaledVector(s.fwd, (i % 2 ? .1 : -.05) * S.spacing);
+        home.y = gy(home.x, home.z);
+        const reach = leg.F + leg.T * .7 + leg.T * .38, high = hip.y - gy(hip.x, hip.z), canStand = !dead && high > -.05 && high < reach * .95 && Math.abs(s.fwd.y) < .55;
         if (!leg.started) { leg.started = true; leg.foot.copy(home); }
-        if (!canStand) {
+        if (dead && !throes) {
+          // Dead, the legs curl in under it.
+          leg.free = true; leg.step = 0;
+          leg.foot.lerp(tmp.copy(hip).addScaledVector(out, reach * .35).addScaledVector(UP, -reach * .25), 1 - Math.exp(-dt * 2));
+        } else if (!canStand) {
           // Thrash: the feet snap between random holds around the hip, faster the freakier.
           leg.free = true; leg.step = 0; leg.flailT -= dt;
-          if (leg.flailT <= 0) { leg.flailT = .04 + Math.random() * (.2 - .12 * f); leg.flail.copy(out).multiplyScalar(reach * (.4 + .5 * Math.random())).add(new THREE.Vector3((Math.random() - .5) * .6, (Math.random() - .3) * .8, (Math.random() - .5) * .6).multiplyScalar(reach)); }
+          if (leg.flailT <= 0) { leg.flailT = .03 + Math.random() * Math.max(.03, .2 - .12 * f); leg.flail.copy(out).multiplyScalar(reach * (.4 + .5 * Math.random())).add(new THREE.Vector3((Math.random() - .5) * .6, (Math.random() - .3) * .8, (Math.random() - .5) * .6).multiplyScalar(reach)); }
           leg.foot.lerp(tmp.copy(hip).add(leg.flail), 1 - Math.exp(-dt * 30));
         } else if (leg.free) { leg.free = false; leg.from.copy(leg.foot); leg.to.copy(home); leg.step = .001; leg.duration = .1; leg.lift = .2; }
         if (!leg.free) {
           if (leg.step > 0) {
             leg.step += dt / leg.duration; const t = Math.min(1, leg.step), e = 1 - Math.pow(1 - t, 3);
-            leg.foot.lerpVectors(leg.from, leg.to, e); leg.foot.y = Math.max(0, Math.sin(t * Math.PI) * leg.lift + leg.from.y * (1 - e));
+            leg.foot.lerpVectors(leg.from, leg.to, e); leg.foot.y += Math.sin(t * Math.PI) * leg.lift;
             if (t >= 1) { leg.step = 0; leg.foot.copy(leg.to); events.push({ type: 'plant', x: leg.foot.x, z: leg.foot.z }); }
           } else {
             const gap = Math.hypot(home.x - leg.foot.x, home.z - leg.foot.z), neighbours = [segs[i - 1], segs[i + 1]].filter(Boolean).map(n => n.legs.find(l => l.side === leg.side));
             const blocked = neighbours.some(n => n.step > 0) || s.legs.some(l => l !== leg && l.step > 0);
             const twitch = Math.random() < dt * (.15 + 1.2 * f) && !busy;
             if ((gap > S.limit || twitch) && !blocked) {
-              leg.from.copy(leg.foot); leg.to.copy(gap > S.limit ? home : leg.foot).addScaledVector(vel.setY(0), .08);
+              leg.from.copy(leg.foot); leg.to.copy(gap > S.limit ? home : leg.foot).addScaledVector(tmp2.copy(vel).setY(0), .08);
               if (twitch && gap <= S.limit) leg.to.add(new THREE.Vector3((Math.random() - .5) * .3, 0, (Math.random() - .5) * .3));
+              leg.to.y = gy(leg.to.x, leg.to.z);
               leg.step = .001; leg.duration = S.gait === 'ripple' ? .07 : .05 + Math.random() * .05; leg.lift = (S.gait === 'ripple' ? .08 : .16 + Math.random() * .12) * (leg.F / .9 + .3);
             }
           }
@@ -197,19 +224,34 @@ export function createCentipedeView(crawlerGLTF, parent, { style = 'needle', seg
         solve(leg, hip, out);
       }
       // Goo drips from the belly, more as it moves.
-      if (Math.random() < dt * (.08 + vel.length() * .05) && s.pos.y > .1) drip(tmp.copy(s.pos).addScaledVector(UP, -s.r * .6), .012 + Math.random() * .02);
+      if (Math.random() < dt * (.08 + vel.length() * .05) && s.pos.y > gy(s.pos.x, s.pos.z) + .1) drip(tmp.copy(s.pos).addScaledVector(UP, -s.r * .6), .012 + Math.random() * .02);
     }
     dropState.forEach((d, i) => {
-      if (d.alive) { d.v.y -= 9 * dt; d.p.addScaledVector(d.v, dt); if (d.p.y <= 0) d.alive = false; }
+      if (d.alive) { d.v.y -= 9 * dt; d.p.addScaledVector(d.v, dt); if (d.p.y <= gy(d.p.x, d.p.z)) d.alive = false; }
       if (d.alive) { dummy.position.copy(d.p); dummy.scale.set(d.size, d.size * (1 + Math.min(2.5, -d.v.y * .35)), d.size); } else dummy.scale.setScalar(0);
       dummy.updateMatrix(); drops.setMatrixAt(i, dummy.matrix);
     });
     drops.instanceMatrix.needsUpdate = true;
+    for (const m of batches) m.instanceMatrix.needsUpdate = true;
     return events;
   }
+  /** A strike at `point` travelling along `dir` (the parent's space): goo sprays out and the skin shudders. */
+  function hit(point, dir) {
+    pulse.value = 1;
+    if (!point) return;
+    for (let i = 0; i < 10; i++) {
+      const d = dropState[nextDrop]; nextDrop = (nextDrop + 1) % DROPS;
+      d.p.set(point.x, point.y, point.z); d.v.set((dir?.x ?? 0) * 2.5 + (Math.random() - .5) * 2.5, 1 + Math.random() * 2.2, (dir?.z ?? 0) * 2.5 + (Math.random() - .5) * 2.5); d.alive = true; d.size = .012 + Math.random() * .02;
+    }
+  }
+  const burnPoints = [];
   return {
-    root, style: S, head, update, hit() { pulse.value = 1; },
+    root, style: S, head, update, hit,
+    /** How hot it is burning (0–1) and how charred it is (0–1). */
+    burn(h, c) { heat.value = h; char.value = c; },
+    /** Where flames take hold, in the parent's space: the head and every third segment. */
+    burning() { burnPoints.length = 0; burnPoints.push(head.position); for (let i = 2; i < segs.length; i += 3) burnPoints.push(segs[i].pos); return burnPoints; },
     get position() { return head.position; },
-    dispose() { parent.remove(root); owned.forEach(o => o.dispose()); drops.dispose(); },
+    dispose() { parent.remove(root); owned.forEach(o => o.dispose()); drops.dispose(); batches.forEach(m => m.dispose()); },
   };
 }

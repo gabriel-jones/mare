@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 import {createCrawlerView} from './crawler-view.js';
+import {createCentipedeView} from './centipede-view.js';
+import {createBurrowFx} from './burrow-fx.js';
+import {SHAPE} from './centipede.js';
 import {CRAWLER,DODGE,walkable} from './crawler.js';
 import {caveLayout} from './caves.js';
 import {grabbedBy} from './hunt.js';
@@ -90,7 +93,7 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
  const flash=new THREE.Sprite(new THREE.SpriteMaterial({map:flashTex,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,opacity:0}));flash.scale.setScalar(1.4);fx.add(flash);
  const impactFlash=new THREE.Sprite(new THREE.SpriteMaterial({map:flashTex,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,opacity:0}));impactFlash.scale.setScalar(.9);fx.add(impactFlash);
  const ichor=particles(fx,80,{additive:false,color:'#020203',size:10}),sparks=particles(fx,60,{additive:true,color:'#ffb066',size:7}),dust=particles(fx,40,{additive:true,color:'#2c323c',size:30});
- const smoke=createSmoke(fx),flares=createFlareView(fx),thrown=new WeakSet();
+ const smoke=createSmoke(fx),flares=createFlareView(fx),thrown=new WeakSet(),burrows=createBurrowFx(fx,{dim:true});
  // The katana: a cyan glow that rides the blade, sparks off it, and a ribbon traced by the blade through each swing.
  const zaps=particles(fx,90,{additive:true,color:'#8fe6ff',size:6}),bladeLight=new THREE.PointLight('#8fe6ff',0,4,2);fx.add(bladeLight);
  const TRAIL=24,trailPos=new Float32Array(TRAIL*6),trailAlpha=new Float32Array(TRAIL*2),trailGeo=new THREE.BufferGeometry();
@@ -153,7 +156,10 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
  }
 
  function syncViews(hunt){
-  for(const c of hunt.crawlers)if(!views.has(c))views.set(c,{view:createCrawlerView(crawlerGLTF,caveView.root,{mode:'sight',sight:caveView.sight,toCave,viewDir}),last:new THREE.Vector3(),vel:new THREE.Vector3(),fresh:true});
+  for(const c of hunt.crawlers)if(!views.has(c)){
+   const look={mode:'sight',sight:caveView.sight,toCave,viewDir};
+   views.set(c,{view:c.kind==='centipede'?createCentipedeView(crawlerGLTF,caveView.root,{...look,style:SHAPE.style,freak:SHAPE.freak}):createCrawlerView(crawlerGLTF,caveView.root,look),last:new THREE.Vector3(),vel:new THREE.Vector3(),fresh:true});
+  }
   for(const [c,v] of views)if(!hunt.crawlers.includes(c)){v.view.dispose();views.delete(c);wisps.delete(c);}
  }
 
@@ -341,6 +347,7 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
    for(;clock>1;clock--)smoke.emit(wispFrom.copy(at),v.vel,s==='dead'?.6:.15);
    wisps.set(c,clock);
   }
+  if(cave){burrows.update(hunt.crawlers.filter(c=>c.kind==='centipede'),dt);shake=Math.max(shake,burrows.shake*.5);}
   hive?.update(state,dt,hunt.flame?.points??[],hunt.wounds);
   smoke.update(dt,viewDir.value);
   if(cave)flares.update(state,dt,{root:caveView.root,actor});
@@ -409,6 +416,6 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
   setAim(point){aimMarker.visible=!!point&&!!caveView;if(point)aimMarker.position.set(point.x,.05,point.z);},
   get shake(){return shake*.5;},
   get active(){return !!caveView;},
-  dispose(){leave();hud.dispose();bulletGeo.dispose();bulletMat.dispose();caseMesh.geometry.dispose();caseMesh.material.dispose();caseMesh.dispose();flashTex.dispose();flash.material.dispose();impactFlash.material.dispose();ichor.dispose();sparks.dispose();dust.dispose();zaps.dispose();trailGeo.dispose();trailMat.dispose();boltGeo.dispose();boltMat.dispose();smoke.dispose();flares.dispose();jet.dispose();aimMarker.geometry.dispose();aimMarker.material.dispose();},
+  dispose(){leave();hud.dispose();burrows.dispose();bulletGeo.dispose();bulletMat.dispose();caseMesh.geometry.dispose();caseMesh.material.dispose();caseMesh.dispose();flashTex.dispose();flash.material.dispose();impactFlash.material.dispose();ichor.dispose();sparks.dispose();dust.dispose();zaps.dispose();trailGeo.dispose();trailMat.dispose();boltGeo.dispose();boltMat.dispose();smoke.dispose();flares.dispose();jet.dispose();aimMarker.geometry.dispose();aimMarker.material.dispose();},
  };
 }

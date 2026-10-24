@@ -5,7 +5,7 @@ import { STATIONS, isStation, jobProduct, readyCount, roomStatus } from './life.
 import { CROPS, cropsFor, defaultCrop, isGrower } from './farm.js';
 import { BIO } from './power.js';
 import { WEAPONS } from './arms.js';
-import { CRAWLER, hurtCrawler, radiusOf, sizeOf } from './crawler.js';
+import { CRAWLER, hurtCrawler, partNear, partsOf, radiusOf, sizeOf } from './crawler.js';
 import { cellPassable } from './paths.js';
 import { habitatLayout } from './habitat.js';
 import { createAndroid, freePad } from './space.js';
@@ -39,7 +39,7 @@ const key = (x, z) => `${x},${z}`;
 const cellOf = r => ({ x: Math.round(r.x / CELL_SIZE), z: Math.round(r.z / CELL_SIZE) });
 const androids = state => state.robots.filter(r => r.kind === 'android');
 /** Loose hatchlings, and raiders once they reach the base. */
-export const threats = state => (state.brood ?? []).filter(c => c.state !== 'dead' && c.state !== 'emerge' && !c.gone && (!c.raider || c.near));
+export const threats = state => (state.brood ?? []).filter(c => c.state !== 'dead' && c.state !== 'emerge' && !c.gone && (!c.raider || c.near) && partsOf(c).length);
 /**
  * Whether `r` can see `target` across open ground: no standing structure (rooms included) and no rise of the terrain
  * in the way of a line from its eyes to the target's body. The squares at either end don't count.
@@ -416,21 +416,23 @@ const sights = new WeakMap();
 function fight(state, r, dt, rng) {
   const spec = WEAPONS[r.weapon], list = threats(state);
   if (!list.length || !spec) return 'done';
-  const target = list.sort((a, b) => Math.hypot(a.x - r.x, a.z - r.z) - Math.hypot(b.x - r.x, b.z - r.z))[0];
-  const d = Math.hypot(target.x - r.x, target.z - r.z) - Math.max(0, radiusOf(target) - CRAWLER.radius), reach = spec.melee ? spec.range * .75 : Math.min(spec.range * .7, 14);
+  // A centipede is fought wherever its body is nearest.
+  const near = c => partNear(c, r.x, r.z);
+  const target = list.sort((a, b) => near(a).d - near(b).d)[0], at = near(target);
+  const d = at.d - Math.max(0, radiusOf(target) - CRAWLER.radius), reach = spec.melee ? spec.range * .75 : Math.min(spec.range * .7, 14);
   r.cool = Math.max(0, (r.cool ?? 0) - dt);
-  r.aim = { x: target.x, z: target.z };
+  r.aim = { x: at.x, z: at.z };
   // Out of sight (round a building, over a rise) it closes in rather than firing blind.
   let look = sights.get(r);
-  if (!look || look.target !== target || (look.t -= dt) <= 0) sights.set(r, look = { target, t: .25, clear: d <= reach && clearShot(state, r, target) });
+  if (!look || look.target !== target || (look.t -= dt) <= 0) sights.set(r, look = { target, t: .25, clear: d <= reach && clearShot(state, r, at) });
   if (d > reach || !look.clear) {
-    const c = cellOf(target), n = nav(state), goals = [c, ...DIRS.map(([dx, dz]) => ({ x: c.x + dx, z: c.z + dz }))].filter(g => open(state, n, g.x, g.z));
+    const c = cellOf(at), n = nav(state), goals = [c, ...DIRS.map(([dx, dz]) => ({ x: c.x + dx, z: c.z + dz }))].filter(g => open(state, n, g.x, g.z));
     // Re-aim the route at the target's square as it moves.
     if (walk(state, r, goals.length ? goals : [cellOf(r)], dt) === 'unreachable') return 'done';
     return 'working';
   }
   r.moving = false; routes.delete(r);
-  face(r, Math.atan2(target.x - r.x, target.z - r.z), dt * 12);
+  face(r, Math.atan2(at.x - r.x, at.z - r.z), dt * 12);
   if (r.cool > 0) return 'working';
   const odds = hitChance(spec, d, target.speed ?? 0, sizeOf(target));
   if (spec.melee) { if (rng() < odds) hurtCrawler(target, spec.damage * ANDROID.damage); r.cool = spec.cooldown + .25; r.shot = (r.shot ?? 0) + 1; return 'working'; }
@@ -443,7 +445,7 @@ function fight(state, r, dt, rng) {
   let landed = 0;
   for (let i = 0; i < shots; i++) if (rng() < odds) { hurtCrawler(target, spec.damage * ANDROID.damage); landed++; }
   // A miss goes wide, past the target, so the tracer shows it.
-  if (!landed) { const side = (rng() < .5 ? -1 : 1) * (.8 + rng()), ux = (target.x - r.x) / (d || 1), uz = (target.z - r.z) / (d || 1); r.aim = { x: target.x + ux * 2 - uz * side, z: target.z + uz * 2 + ux * side }; }
+  if (!landed) { const side = (rng() < .5 ? -1 : 1) * (.8 + rng()), ux = (at.x - r.x) / (d || 1), uz = (at.z - r.z) / (d || 1); r.aim = { x: at.x + ux * 2 - uz * side, z: at.z + uz * 2 + ux * side }; }
   r.hits = (r.hits ?? 0) + landed; r.misses = (r.misses ?? 0) + shots - landed;
   r.mag -= shots; r.cool = (spec.cooldown ?? .3) + (spec.charge ?? 0) + .2; r.shot = (r.shot ?? 0) + 1;
   return 'working';

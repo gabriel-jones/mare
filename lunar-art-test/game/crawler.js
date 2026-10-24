@@ -41,6 +41,8 @@ export const KINDS=Object.freeze({
  drone:Object.freeze({size:1.9,hp:80,pace:.95,might:1.1,burst:1,belly:.45}),
  brute:Object.freeze({size:2.5,hp:170,pace:.78,might:1.6,burst:4,belly:.75}),
  matron:Object.freeze({size:3.2,hp:300,pace:.62,might:2.2,burst:7,belly:1}),
+ // Not a crawler at all: centipede.js moves it and centipede-view.js draws it.
+ centipede:Object.freeze({size:1,hp:420,pace:1,might:1,burst:0,belly:0}),
 });
 export const MAX_KIND_HP=Math.max(...Object.values(KINDS).map(k=>k.hp));
 /** Makes `c` a raider of `kind`, at full health. */
@@ -49,6 +51,14 @@ export function asKind(c,kind){const k=KINDS[kind];return Object.assign(c,{kind,
 export const sizeOf=c=>c.size??1;
 const paceOf=c=>c.pace??1;
 export const radiusOf=c=>CRAWLER.radius*sizeOf(c);
+/** Where it can be hit: a centipede is a line of points along its body (none while it is underground), a crawler one. */
+export const partsOf=c=>c.body??[c];
+/** Its nearest hittable point to (x, z), with the distance, or null when none of it is above ground. */
+export function partNear(c,x,z){
+ let best=null,d=Infinity;
+ for(const p of partsOf(c)){const e=Math.hypot(p.x-x,p.z-z);if(e<d){d=e;best=p;}}
+ return best&&{x:best.x,z:best.z,d};
+}
 export const crawlerAnimation=c=>c.state==='lurk'&&c.speed<.2?'idle':ANIM[c.state];
 
 export function walkable(cave,x,z,r=CRAWLER.radius*.6){
@@ -240,9 +250,11 @@ export function scorchCrawler(c,damage,rng=Math.random){
 /** Damage from a shot. Doubled while it rears or recovers from a missed lunge; a hit during the shriek breaks the attack. */
 export function hurtCrawler(c,damage,rng=Math.random){
  if(c.state==='dead')return {killed:false,dealt:0};
- const exposed=c.state==='shriek'||c.state==='recover',dealt=damage*(exposed?CRAWLER.vulnerable:1);
+ const exposed=c.state==='shriek'||c.state==='recover'||c.state==='rear',dealt=damage*(exposed?CRAWLER.vulnerable:1);
  c.hp=Math.max(0,c.hp-dealt);
  if(c.hp<=0){enter(c,'dead',rng);c.anim='death';return {killed:true,dealt};}
+ // A centipede shrugs a hit off; reared up, it takes double.
+ if(c.kind==='centipede')return {killed:false,dealt,interrupted:false};
  if(c.state==='grab'){if(struggle(c,CRAWLER.escapePerShot))return {killed:false,dealt,released:true};return {killed:false,dealt};}
  if(c.state!=='lunge'&&(sizeOf(c)<=1||rng()<1/sizeOf(c)**2)){c.after=c.state==='shriek'||c.state==='recover'||c.state==='flee'?'flee':'angry';enter(c,'hit',rng);c.anim='hit';}
  return {killed:false,dealt,interrupted:exposed};
@@ -274,10 +286,13 @@ export function shotTarget(cave,from,aim,crawlers,gun=PISTOL){
  const len=Math.hypot(aim.x,aim.z)||1,ax=aim.x/len,az=aim.z/len;let best=null;
  for(const c of crawlers){
   if(c.state==='dead')continue;
-  const ox=c.x-from.x,oz=c.z-from.z,along=ox*ax+oz*az;if(along<0||along>gun.range)continue;
-  const off=Math.abs(ox*az-oz*ax);if(off>radiusOf(c)+gun.tolerance)continue;
-  if(cave&&!lineVisible(cave,cellOf(from.x),cellOf(from.z),cellOf(c.x),cellOf(c.z)))continue;
-  if(!best||along<best.distance)best={crawler:c,distance:along};
+  for(const p of partsOf(c)){
+   const ox=p.x-from.x,oz=p.z-from.z,along=ox*ax+oz*az;if(along<0||along>gun.range)continue;
+   const off=Math.abs(ox*az-oz*ax);if(off>radiusOf(c)+gun.tolerance)continue;
+   if(best&&along>=best.distance)continue;
+   if(cave&&!lineVisible(cave,cellOf(from.x),cellOf(from.z),cellOf(p.x),cellOf(p.z)))continue;
+   best={crawler:c,distance:along};
+  }
  }
  return best;
 }

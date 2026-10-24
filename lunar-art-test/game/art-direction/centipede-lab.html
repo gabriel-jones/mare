@@ -20,7 +20,7 @@ input[type=range]{width:100%;accent-color:#8a70ff}
  <h2>CENTIPEDE LAB</h2>
  <h3>Style</h3><div class="grid" id="styles"></div><p class="note" id="style-note"></p>
  <h3>Tuning</h3>
- <div class="slider"><span>Freakiness</span><input type="range" id="freak" min="0" max="1" step=".05"><span id="freak-v"></span></div>
+ <div class="slider"><span>Freakiness</span><input type="range" id="freak" min="0" max="1.6" step=".05"><span id="freak-v"></span></div>
  <div class="slider"><span>Speed</span><input type="range" id="pace" min=".4" max="2" step=".05"><span id="pace-v"></span></div>
  <div class="slider"><span>Segments</span><input type="range" id="segments" min="8" max="44" step="1"><span id="segments-v"></span></div>
  <h3>Movement</h3><div class="grid" id="modes"></div>
@@ -42,7 +42,7 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import {createAstronaut} from '../actor.js';
-import {CENTIPEDE,createCentipede,stepCentipede,burrow,rear,popSpot} from '../centipede.js';
+import {CENTIPEDE,SHAPE,createCentipede,stepCentipede,burrow,rear,popSpot} from '../centipede.js';
 import {createCentipedeView,CENTIPEDE_STYLES} from '../centipede-view.js';
 
 const params=new URLSearchParams(location.search),$=id=>document.getElementById(id);
@@ -80,7 +80,7 @@ let shake=0;
 
 // The specimen.
 let style=CENTIPEDE_STYLES[params.get('style')]?params.get('style'):'needle',mode=['wander','chase','circle'].includes(params.get('mode'))?params.get('mode'):'chase';
-let freak=params.has('freak')?Number(params.get('freak')):.65,pace=1,segments=CENTIPEDE_STYLES[style].segments;
+let freak=params.has('freak')?Number(params.get('freak')):SHAPE.freak,pace=1,segments=CENTIPEDE_STYLES[style].segments;
 let body,view;
 function build(){
  view?.dispose();const S=CENTIPEDE_STYLES[style];

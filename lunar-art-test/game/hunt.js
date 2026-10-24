@@ -3,7 +3,8 @@ import {FLARE,flareNow} from './peril.js';
 import {burnNest,liveNests,nestMouth,silkBlocks,stepInfest} from './infest.js';
 import {burnGoo} from './goo.js';
 import {WEAPONS,stepArms,pullTrigger,burnTank,heldWeapon,armsOf,reload} from './arms.js';
-import {CRAWLER,PLAYER_RADIUS,radiusOf,createCrawler,stepCrawler,struggle,hurtCrawler,scorchCrawler,shotEnd,createDodge,startDodge,stepDodge} from './crawler.js';
+import {CRAWLER,PLAYER_RADIUS,radiusOf,partsOf,partNear,walkable,createCrawler,stepCrawler,struggle,hurtCrawler,scorchCrawler,shotEnd,createDodge,startDodge,stepDodge} from './crawler.js';
+import {SHAPE,createCentipede,huntCentipede} from './centipede.js';
 
 /**
  * Crawlers in the caves, and the player's answer to them: the weapons (arms.js), the dodge roll and breaking free of
@@ -18,6 +19,8 @@ import {CRAWLER,PLAYER_RADIUS,radiusOf,createCrawler,stepCrawler,struggle,hurtCr
  * more out of it (`brood`), and when it finally goes up in flames `final` more boil out. `limit` caps the living.
  */
 export const NEST=Object.freeze({count:[3,5,7],farFrom:16,respawn:[16,30],bullet:90,hp:120,burst:30,brood:[1,2],final:3,limit:14,mouth:.95});
+/** The chance a centipede hunts a zone, by depth. */
+export const CENTIPEDES=Object.freeze([.3,.65,1]);
 function brood(state,cave){
  const p=state.player,total=cave.nests.length,live=liveNests(state,p.cave,p.zone??0);
  if(!total)return {live,cap:NEST.count[cave.zone]??1,slow:1};
@@ -100,6 +103,10 @@ export function stepHunt(hunt,state,dt,rng=Math.random){
  if(hunt.key!==key){
   Object.assign(hunt,createHunt(),{events:hunt.events,key,trigger:hunt.trigger});
   const b=brood(state,cave);for(let i=0;i<b.cap;i++)spawn(hunt,cave,state,rng,b.live);
+  if(rng()<(CENTIPEDES[zone]??1)){
+   const at=spawnSpot(cave,state.player,rng,hunt.crawlers);
+   if(at)hunt.crawlers.push(createCentipede(at.x,at.z,{...SHAPE,facing:Math.atan2(state.player.x-at.x,state.player.z-at.z)}));
+  }
  }
  hunt.clock+=dt;
  for(const w of Object.values(hunt.wounds))w.hit=Math.max(0,w.hit-dt);
@@ -117,7 +124,17 @@ export function stepHunt(hunt,state,dt,rng=Math.random){
  // Crawlers shy from the flamethrower's jet as from a flare.
  if(hunt.flame)flares.push(...hunt.flame.points);
  const hurt=amount=>{p.health=Math.max(0,(p.health??100)-amount);p.calm=0;};
+ const caveOpen=(x,z)=>walkable(cave,x,z,.4);
  for(const c of hunt.crawlers){
+  if(c.kind==='centipede'){
+   // It feels the player through the rock from anywhere in the zone; a roll or a jump carries them clear of a blow.
+   const near=Math.hypot(p.x-c.x,p.z-c.z)<CRAWLER.sense*1.5;
+   for(const e of huntCentipede(c,dt,{prey:near?{x:p.x,z:p.z,invulnerable:dash.invulnerable||(p.y??0)>.6}:null,open:caveOpen,rng})){
+    if(e.type==='strike'){hurt(e.damage);hunt.events.push({type:'slash',crawler:c,damage:e.damage});}
+    else hunt.events.push({...e,crawler:c});
+   }
+   continue;
+  }
   // One at a time: while something has hold of the player the others cannot land a blow.
   const env={cave,player:{x:p.x,z:p.z,facing:p.facing,lamp:hunt.lampShort<=0,invulnerable:dash.invulnerable||(held&&held!==c)||(p.y??0)>.6},flares};
   for(const e of stepCrawler(c,env,dt,rng)){
@@ -180,8 +197,8 @@ function stepFlame(hunt,state,cave,targets,dt,rng){
  for(const c of targets){
   if(c.state==='dead')continue;
   // The jet stops at rock, so whatever lies by its points (or right at the nozzle) is in the fire.
-  const ox=c.x-p.x,oz=c.z-p.z,close=Math.hypot(ox,oz)<1.2&&ox*ax+oz*az>0;
-  if(!close&&!points.some(f=>Math.hypot(c.x-f.x,c.z-f.z)<radiusOf(c)+.55))continue;
+  const body=partsOf(c),close=body.some(b=>{const ox=b.x-p.x,oz=b.z-p.z;return Math.hypot(ox,oz)<1.2&&ox*ax+oz*az>0;});
+  if(!close&&!points.some(f=>body.some(b=>Math.hypot(b.x-f.x,b.z-f.z)<radiusOf(c)+.55)))continue;
   const r=scorchCrawler(c,spec.damage*dt,rng);c.scorched=.4;
   if(r.killed)hunt.events.push({type:'killed',crawler:c,burnt:true});
  }
@@ -204,16 +221,16 @@ function stepArc(hunt,state,cave,targets,dt,rng){
  const sees=(a,b)=>!cave||lineVisible(cave,cell(a.x),cell(a.z),cell(b.x),cell(b.z));
  const live=targets.filter(c=>c.state!=='dead'),struck=[];
  let first=null,best=Infinity;
- for(const c of live){
-  const ox=c.x-p.x,oz=c.z-p.z,d=Math.hypot(ox,oz);if(d>spec.range+radiusOf(c)||d>=best)continue;
+ for(const c of live)for(const b of partsOf(c)){
+  const ox=b.x-p.x,oz=b.z-p.z,d=Math.hypot(ox,oz);if(d>spec.range+radiusOf(c)||d>=best)continue;
   if(Math.abs(Math.atan2(Math.sin(Math.atan2(ox,oz)-facing),Math.cos(Math.atan2(ox,oz)-facing)))>spec.cone&&d>1.2)continue;
-  if(sees(p,c)){first=c;best=d;}
+  if(sees(p,b)){first=c;best=d;}
  }
  if(first){
   struck.push(first);
   while(struck.length<=spec.chain){
    const last=struck.at(-1);let next=null,near=spec.hop;
-   for(const c of live){if(struck.includes(c))continue;const d=Math.hypot(c.x-last.x,c.z-last.z);if(d<near&&sees(last,c)){next=c;near=d;}}
+   for(const c of live){if(struck.includes(c))continue;const at=partNear(c,last.x,last.z);if(at&&at.d<near&&sees(last,at)){next=c;near=at.d;}}
    if(!next)break;struck.push(next);
   }
  }
@@ -283,9 +300,9 @@ function swing(hunt,state,r,rng){
  let hits=0;
  hunt.events.push({type:'swing',weapon:r.weapon,dir});
  for(const c of targets){
-  if(c.state==='dead'||!inArc(c.x,c.z,spec.range+radiusOf(c)))continue;
-  hits++;const h=hurtCrawler(c,spec.damage,rng),d=Math.hypot(c.x-p.x,c.z-p.z)||1;
-  hunt.events.push({type:'impact',crawler:c,x:c.x,z:c.z,dir:{x:(c.x-p.x)/d,z:(c.z-p.z)/d},killed:h.killed,weapon:r.weapon,melee:true});
+  if(c.state==='dead'||!partsOf(c).some(b=>inArc(b.x,b.z,spec.range+radiusOf(c))))continue;
+  hits++;const h=hurtCrawler(c,spec.damage,rng),at=partNear(c,p.x,p.z)??c,d=Math.hypot(at.x-p.x,at.z-p.z)||1;
+  hunt.events.push({type:'impact',crawler:c,x:at.x,z:at.z,dir:{x:(at.x-p.x)/d,z:(at.z-p.z)/d},killed:h.killed,weapon:r.weapon,melee:true});
   if(h.killed)hunt.events.push({type:'killed',crawler:c});
   if(h.released)hunt.events.push({type:'release',crawler:c});
  }
@@ -319,7 +336,7 @@ function discharge(hunt,state,held,rng){
  hunt.events.push({type:'rail',x:end.x,z:end.z,dir,power,weapon:r.weapon});
  let hits=0;
  for(const c of targets){
-  if(c.state==='dead'||along(c.x,c.z,radiusOf(c)+.25)==null)continue;
+  if(c.state==='dead'||!partsOf(c).some(b=>along(b.x,b.z,radiusOf(c)+.25)!=null))continue;
   hits++;const h=hurtCrawler(c,damage,rng);
   hunt.events.push({type:'impact',crawler:c,x:c.x,z:c.z,dir,killed:h.killed,weapon:r.weapon});
   if(h.killed)hunt.events.push({type:'killed',crawler:c});

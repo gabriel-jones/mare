@@ -2,6 +2,7 @@ import { CELL_SIZE, footprint } from './defs.js';
 import { caveKey, caveLayout } from './caves.js';
 import * as inv from './inventory.js';
 import { CRAWLER, KINDS, MAX_KIND_HP, createCrawler, stepCrawler, hurtCrawler } from './crawler.js';
+import { CENTIPEDE, restoreCentipede } from './centipede.js';
 import { INFEST, liveNests, nestMouth } from './infest.js';
 import { techDone } from './space.js';
 import { BIO } from './power.js';
@@ -200,7 +201,9 @@ export function restoreGoo(state, raw) {
       return { raider: true, kind, size: k.size, pace: k.pace, hp: Math.min(c.hp, k.hp), ...(Number.isInteger(c.pack) ? { pack: c.pack, mustered: true } : {}), ...(c.burst === true ? { burst: true } : {}),
         ...(finite(c.grudge) ? { grudge: Math.min(c.grudge, 30) } : {}), ...(Number.isInteger(c.retreat) && c.retreat >= 0 && c.retreat <= 2 ? { retreat: c.retreat } : {}) };
     };
-    state.brood = raw.brood.filter(c => c.state !== 'dead' && !c.gone).map(c => Object.assign(createCrawler(c.x, c.z), { hp: c.hp, facing: finite(c.facing) ? c.facing : 0 }, c.raider === true ? raider(c) : {}));
+    state.brood = raw.brood.filter(c => c.state !== 'dead' && !c.gone).map(c => c.raider === true && c.kind === 'centipede'
+      ? Object.assign(restoreCentipede(c), { raider: true }, raider(c), { hp: Math.min(c.hp, CENTIPEDE.hp) })
+      : Object.assign(createCrawler(c.x, c.z), { hp: c.hp, facing: finite(c.facing) ? c.facing : 0 }, c.raider === true ? raider(c) : {}));
   }
   if (raw.scraped != null && typeof raw.scraped === 'object' && !Array.isArray(raw.scraped)) {
     state.scraped = {};

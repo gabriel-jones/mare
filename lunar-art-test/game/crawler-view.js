@@ -32,6 +32,8 @@ float gooFlow(vec3 p){
  float creep=pow(max(0.,sin(p.y*12.+p.z*4.+uTime*2.2)),4.)*smoothstep(.05,-.2,p.y);
  return slow*.6+creep*.9;
 }`;
+/** Vertex code for `caveFrom`: object (or instance) space to cave space, for the sight-lit materials. */
+const TO_CAVE='mat4 caveFrom=uToCave*modelMatrix;\n#ifdef USE_INSTANCING\ncaveFrom=caveFrom*instanceMatrix;\n#endif\n';
 function gooShader(shader,uniforms,amount,body){
  Object.assign(shader.uniforms,uniforms);
  const a=amount.toFixed(4),seam=body?'smoothstep(.0,.09,abs(p.x))':'1.0';
@@ -71,7 +73,7 @@ export function gooInk({mode='studio',shared,sight=null,toCave=null,viewDir=null
  m.onBeforeCompile=shader=>{
   gooShader(shader,{...shared,...sight,uToCave:toCave,uViewDir:viewDir},amount,body);
   shader.vertexShader=shader.vertexShader.replace('#include <common>','#include <common>\nuniform mat4 uToCave;varying vec3 vCave;varying vec3 vCaveN;')
-   .replace('#include <project_vertex>','#include <project_vertex>\nvCave=(uToCave*modelMatrix*vec4(transformed,1.0)).xyz;vCaveN=mat3(uToCave*modelMatrix)*gooN;');
+   .replace('#include <project_vertex>','#include <project_vertex>\n'+TO_CAVE+'vCave=(caveFrom*vec4(transformed,1.0)).xyz;vCaveN=mat3(caveFrom)*gooN;');
   shader.fragmentShader=shader.fragmentShader.replace('#include <common>','#include <common>\nuniform vec3 uViewDir;varying vec3 vCave;varying vec3 vCaveN;\n'+SIGHT_PARS.replace('varying vec2 vCaveLocal;varying float vSeen;',''))
    .replace('#include <opaque_fragment>',`
     vec3 n=normalize(vCaveN);vec3 toLamp=normalize(vec3(uPlayer.x,1.5,uPlayer.y)-vCave);
@@ -189,6 +191,17 @@ function createAbdomen(style,belly,{ink,keep,castShadow}){
  };
 }
 
+/** Black bone (teeth, needles, plates) and the maw: lit in the studio, under the cave's sight below ground. */
+export function hardParts({mode='studio',sight=null,toCave=null},keep){
+ const bone=mode==='studio'?keep(new THREE.MeshStandardMaterial({color:'#060607',roughness:.12,envMapIntensity:1.6})):keep(new THREE.MeshBasicMaterial({color:'#0b0b0d',fog:false}));
+ if(mode!=='studio')bone.onBeforeCompile=shader=>{
+  Object.assign(shader.uniforms,sight,{uToCave:toCave});
+  shader.vertexShader=shader.vertexShader.replace('#include <common>','#include <common>\nuniform mat4 uToCave;varying vec3 vCave;').replace('#include <project_vertex>','#include <project_vertex>\n'+TO_CAVE+'vCave=(caveFrom*vec4(transformed,1.0)).xyz;');
+  shader.fragmentShader=shader.fragmentShader.replace('#include <common>','#include <common>\nvarying vec3 vCave;\n'+SIGHT_PARS.replace('varying vec2 vCaveLocal;varying float vSeen;','')).replace('#include <opaque_fragment>','outgoingLight=diffuseColor.rgb*(caveSight(vCave.xz)*1.4+caveGlow(vCave.xz));\n#include <opaque_fragment>');
+ };
+ const maw=mode==='studio'?keep(new THREE.MeshStandardMaterial({color:'#080404',roughness:.25})):keep(new THREE.MeshBasicMaterial({color:'#000000',fog:false}));
+ return {bone,maw};
+}
 export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=null,viewDir=null,girth=0,abdomen=null,lite=false}={}){
  const root=new THREE.Group(),time={value:0},owned=[];parent.add(root);
  const keep=x=>(owned.push(x),x);
@@ -197,13 +210,7 @@ export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=n
  const shared={uTime:time,uSag:sag,uPulse:pulse,uHeat:heat,uChar:char};
  const ink=(amount,body=false)=>keep(gooInk({mode,shared,sight,toCave,viewDir},amount,body));
  // Teeth are black needles; only a wet glint picks them out from the goo.
- const bone=mode==='studio'?keep(new THREE.MeshStandardMaterial({color:'#060607',roughness:.12,envMapIntensity:1.6})):keep(new THREE.MeshBasicMaterial({color:'#0b0b0d',fog:false}));
- if(mode!=='studio')bone.onBeforeCompile=shader=>{
-  Object.assign(shader.uniforms,sight,{uToCave:toCave});
-  shader.vertexShader=shader.vertexShader.replace('#include <common>','#include <common>\nuniform mat4 uToCave;varying vec3 vCave;').replace('#include <project_vertex>','#include <project_vertex>\nvCave=(uToCave*modelMatrix*vec4(transformed,1.0)).xyz;');
-  shader.fragmentShader=shader.fragmentShader.replace('#include <common>','#include <common>\nvarying vec3 vCave;\n'+SIGHT_PARS.replace('varying vec2 vCaveLocal;varying float vSeen;','')).replace('#include <opaque_fragment>','outgoingLight=diffuseColor.rgb*(caveSight(vCave.xz)*1.4+caveGlow(vCave.xz));\n#include <opaque_fragment>');
- };
- const maw=mode==='studio'?keep(new THREE.MeshStandardMaterial({color:'#080404',roughness:.25})):keep(new THREE.MeshBasicMaterial({color:'#000000',fog:false}));
+ const {bone,maw}=hardParts({mode,sight,toCave},keep);
  const bodyInk=ink(.022,true),legInk=ink(.004),dropInk=ink(0);
 
  // Body. Blender's fixed drip cluster (Core) is replaced by live strands below.

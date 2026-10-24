@@ -28,6 +28,9 @@ import { ALARM_RED, createAlarmView } from './alarm-view.js';
 import { raidAlert } from './raid.js';
 import { createHeadlamp } from './headlamp.js';
 import { createCrawlerView } from './crawler-view.js';
+import { createCentipedeView } from './centipede-view.js';
+import { createBurrowFx } from './burrow-fx.js';
+import { SHAPE } from './centipede.js';
 import { landerBay } from './encounter.js';
 import { createFlareView } from './flare-view.js';
 import { createGooView } from './goo-view.js';
@@ -336,18 +339,22 @@ export async function createWorld(canvas, initialState, options = {}) {
   // The brood walks the ground itself: each holder rides the terrain (or a room floor) under its crawler.
   const broodGround=(x,z)=>habitatView.floorAt(state,x,z)??heightAt(state.seed,x,z);
   const gooView=createGooView(scene,broodGround);
+  // Centipedes walk the ground in surfaceFx's space; the terrain itself hides whatever of them is dug in.
+  const onSurfaceFx=(x,z)=>broodGround(x,z)-surfaceFx.position.y,surfaceBurrows=createBurrowFx(surfaceFx,{groundAt:onSurfaceFx});
   function updateSurfaceHunt(dt,underground){
     surfaceFx.visible=!underground;gooView.update(state,dt);
     const brood=underground?[]:state.brood??[];
     // Hatchlings are a smaller brood: each view sits in a holder scaled about the hatchling, so its legs stay planted.
     // Raiders are full-grown, bar the hatchlings that join later raids.
-    for(const c of brood)if(!broodViews.has(c)&&crawlerGLTF){const scale=c.raider?c.size??(c.small?HATCHLING:1):HATCHLING,holder=new THREE.Group();holder.scale.setScalar(scale);surfaceFx.add(holder);const view=createCrawlerView(crawlerGLTF,holder,{mode:'studio',girth:c.raider?KINDS[c.kind]?.belly??0:0,lite:scale<1});broodViews.set(c,{holder,view,scale,update:(c,dt,ctx)=>{holder.position.set(c.x*(1-scale),broodGround(c.x,c.z)-surfaceFx.position.y,c.z*(1-scale));view.update(c,dt,ctx);},dispose:()=>{view.dispose();holder.removeFromParent();}});}
+    for(const c of brood)if(c.kind==='centipede'&&!broodViews.has(c)&&crawlerGLTF){const holder=new THREE.Group();surfaceFx.add(holder);const view=createCentipedeView(crawlerGLTF,holder,{style:SHAPE.style,freak:SHAPE.freak,groundAt:onSurfaceFx,clip:false});broodViews.set(c,{holder,view,scale:1,update:(c,dt)=>view.update(c,dt),dispose:()=>{view.dispose();holder.removeFromParent();}});}
+    for(const c of brood)if(c.kind!=='centipede'&&!broodViews.has(c)&&crawlerGLTF){const scale=c.raider?c.size??(c.small?HATCHLING:1):HATCHLING,holder=new THREE.Group();holder.scale.setScalar(scale);surfaceFx.add(holder);const view=createCrawlerView(crawlerGLTF,holder,{mode:'studio',girth:c.raider?KINDS[c.kind]?.belly??0:0,lite:scale<1});broodViews.set(c,{holder,view,scale,update:(c,dt,ctx)=>{holder.position.set(c.x*(1-scale),broodGround(c.x,c.z)-surfaceFx.position.y,c.z*(1-scale));view.update(c,dt,ctx);},dispose:()=>{view.dispose();holder.removeFromParent();}});}
     for(const [c,v] of broodViews)if(!brood.includes(c)){v.dispose();broodViews.delete(c);}
     if(underground)return;
     surfaceFx.position.y=smoothedGround??0;
     for(const f of state.flares??[])if(f.cave==null&&f.age!=null&&f.age<FLARE.release&&!thrownOnSurface.has(f)){thrownOnSurface.add(f);actor?.throwFlare();}
     surfaceFlares.update(state,dt,{root:surfaceFx,actor});
     for(const [c,v] of broodViews){const at=c.aimAt??state.player;v.update(c,dt,{player:{x:c.x+(at.x-c.x)/v.scale,z:c.z+(at.z-c.z)/v.scale}});}
+    surfaceBurrows.update(brood.filter(c=>c.kind==='centipede'),dt);
   }
   const suitMaterials=[];actor?.root.traverse(o=>{if(o.isMesh)for(const m of (Array.isArray(o.material)?o.material:[o.material]))if(!suitMaterials.some(x=>x.material===m))suitMaterials.push({material:m,color:m.color.clone(),environment:m.envMapIntensity});});let suitUnderground=false;
   document.body.dataset.characterClips=actor?.clips.join(',')||'unavailable';
@@ -581,6 +588,7 @@ export async function createWorld(canvas, initialState, options = {}) {
     updateShip(dt,daylight);
     follow.set(player.position.x,player.position.y+1.05,player.position.z);
     if(hunting&&combat.shake){follow.x+=(Math.random()-.5)*combat.shake;follow.z+=(Math.random()-.5)*combat.shake;}
+    if(!underground&&surfaceBurrows.shake){const k=surfaceBurrows.shake*.35;follow.x+=(Math.random()-.5)*k;follow.y+=(Math.random()-.5)*k;follow.z+=(Math.random()-.5)*k;}
     if(encounterState?.phase==='shriek'){const k=.12*Math.max(0,1-encounterState.t);follow.x+=(Math.random()-.5)*k;follow.z+=(Math.random()-.5)*k;}
     const cameraDistance=4;camera.position.set(follow.x+26*cameraDistance,follow.y+34*cameraDistance,follow.z+26*cameraDistance);camera.lookAt(follow);camera.updateMatrixWorld();
     updateSurfaceHunt(dt,underground);
@@ -598,7 +606,7 @@ export async function createWorld(canvas, initialState, options = {}) {
     renderer.compileAsync(view.root,camera,scene).catch(()=>{});view.root.visible=false;
     caveViews.set(key,view);return view;
   }
-  function dispose(){disposed=true;logistics.dispose();buildFx.dispose();portLinks.dispose();pipes.dispose();iceView.dispose();groundPads.dispose();groundMarks.dispose();headlamp.dispose();meetView?.dispose();gooView.dispose();broodViews.forEach(v=>v.dispose());surfaceFx.removeFromParent();lamps.dispose();alarmView.dispose();caveViews.forEach(v=>v.dispose());vignette.remove();expedition.dispose();productionView.dispose();androidView?.dispose();habitatView.dispose();statusLayer.remove();terrainView.dispose();grid.geometry.dispose();grid.material.dispose();combat?.dispose();actor?.dispose();reflection.dispose();canvas.removeEventListener('wheel',zoom);for(const o of structures.values()){o.ownedMaterials?.forEach(m=>m.dispose());scene.remove(o.ports);}geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());itemModels?.dispose();renderer.dispose();}
+  function dispose(){disposed=true;logistics.dispose();buildFx.dispose();portLinks.dispose();pipes.dispose();iceView.dispose();groundPads.dispose();groundMarks.dispose();headlamp.dispose();meetView?.dispose();gooView.dispose();broodViews.forEach(v=>v.dispose());surfaceBurrows.dispose();surfaceFx.removeFromParent();lamps.dispose();alarmView.dispose();caveViews.forEach(v=>v.dispose());vignette.remove();expedition.dispose();productionView.dispose();androidView?.dispose();habitatView.dispose();statusLayer.remove();terrainView.dispose();grid.geometry.dispose();grid.material.dispose();combat?.dispose();actor?.dispose();reflection.dispose();canvas.removeEventListener('wheel',zoom);for(const o of structures.values()){o.ownedMaterials?.forEach(m=>m.dispose());scene.remove(o.ports);}geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());itemModels?.dispose();renderer.dispose();}
   resize();update(initialState,1);
   return {renderer,scene,camera,actor,update,pick,aim,setGhost,clearGhost,setLogistics:shown=>{logisticsShown=shown;},setZones:shown=>productionView.setZones(shown),setPorts,resize,dispose};
 }
