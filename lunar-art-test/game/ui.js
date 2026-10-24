@@ -11,40 +11,11 @@ import { areaKind, remainingRegolith, MAX_MINING_AREAS } from './production.js';
 import { available, canPay, crates, ledger, usedSlots, CRATE_SLOTS } from './storage.js';
 import { tagOf } from './defs.js';
 
-const ICONS = {
-  solar: '<path d="M4 4h16l2 13H2L4 4Zm8 0v13M3 10h18M8 17l-1 4m9-4 1 4M6 21h12"/>',
-  battery: '<path d="M9 3h6v3H9zM6 6h12v16H6zM13 9l-3 5h4l-3 5"/>',
-  hopper: '<path d="M3 4h18l-5 10v6l-8 2v-8L3 4Zm2 5h14"/>',
-  habitat: '<path d="m3 9 9-6 9 6v12H3V9Zm6 12v-8h6v8M3 9h18"/>',
-  greenhouse: '<path d="M3 21V10l9-6 9 6v11Zm0-6h18M9 7v14m6-14v14"/>',
-  airlock: '<path d="M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16M3 21h18M12 3v18"/><path d="m8 12-2 0m10 0 2 0"/>',
-  growbed: '<path d="M3 15h18l-2 6H5ZM12 15V8m0 3c-3 0-4-2-4-4 3 0 4 2 4 4Zm0-2c0-3 2-4 4-4 0 3-2 4-4 4Z"/>',
-  galley: '<path d="M3 11h18v10H3ZM3 15h18M8 7c0-2 2-2 2-4m4 4c0-2 2-2 2-4"/>',
-  hydrorack: '<path d="M5 3v18M19 3v18M5 8h14M5 14h14M5 20h14"/><path d="M9 8c0-2 1-3 2-3m3 3c0-2 1-3 2-3M9 14c0-2 1-3 2-3m3 3c0-2 1-3 2-3"/>',
-  verticalfarm: '<path d="M7 2h10v20H7ZM7 7h10M7 12h10M7 17h10"/><path d="M10 7V5m4 2V5m-4 7v-2m4 2v-2m-4 7v-2m4 2v-2"/>',
-  mushroomtray: '<path d="M3 18h18v3H3Z"/><path d="M5 14a3 3 0 0 1 6 0Zm2 0v4m6-6a4 4 0 0 1 8 0Zm4 0v6"/>',
-  armory: '<path d="M3 20h18M5 20v-7h14v7"/><path d="M4 9h11l2-2h3v3h-3l-2 2H4Z"/><path d="M7 11v2"/>',
-  goovat: '<path d="M6 6h12v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2Z"/><path d="M5 3h14v3H5ZM6 13c2-1.5 4 1.5 6 0s4-1.5 6 0"/><circle cx="10" cy="17" r=".6"/><circle cx="14" cy="16" r=".6"/>',
-  mill: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/><path d="M12 4v6m0 4v6M4 12h6m4 0h6"/>',
-  recycler: '<path d="M12 3s5 6 5 9.5a5 5 0 0 1-10 0C7 9 12 3 12 3Z"/><path d="m9 13 2 2 4-4"/>',
-  conveyor: '<path d="M3 15h18M3 19h18M7 15v4m5-4v4m5-4v4"/><path d="m9 6 3 3-3 3m4-6 3 3-3 3"/>',
-  processor: '<path d="M3 21V11h6l3-3h4v13Zm13-13V3h4v18M7 15h2m2 0h2"/><circle cx="18" cy="13" r="1"/>',
-  storage: '<path d="M4 8 12 4l8 4v8l-8 4-8-4Z"/><path d="m4 8 8 4 8-4M12 12v8"/>',
-  melter: '<path d="M4 12a4 4 0 0 1 4-4h8a4 4 0 0 1 0 8H8a4 4 0 0 1-4-4Z"/><path d="M9 8v8m6-8v8M12 19v2M7 3l2 2 2-2"/>',
-  fabricator: '<path d="M3 21V9h18v12ZM7 9V5h4v4m-4 5h10v4H7Z"/><path d="M15 3v6"/>',
-  assembler: '<path d="M3 21V8l9-5 9 5v13Z"/><path d="M9 21v-6h6v6M8 10h8"/>',
-  electrolyser: '<path d="M6 21V8a3 3 0 0 1 6 0v13M14 21V11a2.5 2.5 0 0 1 5 0v10M3 21h18"/><path d="M9 12v3m7-1v2"/>',
-  tank: '<circle cx="8" cy="12" r="5"/><circle cx="17" cy="13" r="4"/><path d="M3 21h18M8 17v4m9-4v4"/>',
-  dock: '<path d="M4 21V7h16v14M4 7l2-3h12l2 3"/><path d="M9 15h6v3H9ZM12 10v5"/>',
-  roverbay: '<path d="M3 21V9l9-5 9 5v12"/><path d="M6 21v-4h12v4M8 17v-2l2-2h4l2 2v2"/>',
-  xenolab: '<path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3"/><path d="M7.5 15h9"/><circle cx="12" cy="18" r="1"/>',
-  reactor: '<circle cx="12" cy="12" r="3"/><path d="m12 3 2 4h-4Zm7.8 13.5-4.4-.4 2.2-3.9ZM4.2 16.5l2.2-3.9 2.2 3.9Z"/><circle cx="12" cy="12" r="9"/>',
-  mine: '<path d="M4 4h16v16H4z" stroke-dasharray="3 2"/><path d="m8 15 3-5 2 2 1.5-2L17 15Z"/>',
-  dismantle: '<path d="M5 19 15 9m-1-4 5 5-2 2-5-5Z"/><path d="m4 4 4 4M8 4 4 8"/>',
-};
+const UI_ART = new URL('./assets/ui/', import.meta.url).href;
+const art = path => `${UI_ART}${path}.png`;
+const pic = (path, cls = '') => `<img class="${cls}" src="${art(path)}" alt="" aria-hidden="true" draggable="false">`;
 const ITEM_ICON_URLS = Object.freeze(Object.fromEntries(Object.keys(ITEM_INFO).map(item =>
   [item, new URL(`./assets/inventory/256/${item}.png`, import.meta.url).href])));
-const LOCK = '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>';
 const TOOLS = {
   ...DEFS,
   mine: { name: 'Mining zone', key: 'm', description: 'Mark a 7 × 7 zone for rovers to dig (up to four). Regolith goes to the nearest hopper, ice straight into a melter. Assign rovers in Robots (G).' },
@@ -56,28 +27,38 @@ const svg = (paths, width = 1.5) => `<svg viewBox="0 0 24 24" aria-hidden="true"
 const number = (value) => Math.round(Number(value) || 0).toLocaleString();
 const costText = def => def.cost ? Object.entries(def.cost).map(([item, n]) => `${n} ${ITEM_INFO[item]?.name.toLowerCase() ?? item}`).join(', ') : 'Free';
 const slotKey = i => String((i + 1) % 10);
-const RESEARCH_ICON = '<path d="M9 3h6M10 3v6L5 19a1.5 1.5 0 0 0 1.3 2h11.4a1.5 1.5 0 0 0 1.3-2L14 9V3"/><path d="M7.5 15h9"/>';
-const ORBIT_ICON = '<circle cx="12" cy="12" r="4"/><ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(-25 12 12)"/><circle cx="20" cy="8" r="1.2"/>';
-const STOCK_ICON = '<path d="M3 9 12 4l9 5v11H3Z"/><path d="M7 20v-6h10v6M7 17h10"/>';
-const ROVER_ICON = '<path d="M3 15h18v-4l-3-4H9l-2 4H3zM7 11h11M12 7V4h3"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>';
+// What each work order shows: the building it asks for, or the item at the heart of it.
+const ORDER_ART = { power: 'build/solar', shelter: 'build/habitat', mining: 'build/hopper', crater: 'core', salvage: 'core', repair: 'core',
+  refine: 'build/processor', ice: 'ice', fabricate: 'build/fabricator', hauler: 'build/dock', assemble: 'satellite', fuel: 'build/tank',
+  launch: 'satellite', research: 'build/roverbay', caves: 'titanium', xenolab: 'build/xenolab', schematic: 'artifact', reactor: 'build/reactor' };
+const orderArt = id => { const a = ORDER_ART[id] ?? 'build/reactor'; return a.includes('/') ? art(a) : ITEM_ICON_URLS[a]; };
+const PLATES = 5, TYPE_MS = 22, LINGER_MS = 9000;
 
 export function createUI(root, callbacks = {}) {
   root.classList.add('game-ui');
-  const buildIcon = svg('<path d="m14 4 6 6-3 3-2-2-8 9-3-3 9-8-2-2 3-3Z"/>', 1.6);
   root.innerHTML = `
     <div class="resource-bar" aria-label="Colony resources">
-      <span title="Oxygen reserve: fills rooms; vented from regolith processing"><i class="resource-dot oxygen"></i><span>O₂</span><strong data-value="oxygen">0</strong></span>
-      <span title="Water reserve: grow beds drink it; recyclers reclaim it"><i class="resource-dot water"></i><span>Water</span><strong data-value="water">0</strong></span>
-      <span class="power-resource" title="Power generation / demand">⚡<strong data-value="power">0</strong><small>kW</small></span>
-      <span title="Battery charge"><span class="battery-symbol"></span><strong data-value="battery">0 / 0</strong><small>kJ</small></span>
-      <span class="health-resource" title="Suit integrity. Vents and toxic pools wear it down; it recovers on the surface. At zero you black out."><span>Suit</span><span class="health-meter"><i></i></span><strong data-value="health">100%</strong></span>
-      <span class="food-resource" title="How fed you are. Hungry below 35%: slower walking and building."><span>Food</span><span class="food-meter"><i></i></span><strong data-value="food">100%</strong></span>
+      <span class="readout" title="Oxygen reserve: fills rooms; vented from regolith processing">${pic('icons/oxygen', 'readout-art')}<span class="lcd"><small>O₂</small><strong data-value="oxygen">0</strong></span></span>
+      <span class="readout" title="Water reserve: grow beds drink it; recyclers reclaim it">${pic('icons/water', 'readout-art')}<span class="lcd"><small>H₂O</small><strong data-value="water">0</strong></span></span>
+      <span class="readout power-resource" title="Power generation / demand">${pic('icons/power', 'readout-art')}<span class="lcd"><strong data-value="power">0</strong><small>kW</small></span></span>
+      <span class="readout" title="Battery charge">${pic('icons/battery', 'readout-art')}<span class="lcd"><strong data-value="battery">0 / 0</strong><small>kJ</small></span></span>
+      <span class="readout health-resource" title="Suit integrity. Vents and toxic pools wear it down; it recovers on the surface. At zero you black out.">${pic('icons/suit', 'readout-art')}<span class="plates">${'<i data-state="whole"></i>'.repeat(PLATES)}</span><strong data-value="health">100%</strong></span>
+      <span class="readout food-resource" title="How fed you are. Hungry below 35%: slower walking and building.">${pic('icons/food', 'readout-art')}<span class="tube"><i></i></span><strong data-value="food">100%</strong></span>
     </div>
     <div class="buffs" aria-label="Meal effects"></div>
     <section class="objective" aria-label="Ship AI" aria-live="polite">
-      <header><span class="objective-source">Ship AI</span><small class="objective-step"></small></header>
-      <p class="objective-message"></p>
-      <div class="objective-task"><i></i><strong></strong><small class="objective-distance"></small></div>
+      <div class="comms">
+        <button type="button" class="comms-unit" data-action="replay" title="Ship AI · replay message">${pic('icons/comms')}</button>
+        <p class="objective-message"></p>
+      </div>
+      <div class="work-order">
+        <img class="order-art" alt="" aria-hidden="true" draggable="false">
+        <div class="order-body">
+          <small class="order-head"><span>Work order</span><span class="objective-step"></span></small>
+          <strong class="objective-task"></strong>
+          <span class="order-foot"><span class="pips"></span><small class="objective-distance"></small></span>
+        </div>
+      </div>
     </section>
     <div class="hotbar" role="toolbar" aria-label="Inventory">
       ${Array.from({ length: 10 }, (_, i) => `<button type="button" class="slot" data-slot="${i}" aria-pressed="false"><kbd>${slotKey(i)}</kbd><span class="slot-icon"></span><strong></strong></button>`).join('')}
@@ -86,14 +67,14 @@ export function createUI(root, callbacks = {}) {
       <div class="station" aria-label="Station" hidden></div>
       <div class="context-hint" hidden></div>
       <div id="build-menu" class="build-menu" aria-label="Construction" hidden>
-        ${GROUPS.map(([title, types]) => `<h3>${title}</h3>${types.map(type => { const def = TOOLS[type]; return `<button type="button" class="build-item" data-build="${type}" aria-pressed="false" title="${def.description}${def.cost ? ` · ${costText(def)}` : ''}">${svg(ICONS[type] || ICONS.habitat)}<span>${def.name}</span><kbd>${def.key?.toUpperCase() ?? ''}</kbd></button>`; }).join('')}`).join('')}
+        ${GROUPS.map(([title, types]) => `<h3>${title}</h3>${types.map(type => { const def = TOOLS[type]; return `<button type="button" class="build-item" data-build="${type}" aria-pressed="false" title="${def.description}${def.cost ? ` · ${costText(def)}` : ''}">${pic(`build/${type}`, 'build-art')}<span>${def.name}</span><kbd>${def.key?.toUpperCase() ?? ''}</kbd></button>`; }).join('')}`).join('')}
       </div>
       <div class="robots-panel" aria-label="Robots" hidden></div>
-      <button type="button" class="build-toggle" data-action="build" aria-expanded="false" aria-controls="build-menu">${buildIcon}<span>Build</span><kbd>B</kbd></button>
-      <button type="button" class="build-toggle robots-toggle" data-action="robots" aria-expanded="false" aria-label="Robots" title="Robots (G)">${svg(ROVER_ICON, 1.6)}<kbd>G</kbd></button>
-      <button type="button" class="build-toggle robots-toggle stock-toggle" data-action="stock" aria-expanded="false" aria-label="Base stock" title="Base stock (I)">${svg(STOCK_ICON, 1.6)}<kbd>I</kbd></button>
-      <button type="button" class="build-toggle robots-toggle orbit-toggle" data-action="orbit" aria-label="Orbit" title="Orbit (O)">${svg(ORBIT_ICON, 1.6)}<kbd>O</kbd><b class="orbit-badge" hidden></b></button>
-      <button type="button" class="build-toggle robots-toggle research-toggle" data-action="research" aria-label="Research" title="Research (T)">${svg(RESEARCH_ICON, 1.6)}<kbd>T</kbd><b class="research-badge" hidden></b></button>
+      <button type="button" class="build-toggle" data-action="build" aria-expanded="false" aria-controls="build-menu">${pic('icons/build', 'key-art')}<span>Build</span><kbd>B</kbd></button>
+      <button type="button" class="build-toggle robots-toggle" data-action="robots" aria-expanded="false" aria-label="Robots" title="Robots (G)">${pic('icons/robots', 'key-art')}<kbd>G</kbd></button>
+      <button type="button" class="build-toggle robots-toggle stock-toggle" data-action="stock" aria-expanded="false" aria-label="Base stock" title="Base stock (I)">${pic('icons/stock', 'key-art')}<kbd>I</kbd></button>
+      <button type="button" class="build-toggle robots-toggle orbit-toggle" data-action="orbit" aria-label="Orbit" title="Orbit (O)">${pic('icons/orbit', 'key-art')}<kbd>O</kbd><b class="orbit-badge" hidden></b></button>
+      <button type="button" class="build-toggle robots-toggle research-toggle" data-action="research" aria-label="Research" title="Research (T)">${pic('icons/research', 'key-art')}<kbd>T</kbd><b class="research-badge" hidden></b></button>
       <div class="selection-tools" hidden>
         <span class="selected-name"></span>
         <small class="selected-reason"></small>
@@ -117,9 +98,11 @@ export function createUI(root, callbacks = {}) {
     <div class="notification" role="status" aria-live="polite" hidden></div>`;
   const fields = Object.fromEntries([...root.querySelectorAll('[data-value]')].map(el => [el.dataset.value, el]));
   const menu = root.querySelector('.build-menu'), toggle = root.querySelector('.build-toggle'), tools = root.querySelector('.selection-tools'), label = root.querySelector('.selected-name'), reasonLabel = root.querySelector('.selected-reason'), notice = root.querySelector('.notification'), hint = root.querySelector('.context-hint');
-  const rotateButton = root.querySelector('[data-action=rotate]'), foodMeter = root.querySelector('.food-meter i'), food = root.querySelector('.food-resource'), healthMeter = root.querySelector('.health-meter i'), health = root.querySelector('.health-resource');
+  const rotateButton = root.querySelector('[data-action=rotate]'), foodMeter = root.querySelector('.tube i'), food = root.querySelector('.food-resource'), plates = [...root.querySelectorAll('.plates i')], health = root.querySelector('.health-resource');
   const items = [...root.querySelectorAll('[data-build]')], slots = [...root.querySelectorAll('[data-slot]')];
-  const panel = root.querySelector('.objective'), panelMessage = panel.querySelector('.objective-message'), panelTask = panel.querySelector('.objective-task strong'), panelStep = panel.querySelector('.objective-step'), panelDistance = panel.querySelector('.objective-distance');
+  const panel = root.querySelector('.objective'), panelMessage = panel.querySelector('.objective-message'), panelTask = panel.querySelector('.objective-task'), panelStep = panel.querySelector('.objective-step'), panelDistance = panel.querySelector('.objective-distance'), orderImage = panel.querySelector('.order-art'), pips = panel.querySelector('.pips');
+  let spoken = { text: '', at: 0, shown: -1 }, orderId = null, pipsKey = '';
+  const speak = text => { spoken = { text, at: performance.now(), shown: -1 }; };
   let noticeTimer, hintKey = '', objectiveKey = '', aiNote = null, freshTimer;
   const robotsPanel = root.querySelector('.robots-panel'), robotsToggle = root.querySelector('.robots-toggle');
   const setRobots = open => { robotsPanel.hidden = !open; robotsToggle.setAttribute('aria-expanded', String(open)); if (open) { menu.hidden = true; toggle.setAttribute('aria-expanded', 'false'); robotsKey = ''; robotsAt = 0; if (storeOpen) setStore(false); } };
@@ -278,6 +261,7 @@ export function createUI(root, callbacks = {}) {
     else if (button.dataset.removeZone) callbacks.onRemoveZone?.(Number(button.dataset.removeZone));
     else if (button.dataset.action === 'robots') setRobots(robotsPanel.hidden);
     else if (button.dataset.action === 'orbit') callbacks.onOrbit?.();
+    else if (button.dataset.action === 'replay') speak(spoken.text);
     else if (button.dataset.action === 'research') callbacks.onResearch?.();
     else if (button.dataset.slot) callbacks.onSlot?.(Number(button.dataset.slot));
     else if (button.dataset.action === 'build') setOpen(menu.hidden);
@@ -309,14 +293,16 @@ export function createUI(root, callbacks = {}) {
       fields.oxygen.textContent = number(state.reserves?.oxygen);
       fields.water.textContent = number(state.reserves?.water);
       fields.power.textContent = `${number(state.power.generation)} / ${number(state.power.demand)}`;
-      fields.power.parentElement.classList.toggle('insufficient', state.power.powered === false);
+      fields.power.closest('.readout').classList.toggle('insufficient', state.power.powered === false);
       fields.battery.textContent = `${number(state.power.stored)} / ${number(state.power.capacity)}`;
       const satiety = state.player.satiety ?? 100, status = hunger(satiety);
       fields.food.textContent = status.label ?? `${Math.round(satiety)}%`;
-      foodMeter.style.transform = `scaleX(${satiety / 100})`;
+      // The paste window spans 11%–89% of the tube render.
+      foodMeter.style.clipPath = `inset(0 ${(88.9 - Math.max(0, Math.min(100, satiety)) * .778).toFixed(1)}% 0 0)`;
       food.dataset.tone = satiety <= 0 ? 'starving' : status.label ? 'hungry' : 'fed';
       const suit = state.player.health ?? 100;
-      fields.health.textContent = `${Math.ceil(suit)}%`; healthMeter.style.transform = `scaleX(${suit / 100})`;
+      fields.health.textContent = `${Math.ceil(suit)}%`;
+      plates.forEach((el, i) => { const share = 100 / PLATES, state = suit >= (i + 1) * share - .01 ? 'whole' : suit > i * share ? 'cracked' : 'empty'; if (el.dataset.state !== state) el.dataset.state = state; });
       health.dataset.tone = suit < 30 ? 'critical' : suit < 70 ? 'worn' : 'sound';
       slots.forEach((el, i) => {
         const slot = state.inventory[i], active = i === view.selectedSlot, k = slot ? `${slot.item}:${slot.count}` : '';
@@ -353,7 +339,7 @@ export function createUI(root, callbacks = {}) {
         const locked = view.locked?.[item.dataset.build];
         if (item.classList.contains('locked') !== !!locked) {
           item.classList.toggle('locked', !!locked);
-          item.querySelector('kbd').innerHTML = locked ? svg(LOCK, 1.8) : def.key?.toUpperCase() ?? '';
+          item.querySelector('kbd').innerHTML = locked ? pic('icons/lock') : def.key?.toUpperCase() ?? '';
           item.title = locked ?? `${def.description}${def.cost ? ` · ${costText(def)}` : ''}`;
         }
       }
@@ -365,12 +351,20 @@ export function createUI(root, callbacks = {}) {
           const first = !objectiveKey; objectiveKey = key;
           if (!first) { panel.classList.add('fresh'); clearTimeout(freshTimer); freshTimer = setTimeout(() => panel.classList.remove('fresh'), 4000); }
         }
-        const note = aiNote && aiNote.until > performance.now() ? aiNote.text : null;
-        panelMessage.textContent = note ?? goal.message;
+        const note = aiNote && aiNote.until > performance.now() ? aiNote.text : null, message = note ?? goal.message;
+        // The ship AI's line types out under the comms unit, lingers, then tucks away until the next one.
+        if (message !== spoken.text) speak(message);
+        const elapsed = performance.now() - spoken.at, shown = Math.min(spoken.text.length, Math.floor(elapsed / TYPE_MS));
+        if (shown !== spoken.shown) { spoken.shown = shown; panelMessage.textContent = spoken.text.slice(0, shown); }
+        panel.classList.toggle('tucked', elapsed > spoken.text.length * TYPE_MS + LINGER_MS);
         panel.classList.toggle('aside', !!note);
+        const id = goal.done ? 'done' : goal.id;
+        if (id !== orderId) { orderId = id; orderImage.src = orderArt(id); }
         panelTask.textContent = goal.done ? 'All objectives complete' : goal.objective;
         panel.classList.toggle('complete', !!goal.done);
         panelStep.textContent = goal.done ? '' : `${goal.step + 1} / ${goal.count}`;
+        const [have, need] = goal.done ? [1, 1] : goal.parts ?? [0, 1], pk = `${have}/${need}`;
+        if (pk !== pipsKey) { pipsKey = pk; pips.innerHTML = Array.from({ length: need }, (_, i) => `<i${i < have ? ' class="on"' : ''}></i>`).join(''); pips.title = need > 1 ? `${have} of ${need}` : ''; }
         panelDistance.textContent = goal.distance != null && goal.distance > 6 ? `${goal.distance} m` : '';
       }
     },

@@ -3,7 +3,8 @@ import * as inv from './inventory.js';
 import { LAUNCH } from './space.js';
 
 /** The ship AI's objectives, in order. Each starts with a message; `done` is checked every tick, so
- * work finished early simply skips ahead. `target` names where the waypoint points. */
+ * work finished early simply skips ahead. `target` names where the waypoint points; `parts` counts
+ * progress on multi-part work as [have, need]. */
 export const SHIP = Object.freeze({ x: 0, z: -10, reach: 6.5 });
 export const SALVAGE_TIME = 3;
 const has = (s, type) => s.buildings.some(b => b.type === type && b.built);
@@ -14,21 +15,21 @@ const satelliteMade = s => launched(s) || s.ship.payload > 0 || inv.count(s.inve
   || s.robots.some(r => r.load === 'satellite' && r.cargo > 0);
 export const STEPS = Object.freeze([
   { id: 'power', objective: 'Build a solar array', message: "Ship AI online. We're down in one piece, mostly. First, power: open the build menu (B) and place a solar array.", done: s => has(s, 'solar') },
-  { id: 'shelter', objective: 'Paint a habitat and attach an airlock', message: "Power's flowing. You'll need somewhere to breathe and eat: paint a habitat (H) and fit an airlock to it.", done: s => has(s, 'habitat') && has(s, 'airlock') },
-  { id: 'mining', objective: 'Build a hopper and mark a mining zone', message: 'Good. Now give the rover a job. Build a regolith hopper, then mark a mining zone (M).', done: s => has(s, 'hopper') && s.miningAreas.length > 0 },
+  { id: 'shelter', objective: 'Paint a habitat and attach an airlock', message: "Power's flowing. You'll need somewhere to breathe and eat: paint a habitat (H) and fit an airlock to it.", parts: s => [has(s, 'habitat') + has(s, 'airlock'), 2], done: s => has(s, 'habitat') && has(s, 'airlock') },
+  { id: 'mining', objective: 'Build a hopper and mark a mining zone', message: 'Good. Now give the rover a job. Build a regolith hopper, then mark a mining zone (M).', parts: s => [has(s, 'hopper') + (s.miningAreas.length > 0), 2], done: s => has(s, 'hopper') && s.miningAreas.length > 0 },
   { id: 'crater', objective: 'Investigate the crater to the east', message: "Bad news. The landing cracked our processor core, so we can't refine anything. There's an old robotic lander in the crater about 60 metres east. Its core should fit. Go and take a look.", legacy: "Our processor has been running on a bypass since landing, and it won't hold. There's an old robotic lander in the crater about 60 metres east with a compatible core. Go and take a look.", target: 'lander', done: s => s.mission.visited },
   { id: 'salvage', objective: 'Hold E at the lander to pull its core', message: "That's the lander. Its panels have been clawed open, and whatever did it was after the core. It's still seated. Hold E beside it.", target: 'lander', done: s => s.mission.salvage >= 1 },
   { id: 'repair', objective: 'Take the core to the Starship and press E', message: "Got it. Bring it back to the ship and I'll talk you through the install.", target: 'ship', done: s => s.mission.installed },
   { id: 'refine', objective: 'Build a regolith processor', message: 'Core installed. Refining is back online: build a regolith processor and belt the hopper into it.', done: s => has(s, 'processor') },
-  { id: 'ice', objective: 'Mine crater ice and melt it into water', message: "That crater floor never sees the Sun, and it's full of water ice. Build an ice melter, then mark a mining zone on the ice. The rover carries ice straight into the melter.", target: 'ice', done: s => s.mission.melted >= 5 },
+  { id: 'ice', objective: 'Mine crater ice and melt it into water', message: "That crater floor never sees the Sun, and it's full of water ice. Build an ice melter, then mark a mining zone on the ice. The rover carries ice straight into the melter.", target: 'ice', parts: s => [Math.min(5, Math.floor(s.mission.melted)), 5], done: s => s.mission.melted >= 5 },
   { id: 'fabricate', objective: 'Build a fabricator', message: "Water's flowing. One more thing: that creature at the lander left a trail of silk all the way to the caves. I can't see it on any sensor, so we need eyes in orbit. Build a fabricator from the Space menu and belt it metal and silicon. It makes satellite parts.", done: s => has(s, 'fabricator') || launched(s) },
-  { id: 'hauler', objective: 'Build a robot dock and a hauler', message: 'Belts get tangled fast. Build a robot dock and press E at it for a hauler. Haulers carry materials, parts and satellites to whatever needs them.', done: s => s.robots.some(r => r.kind === 'hauler') || launched(s) },
+  { id: 'hauler', objective: 'Build a robot dock and a hauler', message: 'Belts get tangled fast. Build a robot dock and press E at it for a hauler. Haulers carry materials, parts and satellites to whatever needs them.', parts: s => [has(s, 'dock') + s.robots.some(r => r.kind === 'hauler'), 2], done: s => s.robots.some(r => r.kind === 'hauler') || launched(s) },
   { id: 'assemble', objective: 'Assemble a satellite', message: 'Now build a satellite assembler. It takes one frame, two solar wings and two compute chips per satellite.', done: satelliteMade },
-  { id: 'fuel', objective: 'Fuel the Starship', message: "Our tanks are dry. Build an electrolyser to split water into hydrogen and oxygen, and a propellant tank beside the landing pad. The tank fills the ship.", target: 'ship', done: s => s.ship.fuel >= LAUNCH.fuel || launched(s) },
+  { id: 'fuel', objective: 'Fuel the Starship', message: "Our tanks are dry. Build an electrolyser to split water into hydrogen and oxygen, and a propellant tank beside the landing pad. The tank fills the ship.", target: 'ship', parts: s => [has(s, 'electrolyser') + has(s, 'tank') + (s.ship.fuel >= LAUNCH.fuel), 3], done: s => s.ship.fuel >= LAUNCH.fuel || launched(s) },
   { id: 'launch', objective: 'Load a satellite and launch', message: 'Fuelled. Haulers bring satellites to the pad, or carry one yourself. When one is aboard, hold E beside the Starship to launch.', target: 'ship', done: launched },
   { id: 'research', objective: 'Research the rover bay', message: "Satellite deployed. Open research (T) and choose what to study. Every satellite in orbit speeds it up. The rover bay comes first.", done: s => s.research.done.includes('roverbay') },
   // From here the colony needs what only the caves hold.
-  { id: 'caves', objective: 'Bring 6 titanium ore up from a cave', message: "Rover bay unlocked: build one and press E for another rover. Our next machines need titanium, and the surface regolith has none. Those hills have cave mouths. Chip ore from the seams and carry it back. Take it slow down there.", target: 'cave', done: s => has(s, 'xenolab') || inv.count(s.inventory, 'titanium') >= 6 },
+  { id: 'caves', objective: 'Bring 6 titanium ore up from a cave', message: "Rover bay unlocked: build one and press E for another rover. Our next machines need titanium, and the surface regolith has none. Those hills have cave mouths. Chip ore from the seams and carry it back. Take it slow down there.", target: 'cave', parts: s => [Math.min(6, inv.count(s.inventory, 'titanium')), 6], done: s => has(s, 'xenolab') || inv.count(s.inventory, 'titanium') >= 6 },
   { id: 'xenolab', objective: 'Build a xeno lab', message: "Titanium. And carvings, you said? Build a xeno lab (Deep menu). Bring it anything strange you find down there and it turns it into research.", done: s => has(s, 'xenolab') },
   { id: 'schematic', objective: 'Find a schematic in the Hollows', message: "If whoever carved those walls left anything we can use, it'll be deeper. Find the pit with the ladder and climb down to the Hollows.", target: 'cave', done: s => (s.blueprints ?? []).includes('reactor') },
   { id: 'reactor', objective: 'Research and build the resonance reactor', message: "Research the reactor (T); artifacts studied at the xeno lab count too. It'll want titanium and rare-earth crystals from the Hollows.", done: s => has(s, 'reactor') },
@@ -58,7 +59,7 @@ export function objective(state) {
   const site = missionSite();
   const cave = step.target === 'cave' && [...terrainData(state.seed).caves].sort((a, b) => distance(a, state.player) - distance(b, state.player))[0];
   const target = { lander: site.lander, ship: SHIP, ice: site, cave }[step.target] || null;
-  return { id: step.id, objective: step.objective, message: (m.legacy && step.legacy) || step.message, step: m.step, count: STEPS.length, target: target && { x: target.x, z: target.z } };
+  return { id: step.id, objective: step.objective, message: (m.legacy && step.legacy) || step.message, step: m.step, count: STEPS.length, parts: step.parts?.(state) ?? [0, 1], target: target && { x: target.x, z: target.z } };
 }
 /** What pressing or holding E would do at the lander or the ship, or null. */
 export function missionAction(state) {
