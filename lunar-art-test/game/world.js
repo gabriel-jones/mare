@@ -5,7 +5,7 @@ import { buildingStatus, robotStatus, shipStatus, lampLevel } from './building-s
 import { LAUNCH } from './space.js';
 import { DIRS, ITEM_INFO, ports as machinePorts } from './defs.js';
 import { MINING_RADIUS, beltTurns, total, MELT, BELT_SPEED } from './production.js';
-import { createStatusLamps } from './status-lamps.js';
+import { createStatusLamps, WORK_LIGHTS } from './status-lamps.js';
 import { createProductionView } from './production-view.js';
 import { loadItemLibrary, BELT_ITEM_SIZES } from './item-models.js';
 import { createHabitatView } from './habitat-view.js';
@@ -82,15 +82,16 @@ export async function createWorld(canvas, initialState) {
   const productionView=createProductionView(scene,models,itemModels);
   const groundMarks=createGroundMarks(scene,{heightAt,dust:(x,y,z,dx,dz)=>productionView.regolith.spray(x,y,z,dx*.4,dz*.4,3,'regolith',y-.03,.5,.22)});
   const habitatView=createHabitatView(scene,models.get('habitat-kit'));
-  // A fixed set of lights follows the nearest machines and habitats; every machine carries a work light. Adding a light per structure
+  // A fixed set of lights follows the nearest machines and habitats; every machine carries a work light in its own colour. Adding a light per structure
   // would change the scene's light count and force every material to recompile its shader.
+  const workHex=Object.fromEntries(Object.entries(WORK_LIGHTS).map(([type,color])=>[type,new THREE.Color('#ffd6a0').lerp(new THREE.Color(color),.55).getHex()]));
   const lightPool=Array.from({length:6},()=>{const l=new THREE.PointLight('#ffc777',0,13,2);scene.add(l);return l;});
   function updateLights(daylight){
     const candidates=[];
     if(state.power.powered!==false){
       for(const b of state.buildings){
         const p=b.built&&b.type!=='conveyor'&&!DEFS[b.type].layer&&structures.get(b.id)?.root.position;
-        if(p)candidates.push({x:p.x,y:p.y+2.6,z:p.z,intensity:(1-daylight)*14,distance:10,color:0xffc777});
+        if(p)candidates.push({x:p.x,y:p.y+2.6,z:p.z,intensity:(1-daylight)*11,distance:10,color:workHex[b.type]??0xffb866});
       }
       for(const l of habitatView.lights())candidates.push({...l,intensity:(1-daylight)*(l.greenhouse?10:15),distance:9,color:l.greenhouse?0xffb0dc:0xffcf8c});
     }
@@ -429,7 +430,7 @@ export async function createWorld(canvas, initialState) {
     for(const b of state.buildings){
       let o=structures.get(b.id);const turn=b.type==='conveyor'?turns.get(b.id)??0:0;
       if(o&&(o.type!==b.type||o.rotation!==b.rotation||o.turn!==turn)){buildFx.clear(o);scene.remove(o.root,o.ports);o.ownedMaterials.forEach(m=>m.dispose());o.tread?.dispose();structures.delete(b.id);o=null;}
-      if(!o){o=buildModel(b.type,turn);o.type=b.type;o.rotation=b.rotation;o.turn=turn;o.ports=new THREE.Group();portArrows(o.ports,b);scene.add(o.ports);o.ownedMaterials=[];const clones=new Map();o.root.traverse(n=>{if(n.isMesh){n.castShadow=true;n.receiveShadow=true;const copy=m=>{if(!clones.has(m.uuid)){const c=m.clone();c.userData.baseEmission=c.emissiveIntensity;c.userData.baseColor=c.color.clone();c.userData.baseEmissive=c.emissive.clone();clones.set(m.uuid,c);o.ownedMaterials.push(c);o.tread??=ownTread(c,tread);}return clones.get(m.uuid);};n.material=Array.isArray(n.material)?n.material.map(copy):copy(n.material);}});o.statusHeight??=new THREE.Box3().setFromObject(o.root).max.y;o.lamp=lamps.attach(o.root);structures.set(b.id,o);scene.add(o.root);}
+      if(!o){o=buildModel(b.type,turn);o.type=b.type;o.rotation=b.rotation;o.turn=turn;o.ports=new THREE.Group();portArrows(o.ports,b);scene.add(o.ports);o.ownedMaterials=[];const clones=new Map();o.root.traverse(n=>{if(n.isMesh){n.castShadow=true;n.receiveShadow=true;const copy=m=>{if(!clones.has(m.uuid)){const c=m.clone();c.userData.baseEmission=c.emissiveIntensity;c.userData.baseColor=c.color.clone();c.userData.baseEmissive=c.emissive.clone();clones.set(m.uuid,c);o.ownedMaterials.push(c);o.tread??=ownTread(c,tread);}return clones.get(m.uuid);};n.material=Array.isArray(n.material)?n.material.map(copy):copy(n.material);}});o.statusHeight??=new THREE.Box3().setFromObject(o.root).max.y;o.lamp=lamps.attach(o.root,b.type);structures.set(b.id,o);scene.add(o.root);}
       o.root.visible=true;
       const def=DEFS[b.type],w=b.rotation%2?def.d:def.w,d=b.rotation%2?def.w:def.d;
       const bx=(b.x+(w-1)/2)*2,bz=(b.z+(d-1)/2)*2;
