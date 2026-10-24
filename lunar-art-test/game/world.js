@@ -333,13 +333,15 @@ export async function createWorld(canvas, initialState, options = {}) {
     return {position:broodAt.copy(v.view.position).multiplyScalar(v.scale).add(v.holder.position),hit:(at,dir)=>v.view.hit(at.clone().sub(v.holder.position).divideScalar(v.scale),dir),
       burn:(h,c)=>v.view.burn(h,c),burning:()=>v.view.burning().map(p=>p.clone().multiplyScalar(v.scale).add(v.holder.position))};};
   const combat=actor&&crawlerGLTF?createCombatView({actor,player,headlamp,crawlerGLTF,lookup:broodLookup}):null;
-  const gooView=createGooView(scene,(x,z)=>habitatView.floorAt(state,x,z)??heightAt(state.seed,x,z));
+  // The brood walks the ground itself: each holder rides the terrain (or a room floor) under its crawler.
+  const broodGround=(x,z)=>habitatView.floorAt(state,x,z)??heightAt(state.seed,x,z);
+  const gooView=createGooView(scene,broodGround);
   function updateSurfaceHunt(dt,underground){
     surfaceFx.visible=!underground;gooView.update(state,dt);
     const brood=underground?[]:state.brood??[];
     // Hatchlings are a smaller brood: each view sits in a holder scaled about the hatchling, so its legs stay planted.
     // Raiders are full-grown, bar the hatchlings that join later raids.
-    for(const c of brood)if(!broodViews.has(c)&&crawlerGLTF){const scale=c.raider&&!c.small?1:HATCHLING,holder=new THREE.Group();holder.scale.setScalar(scale);surfaceFx.add(holder);const view=createCrawlerView(crawlerGLTF,holder,{mode:'studio'});broodViews.set(c,{holder,view,scale,update:(c,dt,ctx)=>{holder.position.set(c.x*(1-scale),0,c.z*(1-scale));view.update(c,dt,ctx);},dispose:()=>{view.dispose();holder.removeFromParent();}});}
+    for(const c of brood)if(!broodViews.has(c)&&crawlerGLTF){const scale=c.raider&&!c.small?1:HATCHLING,holder=new THREE.Group();holder.scale.setScalar(scale);surfaceFx.add(holder);const view=createCrawlerView(crawlerGLTF,holder,{mode:'studio'});broodViews.set(c,{holder,view,scale,update:(c,dt,ctx)=>{holder.position.set(c.x*(1-scale),broodGround(c.x,c.z)-surfaceFx.position.y,c.z*(1-scale));view.update(c,dt,ctx);},dispose:()=>{view.dispose();holder.removeFromParent();}});}
     for(const [c,v] of broodViews)if(!brood.includes(c)){v.dispose();broodViews.delete(c);}
     if(underground)return;
     surfaceFx.position.y=smoothedGround??0;

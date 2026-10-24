@@ -19,7 +19,7 @@ export const RAID = Object.freeze({
   alien: Object.freeze(['xenolab', 'reactor', 'goovat']),
   chance: .7, delay: [6, 22], stagger: 2.2, maxAdults: 6, maxSmall: 4,
   aggro: 10, grudge: 10, grudgeRange: 30, engage: 14, base: 22, retarget: 3,
-  march: 3.6, bite: 12, claw: .6, mend: 20,
+  march: 3.6, charge: 6.5, bite: 12, claw: .6, mend: 20,
 });
 export const MAX_RAIDERS = RAID.maxAdults + RAID.maxSmall;
 /** News for the player: raids sighted, structures wrecked, raiders gone. Drained by the game each frame. */
@@ -180,9 +180,9 @@ export function mend(b, dt, rate = RAID.mend) {
 function march(c, goal, dt, grid) {
   const dx = goal.x - c.x, dz = goal.z - c.z, d = Math.hypot(dx, dz);
   if (d < .05) { c.speed = 0; return; }
-  // A loping weave, so a pack crossing the plain doesn't read as a column.
-  const weave = Math.sin(c.t * 1.3 + (c.seed ??= Math.random() * 6.28)) * .35, a = Math.atan2(dx, dz) + weave * Math.min(1, d / 6);
-  const step = Math.min(d, RAID.march * dt), nx = c.x + Math.sin(a) * step, nz = c.z + Math.cos(a) * step;
+  // A loping weave, so a pack crossing the plain doesn't read as a column. Under fire it charges, jinking hard.
+  const angry = c.grudge > 0, weave = Math.sin(c.t * (angry ? 4.2 : 1.3) + (c.seed ??= Math.random() * 6.28)) * (angry ? .7 : .35), a = Math.atan2(dx, dz) + weave * Math.min(1, d / 6);
+  const step = Math.min(d, (angry ? RAID.charge : RAID.march) * dt), nx = c.x + Math.sin(a) * step, nz = c.z + Math.cos(a) * step;
   if (openAt(grid, nx, nz)) { c.x = nx; c.z = nz; c.speed = step / dt; } else c.speed = 0;
   let turn = a - c.facing; turn = Math.atan2(Math.sin(turn), Math.cos(turn)); c.facing += turn * Math.min(1, dt * 8);
   return c.speed > 0;

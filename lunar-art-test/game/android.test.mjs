@@ -5,7 +5,7 @@ import { createInventory, add, count } from './inventory.js';
 import { ensureBuildingState } from './production.js';
 import { GALLEY } from './farm.js';
 import { STATIONS, ensureLifeState, startCraft } from './life.js';
-import { ANDROID, repairWreck, setStockTarget, threats } from './android.js';
+import { ANDROID, clearShot, repairWreck, setStockTarget, threats } from './android.js';
 import { robotRoom, spawnRobot, unlockResearch } from './space.js';
 import { ledger } from './storage.js';
 import { createCrawler } from './crawler.js';
@@ -33,6 +33,12 @@ function colony() {
   return { s, crate, android };
 }
 const android = s => s.robots.find(r => r.kind === 'android');
+
+test('an android has no shot through a building, only around it', () => {
+  const { s } = colony();
+  assert.equal(clearShot(s, { x: 1, z: -9 }, { x: 1, z: 9 }), false, 'the habitat is in the way');
+  assert.equal(clearShot(s, { x: 1, z: -9 }, { x: 1, z: -3 }), true, 'nothing between');
+});
 
 test('every colony gets one test android and its pad, once, and keeps them through a save', () => {
   const { s, android: a } = colony();

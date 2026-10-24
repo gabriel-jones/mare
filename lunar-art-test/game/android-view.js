@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import { surfaceHeightAt as heightAt } from './terrain.js';
 import { ANDROID } from './android.js';
+import { daylightAt } from './sim.js';
 
 // Played once and held on the last frame.
 const ONCE = new Set(['down', 'bladeslash']);
@@ -21,6 +22,26 @@ export function createAndroidView(scene, gltf, itemModels = null) {
   const views = new Map();
   const tracerGeo = new THREE.BoxGeometry(1, 1, 1); tracerGeo.translate(0, 0, .5);
   const tracers = [], at = new THREE.Vector3(), to = new THREE.Vector3();
+  // Headlights after dark: a lens glow on the chest, a throw of light on the ground ahead, and a pooled point light
+  // (the light budget picks which are real) so whatever stands in front is lit too.
+  const lampTexture = (() => {
+    if (typeof document === 'undefined') return null;
+    const c = document.createElement('canvas'); c.width = c.height = 64;
+    const g = c.getContext('2d'), r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    r.addColorStop(0, '#ffffff'); r.addColorStop(.3, '#ffffffaa'); r.addColorStop(1, '#ffffff00');
+    g.fillStyle = r; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c);
+  })();
+  const LAMP = '#d8ecff';
+  const lensMaterial = new THREE.SpriteMaterial({ map: lampTexture, color: LAMP, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 });
+  const throwGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+  const throwMaterial = new THREE.MeshBasicMaterial({ map: lampTexture, color: LAMP, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0, polygonOffset: true, polygonOffsetFactor: -2 });
+  function headlight(view) {
+    const lens = new THREE.Sprite(lensMaterial); lens.scale.setScalar(.55); lens.position.set(0, 1.45, .3); lens.renderOrder = 4;
+    const pool = new THREE.Mesh(throwGeo, throwMaterial); pool.scale.set(3.2, 1, 7); pool.position.set(0, .06, 4.4); pool.renderOrder = 2; pool.raycast = () => {};
+    const light = new THREE.PointLight(LAMP, 0, 10, 2); light.position.set(0, 1.3, 3.2);
+    view.root.add(lens, pool, light);
+    view.lamp = { lens, pool, light, on: 0 };
+  }
 
   function create() {
     const model = cloneSkinned(gltf.scene), mixer = new THREE.AnimationMixer(model), actions = new Map(), additive = new Map();
@@ -47,6 +68,7 @@ export function createAndroidView(scene, gltf, itemModels = null) {
     const load = new THREE.Group(); load.name = 'Carried stack'; (carry ?? model).add(load);
     const view = { root: new THREE.Group(), model, mixer, actions, additive, held, markers, face, load, loadItem: null, current: '', active: null, display: null, shot: 0, faceColor: new THREE.Color(FACE.work) };
     view.root.add(model); root.add(view.root);
+    headlight(view);
     return view;
   }
 
@@ -93,6 +115,7 @@ export function createAndroidView(scene, gltf, itemModels = null) {
   function update(state, dt) {
     const live = new Set();
     root.visible = state.player.cave == null;
+    const dark = Math.max(0, Math.min(1, 1 - daylightAt(state.time) * 3));
     for (const r of state.robots ?? []) {
       if (r.kind !== 'android') continue;
       live.add(r.id);
@@ -126,8 +149,16 @@ export function createAndroidView(scene, gltf, itemModels = null) {
         const pulse = r.down ? .15 : r.job?.type === 'charge' && r.job.here ? .6 + .4 * Math.sin(state.time * 3) : r.charge < .1 ? (Math.sin(state.time * 23) > 0 ? 1 : .2) : 1;
         view.face.color.copy(view.faceColor); view.face.emissive.copy(view.faceColor); view.face.emissiveIntensity = 4 * pulse;
       }
+      // Lit at night while it's up and about; a docked android dims its lamp.
+      const want = dark > 0 && !r.down && r.charge > 0 && !(r.job?.type === 'charge' && r.job.here) ? dark : 0;
+      view.lamp.on += (want - view.lamp.on) * Math.min(1, dt * 4);
+      view.lamp.light.intensity = 6 * view.lamp.on; view.lamp.light.visible = view.lamp.on > .02;
+      view.lamp.lens.visible = view.lamp.pool.visible = view.lamp.on > .02;
+      view.lamp.lens.scale.setScalar(.35 + .3 * view.lamp.on);
+      view.lamp.pool.scale.set(3.2 * (.4 + .6 * view.lamp.on), 1, 7);
       view.mixer.update(Math.min(dt, .1));
     }
+    lensMaterial.opacity = .9 * Math.min(1, dark * 1.5); throwMaterial.opacity = .2 * dark;
     for (const [id, view] of views) if (!live.has(id)) { view.mixer.stopAllAction(); root.remove(view.root); views.delete(id); }
     for (const t of tracers) {
       if (!t.mesh.visible) continue;
@@ -139,6 +170,6 @@ export function createAndroidView(scene, gltf, itemModels = null) {
   return {
     views,
     update,
-    dispose() { for (const v of views.values()) v.mixer.stopAllAction(); scene.remove(root); tracerGeo.dispose(); tracers.forEach(t => t.mesh.material.dispose()); },
+    dispose() { for (const v of views.values()) v.mixer.stopAllAction(); scene.remove(root); tracerGeo.dispose(); throwGeo.dispose(); throwMaterial.dispose(); lensMaterial.dispose(); lampTexture?.dispose(); tracers.forEach(t => t.mesh.material.dispose()); },
   };
 }

@@ -10,6 +10,7 @@ import { cellPassable } from './paths.js';
 import { habitatLayout } from './habitat.js';
 import { createAndroid, freePad } from './space.js';
 import { mend } from './raid.js';
+import { surfaceHeightAt } from './terrain.js';
 
 /**
  * Androids: humanoid workers that do the colony's chores in a fixed order of priority. They take up arms from the
@@ -24,7 +25,7 @@ import { mend } from './raid.js';
 export const ANDROID = Object.freeze({
   speed: 2.6, drain: 1 / 480, chargeRate: 1 / 40, chargePower: 1.2, low: .22, hp: 60,
   harvest: 1.4, craft: 1.5, collect: .6, repair: 5, repairCost: Object.freeze({ metal: 10, silicon: 4 }),
-  calm: 6, hit: .85, mend: 15,
+  calm: 6, hit: .85, mend: 15, damage: .55,
 });
 /** A test android and its pad are handed to every colony once, new or loaded. Turn off to make them a mid-game unlock only. */
 export const STARTER_ANDROID = true;
@@ -39,6 +40,31 @@ const cellOf = r => ({ x: Math.round(r.x / CELL_SIZE), z: Math.round(r.z / CELL_
 const androids = state => state.robots.filter(r => r.kind === 'android');
 /** Loose hatchlings, and raiders once they reach the base. */
 export const threats = state => (state.brood ?? []).filter(c => c.state !== 'dead' && c.state !== 'emerge' && !c.gone && (!c.raider || c.near));
+/**
+ * Whether `r` can see `target` across open ground: no standing structure (rooms included) and no rise of the terrain
+ * in the way of a line from its eyes to the target's body. The squares at either end don't count.
+ */
+export function clearShot(state, r, target) {
+  const dx = target.x - r.x, dz = target.z - r.z, d = Math.hypot(dx, dz);
+  if (d < 1.2) return true;
+  const solid = sightBlockers(state), h0 = surfaceHeightAt(state.seed, r.x, r.z) + 1.5, h1 = surfaceHeightAt(state.seed, target.x, target.z) + .5;
+  const ends = [cellOf(r), cellOf(target)].map(c => key(c.x, c.z));
+  for (let s = .5; s < d - .5; s += .5) {
+    const t = s / d, x = r.x + dx * t, z = r.z + dz * t, k = key(Math.round(x / CELL_SIZE), Math.round(z / CELL_SIZE));
+    if (!ends.includes(k) && solid.has(k)) return false;
+    if (surfaceHeightAt(state.seed, x, z) > h0 + (h1 - h0) * t - .15) return false;
+  }
+  return true;
+}
+let blockers = { sig: null, cells: null };
+function sightBlockers(state) {
+  const n = nav(state);
+  if (blockers.sig === n.sig) return blockers.cells;
+  const cells = new Set(n.blocked);
+  for (const b of state.buildings) if (b.built && DEFS[b.type].layer === 'floor') for (const c of footprint(b.type, b.x, b.z, b.rotation)) cells.add(key(c.x, c.z));
+  blockers = { sig: n.sig, cells };
+  return cells;
+}
 /** The odds a shot lands: worse with range, and much worse at something on the move. A blade swing is surer. */
 export function hitChance(spec, distance, speed = 0) {
   const odds = spec.melee ? .92 - speed * .05 : ANDROID.hit - distance / 45 - speed * .075;
@@ -385,6 +411,7 @@ function act(state, r, dt, powered, hooks) {
   }
   return 'done';
 }
+const sights = new WeakMap();
 /** Closes to its weapon's reach of the nearest loose hatchling and fires. `shot` counts shots for the view. */
 function fight(state, r, dt, rng) {
   const spec = WEAPONS[r.weapon], list = threats(state);
@@ -393,7 +420,10 @@ function fight(state, r, dt, rng) {
   const d = Math.hypot(target.x - r.x, target.z - r.z), reach = spec.melee ? spec.range * .75 : Math.min(spec.range * .7, 14);
   r.cool = Math.max(0, (r.cool ?? 0) - dt);
   r.aim = { x: target.x, z: target.z };
-  if (d > reach) {
+  // Out of sight (round a building, over a rise) it closes in rather than firing blind.
+  let look = sights.get(r);
+  if (!look || look.target !== target || (look.t -= dt) <= 0) sights.set(r, look = { target, t: .25, clear: d <= reach && clearShot(state, r, target) });
+  if (d > reach || !look.clear) {
     const c = cellOf(target), n = nav(state), goals = [c, ...DIRS.map(([dx, dz]) => ({ x: c.x + dx, z: c.z + dz }))].filter(g => open(state, n, g.x, g.z));
     // Re-aim the route at the target's square as it moves.
     if (walk(state, r, goals.length ? goals : [cellOf(r)], dt) === 'unreachable') return 'done';
@@ -403,7 +433,7 @@ function fight(state, r, dt, rng) {
   face(r, Math.atan2(target.x - r.x, target.z - r.z), dt * 12);
   if (r.cool > 0) return 'working';
   const odds = hitChance(spec, d, target.speed ?? 0);
-  if (spec.melee) { if (rng() < odds) hurtCrawler(target, spec.damage); r.cool = spec.cooldown + .25; r.shot = (r.shot ?? 0) + 1; return 'working'; }
+  if (spec.melee) { if (rng() < odds) hurtCrawler(target, spec.damage * ANDROID.damage); r.cool = spec.cooldown + .25; r.shot = (r.shot ?? 0) + 1; return 'working'; }
   if (r.mag <= 0) {
     if (r.ammo <= 0) return 'done';
     const n = Math.min(spec.magazine, r.ammo); r.mag = n; r.ammo -= n; r.cool = spec.reload;
@@ -411,7 +441,7 @@ function fight(state, r, dt, rng) {
   }
   const shots = Math.min(spec.burst ?? 1, r.mag);
   let landed = 0;
-  for (let i = 0; i < shots; i++) if (rng() < odds) { hurtCrawler(target, spec.damage); landed++; }
+  for (let i = 0; i < shots; i++) if (rng() < odds) { hurtCrawler(target, spec.damage * ANDROID.damage); landed++; }
   // A miss goes wide, past the target, so the tracer shows it.
   if (!landed) { const side = (rng() < .5 ? -1 : 1) * (.8 + rng()), ux = (target.x - r.x) / (d || 1), uz = (target.z - r.z) / (d || 1); r.aim = { x: target.x + ux * 2 - uz * side, z: target.z + uz * 2 + ux * side }; }
   r.hits = (r.hits ?? 0) + landed; r.misses = (r.misses ?? 0) + shots - landed;
