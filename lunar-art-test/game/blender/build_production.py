@@ -48,6 +48,7 @@ M = {
  'rubber': material('Lunar • wheel elastomer', (.025,.028,.03), 0,.8),
  # The runtime gives this material a scrolling tread texture; UV v runs along the travel direction.
  'belt': material('Lunar • conveyor belt', (.42,.43,.43), 0,.85),
+ 'heat': material('Lunar • heater element glow', (1,.32,.06), .1,.4, 4),
 }
 
 def track(o):
@@ -192,10 +193,20 @@ def processor():
     for a, b in [((-1.72,1.46,2.25),(-.28,1.46,2.25)),((-.28,1.46,2.25),(-.28,2.74,2.25)),((-.28,2.74,2.25),(-1.72,2.74,2.25)),((-1.72,2.74,2.25),(-1.72,1.46,2.25))]: beam('Feed rim', a, b, .09, 'orange')
     box('Input chute', (-1, 2.78, .62), (1.0, .4, .62), 'orange', .04)
     box('Input chute mouth', (-1, 2.99, .62), (.78, .04, .4), 'dark', .01)
-    for y in [1.1, -1.4]: box('Kiln cradle', (-1, y, .62), (1.2, .4, .64), 'dark', .04)
-    cyl('Rotary kiln', (-1, -.1, 1.2), .62, 3.2, 'ivory', 20, (math.pi / 2, 0, 0))
-    for y in [-1.3, -.1, 1.1]: cyl('Kiln drive ring', (-1, y, 1.2), .66, .12, 'metal', 20, (math.pi / 2, 0, 0))
-    cyl('Kiln end cap', (-1, -1.75, 1.2), .5, .12, 'dark', 20, (math.pi / 2, 0, 0))
+    for y in [1.1, -1.4]: box('Cradle', (-1, y, .62), (1.2, .4, .64), 'dark', .04)
+    # The Kiln node turns about its own axis while processing; lifter strips make the rotation readable.
+    cyl('Kiln drum', (-1, -.1, 1.2), .62, 3.2, 'ivory', 20, (math.pi / 2, 0, 0))
+    for y in [-1.3, -.1, 1.1]: cyl('Kiln drive ring', (-1, y, 1.2), .66, .12, 'metal', 16, (math.pi / 2, 0, 0))
+    cyl('Kiln end cap', (-1, -1.75, 1.2), .5, .12, 'dark', 16, (math.pi / 2, 0, 0))
+    for i in range(4):
+        a = i * math.pi / 2 + math.pi / 4
+        box('Kiln lifter', (-1 + math.cos(a) * .62, -.1, 1.2 + math.sin(a) * .62), (.09, 2.9, .09), 'orange', 0, (0, -a, 0))
+    # Heater: burner ring at the discharge end and the electrolysis cell window, lit while it works.
+    cyl('Heater burner ring', (-1, -1.83, 1.2), .36, .05, 'heat', 16, (math.pi / 2, 0, 0))
+    box('Heater cell window', (.95, .17, 1.55), (.26, .03, .95), 'heat', 0)
+    # Regolith waiting in the feed hopper.
+    frustum('Fill regolith', 0, .42, .3, .28, .62, .54, 'regolith', 0, 0)
+    for o in objects[-1:]: o.location = (-1, 2.1, 1.8)
     box('Output housing', (-1, -2.35, .78), (1.1, .9, 1.0), 'dark', .05)
     box('Output collar', (-1, -2.86, .62), (1.0, .3, .62), 'orange', .04)
     box('Output chute mouth', (-1, -3.0, .6), (.78, .04, .38), 'dark', .01)
@@ -286,7 +297,7 @@ def hopper():
 STATUS = [('Lamp', (0, 0, 0))]
 layout = []
 layout += export_asset('rover', rover, (-9, 0, 0), parts=[('Wheel_*', None), ('Drill', (0, -1.05, .7)), ('Cargo', (0, .5, .79))] + STATUS)
-layout += export_asset('processor', processor, (-3, 0, 0), parts=STATUS)
+layout += export_asset('processor', processor, (-3, 0, 0), parts=STATUS + [('Kiln', (-1, -.1, 1.2)), ('Heater', (0, 0, 0)), ('Fill', (-1, 2.1, 1.8))])
 layout += export_asset('conveyor', conveyor, (3, -2, 0), parts=[('Belt', (0, 0, 0))])
 layout += export_asset('storage', storage, (3, 2, 0), parts=STATUS)
 layout += export_asset('hopper', hopper, (7.5, 0, 0), parts=STATUS + [('Level', (1.2, -1.335, .66))])

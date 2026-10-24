@@ -11,7 +11,7 @@ import { loadItemLibrary, BELT_ITEM_SIZES } from './item-models.js';
 import { createHabitatView } from './habitat-view.js';
 import { airlockOf, habitatLayout, isRoom } from './habitat.js';
 import { surfaceHeightAt as heightAt, terrainData } from './terrain.js';
-import { melterReady } from './production.js';
+import { melterReady, processorReady, PROCESSOR_INPUT_CAP } from './production.js';
 import { createExpeditionView } from './expedition-view.js';
 import { createTerrainView } from './terrain-view.js';
 import * as THREE from 'three';
@@ -285,7 +285,7 @@ export async function createWorld(canvas, initialState) {
       // Ripe produce shows as the crop's own item model, laid where each grower holds it.
       const crops=RIPE_SPOTS[type]&&itemModels?new THREE.Group():null;
       if(crops){crops.name='Ripe crop';root.add(crops);}
-      return {root,roof:null,emits:DEFS[type].layer==='interior',plants:part('Plants'),crops,cropKind:null,tray,level:type==='goovat'?part('Level'):null,heater:part('Heater'),panel:type==='solar'?part('Panel'):null};
+      return {root,roof:null,emits:DEFS[type].layer==='interior',plants:part('Plants'),crops,cropKind:null,tray,level:type==='goovat'?part('Level'):null,heater:part('Heater'),panel:type==='solar'?part('Panel'):null,kiln:part('Kiln'),fill:part('Fill')};
     }
     const root=new THREE.Group(),w=DEFS[type].w*2,d=DEFS[type].d*2;
     box(root,dark,0,.12,0,w-.12,.24,d-.12);
@@ -461,7 +461,16 @@ export async function createWorld(canvas, initialState) {
         const target=b.built&&state.power.powered!==false&&dt>0&&o.beltIdle<.25?BELT_SPEED:0;o.beltSpeed=(o.beltSpeed??0)+(target-(o.beltSpeed??0))*Math.min(1,dt*8);
         o.tread.offset.y=(o.tread.offset.y+o.beltSpeed*dt)%1;
       }
-      if(o.heater&&b.built){const glow=melterReady(state,b)&&state.power.powered!==false?1:0;o.heater.traverse(n=>{if(n.isMesh)n.material.emissiveIntensity=(n.material.userData.baseEmission||0)*glow;});}
+      if(o.heater&&b.built){
+        const on=(b.type==='processor'?processorReady(b):melterReady(state,b))&&state.power.powered!==false?1:0;o.heat=(o.heat??0)+(on-(o.heat??0))*Math.min(1,dt*(on?1.5:.6));
+        o.heater.traverse(n=>{if(n.isMesh)n.material.emissiveIntensity=(n.material.userData.baseEmission||0)*o.heat*(.85+.15*Math.sin(state.time*9+b.id));});
+      }
+      if(o.kiln&&b.built){
+        // The kiln spins up while it has a charge to roast and hums the whole skid; the feed mound shows what's queued.
+        const on=processorReady(b)&&state.power.powered!==false?1:0;o.spin=(o.spin??0)+(on-(o.spin??0))*Math.min(1,dt*.8);
+        o.kiln.rotation.z-=dt*1.4*o.spin;o.root.position.y+=Math.sin(state.time*47+b.id)*.008*o.spin;
+        if(o.fill){const f=Math.min(1,b.inv.regolith/PROCESSOR_INPUT_CAP);o.fill.visible=f>0;o.fill.scale.set(.6+.4*f,Math.max(.05,f),.6+.4*f);}
+      }
     }
     expedition.update(state,dt);updateEncounter(dt,underground);
     lampClock+=dt;lamps.update(lampClock,daylight);

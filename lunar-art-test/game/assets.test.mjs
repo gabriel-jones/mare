@@ -42,8 +42,8 @@ test('industrial exports contain only intended assets, retain a hideable roof, a
   assert.equal((d.animations??[]).length,0);
   assert.ok(d.buffers.every(b=>!b.uri),'self-contained GLB');
   for(const n of d.nodes)assert.ok(!/^(Plane|Camera|Light|Astronaut)/.test(n.name??''),'no unrelated scene objects');
-  // Status parts (Lamp, Cell1..5, Level) are separate on purpose so each can be lit or scaled.
-  const status=new Set(d.nodes.filter(n=>/^(Lamp|Cell\d|Level)$/.test(n.name)).map(n=>n.mesh));
+  // Status and animated parts (Lamp, Cell1..5, Level, Kiln, Heater, Fill, Panel, Belt) are separate on purpose so each can be lit, scaled or moved.
+  const status=new Set(d.nodes.filter(n=>/^(Lamp|Cell\d|Level|Kiln|Heater|Fill|Panel|Belt)$/.test(n.name)).map(n=>n.mesh));
   d.meshes.forEach((mesh,i)=>{for(const p of mesh.primitives){triangles+=d.accessors[p.indices].count/3;if(!status.has(i))parts++;}});
   assert.ok(triangles<=budget,`${name}: ${triangles} triangles exceeds ${budget}`);
   assert.ok(parts<=10,`${name} has too many material parts`);
