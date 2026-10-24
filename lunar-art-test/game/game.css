@@ -26,7 +26,7 @@ button:focus-visible { outline:2px solid #edbd79;outline-offset:4px; }
 .build-item svg { width:26px;height:26px;flex-shrink:0;color:#cad0d0; }
 .game-ui .build-item.selected { color:#f8d6a4;background:#594831; }
 .build-item.selected svg { color:var(--amber); }
-.build-item.unaffordable { opacity:.4; }
+.build-item.unaffordable { opacity:.62; }
 .selection-tools { display:flex;align-items:center;gap:7px;padding:5px 7px 5px 13px;border:1px solid var(--line);border-radius:4px;background:var(--panel);font-size:12px; }
 .selected-name { margin-right:6px; }
 .game-ui .selection-tools button { border:0;background:transparent;font-size:23px;width:31px;height:34px;border-radius:3px; }

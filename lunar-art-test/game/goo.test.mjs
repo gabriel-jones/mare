@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createState, placeBlueprint, tick, serialize, deserialize, interact, deconstruct } from './sim.js';
+import { payInFull, createState, placeBlueprint, tick, serialize, deserialize, interact, deconstruct } from './sim.js';
 import { count, createInventory, add } from './inventory.js';
 import { ensureBuildingState } from './production.js';
 import { ensureLifeState } from './life.js';
@@ -15,6 +15,7 @@ function build(state, type, x, z) {
   const r = placeBlueprint(state, type, x, z, 0);
   assert.equal(r.ok, true, `${type} at ${x},${z}: ${r.reason}`);
   const b = state.buildings.find(b => b.id === r.id);
+  assert.equal(payInFull(state, b), true, `${type}: materials`);
   b.progress = 1; b.built = true; ensureVat(ensureLifeState(ensureBuildingState(b)));
   return b;
 }

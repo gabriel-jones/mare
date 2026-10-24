@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createState, placeBlueprint, validatePlacement, tick, serialize, deserialize, setMiningArea, DEFS } from './sim.js';
+import { payInFull, createState, placeBlueprint, validatePlacement, tick, serialize, deserialize, setMiningArea, DEFS } from './sim.js';
 import { ensureBuildingState, miningCells } from './production.js';
 import { count, createInventory, add } from './inventory.js';
 import { STEPS, SHIP, objective, missionAction, salvage, installCore, processorUnlocked } from './mission.js';
@@ -12,6 +12,7 @@ function build(state, type, x, z, rotation = 0) {
   const r = placeBlueprint(state, type, x, z, rotation);
   assert.equal(r.ok, true, `${type} at ${x},${z}: ${r.reason}`);
   const b = state.buildings.find(b => b.id === r.id);
+  assert.equal(payInFull(state, b), true, `${type}: materials`);
   b.progress = 1; b.built = true; ensureBuildingState(b);
   return b;
 }

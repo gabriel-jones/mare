@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createState, placeBlueprint, tick, serialize, deserialize, deconstruct, collectStorage, setMiningArea, removeMiningArea, assignRover, validatePlacement, rotateBelt, DEFS, SAVE_VERSION } from './sim.js';
+import { payInFull, createState, placeBlueprint, tick, serialize, deserialize, deconstruct, collectStorage, setMiningArea, removeMiningArea, assignRover, validatePlacement, rotateBelt, DEFS, SAVE_VERSION } from './sim.js';
 import { ports } from './defs.js';
 import { beltTurns, ensureBuildingState, miningCells, remainingRegolith, ROVER, RECIPE, REGOLITH_PER_CELL, BELT_SPACING } from './production.js';
 import { findPath } from './paths.js';
@@ -12,6 +12,7 @@ function build(state, type, x, z, rotation = 0) {
   const r = placeBlueprint(state, type, x, z, rotation);
   assert.equal(r.ok, true, `${type} at ${x},${z}: ${r.reason}`);
   const b = state.buildings.find(b => b.id === r.id);
+  assert.equal(payInFull(state, b), true, `${type}: materials`);
   b.progress = 1; b.built = true; ensureBuildingState(b);
   return b;
 }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createState, placeBlueprint, tick, serialize, deserialize, deconstruct, validatePlacement, interact, DEFS } from './sim.js';
+import { payInFull, construct, createState, placeBlueprint, tick, serialize, deserialize, deconstruct, validatePlacement, interact, DEFS } from './sim.js';
 import { count, createInventory } from './inventory.js';
 import { BASE_REACH, CRATE_SLOTS, baseCount, inReach, ledger, moveStack, storeAll, storeSlot, takeSlot } from './storage.js';
 import { craftFlares } from './peril.js';
@@ -10,6 +10,7 @@ function build(state, type, x, z, rotation = 0) {
   const r = placeBlueprint(state, type, x, z, rotation);
   assert.equal(r.ok, true, `${type} at ${x},${z}: ${r.reason}`);
   const b = state.buildings.find(b => b.id === r.id);
+  assert.equal(payInFull(state, b), true, `${type}: materials`);
   b.progress = 1; b.built = true; ensureBuildingState(b);
   return b;
 }
@@ -59,7 +60,13 @@ test('building and crafting draw on pockets first, then the base stock while at 
   assert.equal(craftFlares(s).ok, true); assert.equal(count(s.inventory, 'flare'), 3);
   s.player.x = BASE_REACH + 10;
   assert.equal(inReach(s), false);
-  assert.match(validatePlacement(s, 'solar', 20, 0).reason, /Not enough metal/);
+  // Away from the base a blueprint still goes down free, but building it can only use what is carried.
+  const px = Math.round(s.player.x / 2), pz = Math.round(s.player.z / 2);
+  const spot = [...Array(64).keys()].map(i => ({ x: px + i % 8 - 4, z: pz + 2 + Math.floor(i / 8) })).find(c => validatePlacement(s, 'solar', c.x, c.z).ok);
+  const far = placeBlueprint(s, 'solar', spot.x, spot.z);
+  assert.equal(far.ok, true, far.reason);
+  s.player.x = spot.x * 2 + 4; s.player.z = spot.z * 2 + 1;
+  assert.match(construct(s, far.id, 1).reason, /Need more metal/);
 });
 
 test('refunds overflow into storage, and dismantling a crate moves its goods into the others', () => {

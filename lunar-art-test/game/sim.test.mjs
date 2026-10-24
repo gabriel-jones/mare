@@ -21,20 +21,38 @@ test('rotated footprints, boundaries and reserved pad validate every occupied ce
   assert.equal(validatePlacement(s,'storage',0,0).ok,true);
   assert.equal(validatePlacement(s,'solar',0.5,0).ok,false);
 });
-test('placement spends once, reserves space, and partial cancellation refunds exactly once',()=>{
+test('placement is free; construction pays its share as it goes, stops when short, and cancelling refunds what was paid',()=>{
   const s=createState(), original=structuredClone(s.inventory);
   const p=placeBlueprint(s,'solar',0,0);
-  assert.equal(count(s.inventory,'metal'),count(original,'metal')-DEFS.solar.cost.metal);
-  assert.equal(placeBlueprint(s,'storage',1,1).ok,false);
+  assert.equal(p.ok,true);
+  assert.deepEqual(s.inventory,original,'placing takes nothing');
+  assert.equal(placeBlueprint(s,'storage',1,1).ok,false,'the blueprint still reserves its cells');
   s.player.x=-1.5;s.player.z=1;
   construct(s,p.id,1);
+  const b=s.buildings.find(b=>b.id===p.id),share=n=>Math.ceil(n*b.progress-1e-9);
+  assert.ok(b.progress>0&&b.progress<1);
+  assert.equal(count(s.inventory,'metal'),count(original,'metal')-share(DEFS.solar.cost.metal));
+  assert.deepEqual(b.paid,{metal:share(DEFS.solar.cost.metal),silicon:share(DEFS.solar.cost.silicon)});
   assert.equal(cancelBlueprint(s,p.id).ok,true);
-  assert.deepEqual(s.inventory,original);
+  assert.deepEqual(s.inventory,original,'cancelling returns exactly what was paid');
   assert.equal(cancelBlueprint(s,p.id).ok,false);
   assert.deepEqual(s.inventory,original);
-  s.inventory=createInventory({silicon:100});
-  assert.equal(placeBlueprint(s,'solar',0,0).ok,false);
-  assert.equal(s.buildings.length,0);
+  // Short of silicon: placing works, and the build runs until the silicon runs out.
+  s.inventory=createInventory({metal:100,silicon:2});
+  const q=placeBlueprint(s,'solar',0,0);assert.equal(q.ok,true);
+  for(let i=0;i<40;i++)construct(s,q.id,.25);
+  const c=s.buildings.find(b=>b.id===q.id);
+  assert.equal(c.built,false);assert.equal(c.progress,2/DEFS.solar.cost.silicon);assert.equal(count(s.inventory,'silicon'),0);
+  assert.match(construct(s,q.id,.25).reason,/Need more silicon/);
+  const metalPaid=c.paid.metal;
+  s.inventory=createInventory({metal:100,silicon:20});
+  for(let i=0;i<40&&!c.built;i++)construct(s,q.id,.25);
+  assert.equal(c.built,true);assert.equal(c.paid,undefined);
+  assert.equal(count(s.inventory,'metal'),100-(DEFS.solar.cost.metal-metalPaid));assert.equal(count(s.inventory,'silicon'),20-(DEFS.solar.cost.silicon-2));
+  // A half-paid blueprint survives a save.
+  const r=placeBlueprint(s,'battery',4,0);s.player.x=6;s.player.z=4;construct(s,r.id,1);
+  const back=deserialize(serialize(s)).buildings.find(b=>b.id===r.id);
+  assert.deepEqual(back.paid,s.buildings.find(b=>b.id===r.id).paid);
 });
 test('construction requires proximity and finished structures cannot refund',()=>{
   const s=createState(),p=placeBlueprint(s,'habitat',5,5);

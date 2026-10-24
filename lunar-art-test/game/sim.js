@@ -14,7 +14,7 @@ import { restoreInfest } from './infest.js';
 import { GOO, ensureVat, gooDemand, restoreGoo, stepGoo, useVat } from './goo.js';
 import { haulerDemand, restoreHauler, stepHaulers } from './hauler.js';
 import { createMission, processorUnlocked, restoreMission, stepMission } from './mission.js';
-import { canReceive, crates, emptyCrate, missing, pay, receive, stash, takeSlot } from './storage.js';
+import { available, canReceive, crates, emptyCrate, pay, receive, stash, takeSlot } from './storage.js';
 export { CELL_SIZE, DEFS, footprint } from './defs.js';
 /** Pure, serializable simulation. Positions use 2m cells; building anchors are minimum cells. */
 export const DAY_DURATION = 240;
@@ -104,8 +104,6 @@ export function validatePlacement(state, type, x, z, rotation = 0) {
   }
   const placeReason = roomReason(state, type, x, z, rotation);
   if (placeReason) return { ok: false, reason: placeReason };
-  const short = missing(state, DEFS[type].cost)[0];
-  if (short) return { ok: false, reason: `Not enough ${ITEM_INFO[short[0]]?.name.toLowerCase() ?? short[0]}${crates(state).length ? ' in your pockets or base storage' : ''}.` };
   return { ok: true, reason: 'Click to place blueprint.' };
 }
 /** Machines are numbered per type in build order; a number is only reused after the newest of its type is removed. */
@@ -113,10 +111,9 @@ const nextSerial = (buildings, type) => 1 + Math.max(0, ...buildings.filter(b =>
 export function placeBlueprint(state, type, x, z, rotation = 0) {
   const result = validatePlacement(state, type, x, z, rotation);
   if (!result.ok) return result;
-  pay(state, DEFS[type].cost);
   const id = state.nextId++;
-  state.buildings.push({ id, type, x, z, rotation, progress: 0, built: false, serial: nextSerial(state.buildings, type) });
-  return { ok: true, reason: 'Blueprint placed. Approach and hold E to construct.', id };
+  state.buildings.push({ id, type, x, z, rotation, progress: 0, built: false, paid: {}, serial: nextSerial(state.buildings, type) });
+  return { ok: true, reason: 'Blueprint placed. Hold E beside it to build; materials go in as it rises.', id };
 }
 export function construct(state, id, dt) {
   if (state.player.cave != null) return { ok: false, reason: 'Construction is unavailable underground.' };
@@ -135,15 +132,42 @@ export function construct(state, id, dt) {
   // Match controller collision padding: completing a structure around the player
   // would otherwise leave them unable to take even the first step out.
   if (playerObstructs(state, b)) return { ok: false, reason: isRoom(b) ? 'This would shut you in. Step out, or build an airlock first.' : 'Step outside the footprint to construct this machine.' };
-  b.progress = Math.min(1, b.progress + dt * hunger(state.player.satiety).build / DEFS[b.type].buildTime);
+  let next = Math.min(1, b.progress + dt * hunger(state.player.satiety).build / DEFS[b.type].buildTime);
+  // Materials go in as the work does: every slice of progress takes its share of the cost, and the work stops
+  // where the materials run out.
+  if (b.paid) {
+    const cost = DEFS[b.type].cost;
+    for (const [item, n] of Object.entries(cost)) next = Math.min(next, ((b.paid[item] ?? 0) + available(state, item)) / n);
+    if (next <= b.progress) {
+      const short = Object.keys(cost).find(item => (b.paid[item] ?? 0) < cost[item] && available(state, item) < 1);
+      return { ok: false, reason: `Need more ${ITEM_INFO[short]?.name.toLowerCase() ?? short}${crates(state).length ? ' in your pockets or base storage' : ''} to keep building.` };
+    }
+    const due = {};
+    for (const [item, n] of Object.entries(cost)) { const d = Math.ceil(n * next - 1e-9) - (b.paid[item] ?? 0); if (d > 0) due[item] = d; }
+    pay(state, due);
+    for (const [item, d] of Object.entries(due)) b.paid[item] = (b.paid[item] ?? 0) + d;
+  }
+  b.progress = next;
   b.built = b.progress >= 1;
+  if (b.built) delete b.paid;
   ensureState(b);
   return { ok: true, reason: b.built ? 'Construction complete.' : 'Constructing…' };
 }
-/** Returns the cost of `b` to pockets, overflowing into base storage; refused when it will not fit. */
+/** Pays whatever `b` still owes in one go, as if every remaining slice of construction were paid now. */
+export function payInFull(state, b) {
+  if (!b.paid) return true;
+  const due = Object.fromEntries(Object.entries(DEFS[b.type].cost).map(([item, n]) => [item, n - (b.paid[item] ?? 0)]).filter(([, n]) => n > 0));
+  if (!pay(state, due)) return false;
+  delete b.paid;
+  return true;
+}
+/** What taking `b` down gives back: the full cost once built, otherwise what construction has taken so far.
+ * Blueprints saved before pay-as-you-build carry no `paid` and were paid in full when placed. */
+export const refundOf = b => b.built || !b.paid ? DEFS[b.type].cost : b.paid;
+/** Returns the materials in `b` to pockets, overflowing into base storage; refused when they will not fit. */
 function refund(state, b) {
-  if (!canReceive(state, DEFS[b.type].cost, b)) return false;
-  receive(state, DEFS[b.type].cost, b);
+  if (!canReceive(state, refundOf(b), b)) return false;
+  receive(state, refundOf(b), b);
   return true;
 }
 const crateContents = b => { const held = {}; for (const s of b.slots ?? []) if (s) held[s.item] = (held[s.item] ?? 0) + s.count; return held; };
@@ -171,7 +195,7 @@ export function cancelBlueprint(state, id) {
 export function removalCheck(state, id) {
   const b = state.buildings.find(b => b.id === id);
   if (!b) return 'Nothing to dismantle here.';
-  return removalReason(state, b) ?? (b.type === 'storage' && b.built ? (crateFits(state, b) ? null : CRATE_FULL) : canReceive(state, DEFS[b.type].cost, b) ? null : NO_ROOM);
+  return removalReason(state, b) ?? (b.type === 'storage' && b.built ? (crateFits(state, b) ? null : CRATE_FULL) : canReceive(state, refundOf(b), b) ? null : NO_ROOM);
 }
 /** Dismantles a finished structure for a full refund. Carried goods inside are returned if they fit; regolith is spilled. */
 export function deconstruct(state, id) {
@@ -298,6 +322,11 @@ function restoreBuilding(raw) {
   if (raw.serial != null) {
     if (!Number.isSafeInteger(raw.serial) || raw.serial < 1) throw new Error('Invalid building number.');
     b.serial = raw.serial;
+  }
+  if (!b.built && raw.paid != null) {
+    const cost = DEFS[b.type]?.cost ?? {};
+    if (typeof raw.paid !== 'object' || Object.entries(raw.paid).some(([item, n]) => !(item in cost) || !wholeCount(n, cost[item]))) throw new Error('Invalid construction materials.');
+    b.paid = { ...raw.paid };
   }
   if (!b.built) return b;
   if (b.type === 'conveyor' && raw.items != null) {

@@ -18,7 +18,7 @@ import {createResearchView} from './research-view.js';
 import {createHunt,stepHunt,fire,release,roll,wrench,pinned,grabbedBy,rouse} from './hunt.js';
 import {isWeapon,holdWeapon,reload,craft,heldWeapon,armsOf,WEAPONS} from './arms.js';
 import {installCursors,createReticle} from './cursors.js';
-import {available,crateDistance,moveStack,storeAll,storeSlot,takeSlot} from './storage.js';
+import {crateDistance,moveStack,storeAll,storeSlot,takeSlot} from './storage.js';
 import {worldVectorToCave} from './cave-space.js';
 
 // ?sandbox=1 plays a throwaway colony that never touches the real save.
@@ -112,16 +112,14 @@ function extendPaintPath(cell){
  }
 }
 let lineCache={key:'',line:[]};
-/** Cells to paint with their validity, spending materials cumulatively in drag order. */
+/** Cells to paint with their validity. Blueprints are free; materials go in as each square is built. */
 function paintLine(){
- const path=paintPath??(hover?[{x:hover.x,z:hover.z}]:[]),cost=DEFS[selectedType].cost;
- const key=`${selectedType}|${JSON.stringify(path)}|${state.buildings.length}|${available(state,'metal')}|${available(state,'silicon')}`;
+ const path=paintPath??(hover?[{x:hover.x,z:hover.z}]:[]);
+ const key=`${selectedType}|${JSON.stringify(path)}|${state.buildings.length}`;
  if(lineCache.key===key)return lineCache.line;
- const budget=Object.fromEntries(Object.keys(cost).map(item=>[item,available(state,item)]));
  const line=path.map(c=>{
-  const check=validatePlacement(state,selectedType,c.x,c.z,0),afford=Object.entries(cost).every(([item,n])=>budget[item]>=n);
-  if(check.ok&&afford)for(const [item,n] of Object.entries(cost))budget[item]-=n;
-  return {x:c.x,z:c.z,rotation:0,valid:check.ok&&afford,reason:check.ok?'Not enough materials.':check.reason};
+  const check=validatePlacement(state,selectedType,c.x,c.z,0);
+  return {x:c.x,z:c.z,rotation:0,valid:check.ok,reason:check.reason};
  });
  lineCache={key,line};return line;
 }
@@ -179,18 +177,16 @@ function extendBeltPath(cell){
  }
 }
 /** The route as belt cells: each faces the next cell; the last keeps the final heading. Existing
- * belts on the route are redirected rather than rebuilt; new ones are limited by available metal. */
+ * belts on the route are redirected rather than rebuilt. */
 function beltLine(){
  const path=beltPath??(hover?[{x:hover.x,z:hover.z}]:[]);
  const dirTo=(a,b)=>DIRS.findIndex(([dx,dz])=>dx===b.x-a.x&&dz===b.z-a.z);
- let metal=available(state,'metal');
  return path.map((c,i)=>{
   const dir=path[i+1]?dirTo(c,path[i+1]):path[i-1]?dirTo(path[i-1],c):rotation;
   const existing=state.buildings.find(b=>b.type==='conveyor'&&b.x===c.x&&b.z===c.z);
   if(existing)return {x:c.x,z:c.z,rotation:dir,existing:existing.id,valid:true};
-  const check=validatePlacement(state,'conveyor',c.x,c.z,dir),valid=check.ok&&metal>=DEFS.conveyor.cost.metal;
-  if(valid)metal-=DEFS.conveyor.cost.metal;
-  return {x:c.x,z:c.z,rotation:dir,valid,reason:check.ok?'Not enough metal.':check.reason};
+  const check=validatePlacement(state,'conveyor',c.x,c.z,dir);
+  return {x:c.x,z:c.z,rotation:dir,valid:check.ok,reason:check.reason};
  });
 }
 function refreshGhost(){
