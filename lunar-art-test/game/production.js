@@ -1,5 +1,5 @@
 import { THERMAL } from './power.js';
-import { CELL_SIZE, DEFS, DIRS, PARTS, footprint, ports } from './defs.js';
+import { CELL_SIZE, DEFS, DIRS, ITEMS, PARTS, footprint, ports } from './defs.js';
 import { findPath, robotBlockedCells, cellPassable } from './paths.js';
 import * as inv from './inventory.js';
 import { iceAt } from './terrain.js';
@@ -141,9 +141,20 @@ function pushOutputs(b, index, take) {
     if (item) belt.items.push({ type: item, p: 0 });
   }
 }
+/** A crate feeds any belt that leads straight away from it, one item at a time, from its first stack a belt can carry. */
+function pullFromCrate(b, index) {
+  for (const port of ports(b, 'inputs')) {
+    const belt = index.get(key(port.neighbor.x, port.neighbor.z));
+    if (!belt || belt.type !== 'conveyor' || belt.rotation !== port.dir || !beltCanAccept(belt)) continue;
+    const slot = b.slots.find(s => s && ITEMS.includes(s.item));
+    if (!slot) return;
+    const item = slot.item; inv.remove(b.slots, item, 1); belt.items.push({ type: item, p: 0 });
+  }
+}
 function stepMachines(state, index, dt, powered) {
   for (const b of state.buildings) {
     if (!b.built) continue;
+    if (b.type === 'storage') pullFromCrate(b, index);
     if (b.type === 'hopper') pushOutputs(b, index, () => { const item = b.inv.ice > b.inv.regolith ? 'ice' : 'regolith'; return b.inv[item] > 0 ? (b.inv[item]--, item) : null; });
     if (b.type === 'melter' && melterReady(state, b) && powered) {
       b.work = Math.min(1, b.work + dt / MELT.time);

@@ -345,10 +345,15 @@ export async function createWorld(canvas, initialState) {
   const arrowMaterial=(color,overlay=false)=>{const m=new THREE.MeshBasicMaterial({color,transparent:true,opacity:.9,depthWrite:false,depthTest:!overlay,side:THREE.DoubleSide});materials.add(m);return m;};
   const arrows={input:arrowMaterial('#72d7ec'),output:arrowMaterial('#f3a24b')},previewArrows={input:arrowMaterial('#72d7ec',true),output:arrowMaterial('#f3a24b',true)},beltArrow=arrowMaterial('#ffffff',true);
   function groundArrow(parent,material,x,z,dir,scale=1,lift=.12){const o=new THREE.Mesh(arrowGeo,material);o.position.set(x,heightAt(state.seed,x,z)+lift,z);o.rotation.y=dir*Math.PI/2;o.scale.setScalar(scale);o.renderOrder=3;parent.add(o);return o;}
+  // Built machines' ports only show while laying belts, raised clear of their graded pads and port trays.
+  let portsShown=false;
+  function setPorts(shown){if(shown===portsShown)return;portsShown=shown;for(const o of structures.values())if(o.ports)o.ports.visible=shown;}
   function portArrows(parent,b,preview=false){
-    const look=preview?previewArrows:arrows,scale=preview?1.3:.8,lift=preview?.3:.12;
+    const look=preview?previewArrows:arrows,scale=preview?1.3:1.25,lift=preview?.3:.62;
     if(preview&&DEFS[b.type].airlock){const a=airlockOf(b),[dx,dz]=DIRS[a.dir];groundArrow(parent,look.output,a.x+dx*1.1,a.z+dz*1.1,a.dir,scale,lift);}
-    for(const p of machinePorts(b,'inputs'))if(b.type!=='storage')groundArrow(parent,look.input,(p.cell.x+p.neighbor.x),(p.cell.z+p.neighbor.z),(p.dir+2)%4,scale,lift);
+    // Crate sides are two-way: a small in-and-out pair side by side on each face.
+    if(b.type==='storage'){for(const p of machinePorts(b,'inputs')){const [dx,dz]=DIRS[p.dir],x=p.cell.x+p.neighbor.x,z=p.cell.z+p.neighbor.z;groundArrow(parent,look.input,x-dz*.42,z+dx*.42,(p.dir+2)%4,scale*.6,lift);groundArrow(parent,look.output,x+dz*.42,z-dx*.42,p.dir,scale*.6,lift);}return;}
+    for(const p of machinePorts(b,'inputs'))groundArrow(parent,look.input,(p.cell.x+p.neighbor.x),(p.cell.z+p.neighbor.z),(p.dir+2)%4,scale,lift);
     for(const p of machinePorts(b,'outputs'))groundArrow(parent,look.output,(p.cell.x+p.neighbor.x),(p.cell.z+p.neighbor.z),p.dir,scale,lift);
   }
   function setGhost(type,x,z,rotation,valid,line=null){
@@ -451,7 +456,7 @@ export async function createWorld(canvas, initialState) {
     for(const b of state.buildings){
       let o=structures.get(b.id);const turn=b.type==='conveyor'?turns.get(b.id)??0:0;
       if(o&&(o.type!==b.type||o.rotation!==b.rotation||o.turn!==turn)){buildFx.clear(o);scene.remove(o.root,o.ports);o.ownedMaterials.forEach(m=>m.dispose());o.tread?.dispose();structures.delete(b.id);o=null;}
-      if(!o){o=buildModel(b.type,turn);o.type=b.type;o.rotation=b.rotation;o.turn=turn;o.ports=new THREE.Group();portArrows(o.ports,b);scene.add(o.ports);o.ownedMaterials=[];const clones=new Map();o.root.traverse(n=>{if(n.isMesh){n.castShadow=true;n.receiveShadow=true;const copy=m=>{if(!clones.has(m.uuid)){const c=m.clone();c.userData.baseEmission=c.emissiveIntensity;c.userData.baseColor=c.color.clone();c.userData.baseEmissive=c.emissive.clone();clones.set(m.uuid,c);o.ownedMaterials.push(c);o.tread??=ownTread(c,tread);}return clones.get(m.uuid);};n.material=Array.isArray(n.material)?n.material.map(copy):copy(n.material);}});o.statusHeight??=new THREE.Box3().setFromObject(o.root).max.y;o.lamp=lamps.attach(o.root,b.type);structures.set(b.id,o);scene.add(o.root);}
+      if(!o){o=buildModel(b.type,turn);o.type=b.type;o.rotation=b.rotation;o.turn=turn;o.ports=new THREE.Group();portArrows(o.ports,b);o.ports.visible=portsShown;scene.add(o.ports);o.ownedMaterials=[];const clones=new Map();o.root.traverse(n=>{if(n.isMesh){n.castShadow=true;n.receiveShadow=true;const copy=m=>{if(!clones.has(m.uuid)){const c=m.clone();c.userData.baseEmission=c.emissiveIntensity;c.userData.baseColor=c.color.clone();c.userData.baseEmissive=c.emissive.clone();clones.set(m.uuid,c);o.ownedMaterials.push(c);o.tread??=ownTread(c,tread);}return clones.get(m.uuid);};n.material=Array.isArray(n.material)?n.material.map(copy):copy(n.material);}});o.statusHeight??=new THREE.Box3().setFromObject(o.root).max.y;o.lamp=lamps.attach(o.root,b.type);structures.set(b.id,o);scene.add(o.root);}
       o.root.visible=true;
       const def=DEFS[b.type],w=b.rotation%2?def.d:def.w,d=b.rotation%2?def.w:def.d;
       const bx=(b.x+(w-1)/2)*2,bz=(b.z+(d-1)/2)*2;
@@ -525,5 +530,5 @@ export async function createWorld(canvas, initialState) {
   }
   function dispose(){disposed=true;logistics.dispose();buildFx.dispose();portLinks.dispose();pipes.dispose();iceView.dispose();groundPads.dispose();groundMarks.dispose();headlamp.dispose();meetView?.dispose();gooView.dispose();broodViews.forEach(v=>v.dispose());surfaceFx.removeFromParent();lamps.dispose();caveViews.forEach(v=>v.dispose());vignette.remove();expedition.dispose();productionView.dispose();habitatView.dispose();statusLayer.remove();terrainView.dispose();grid.geometry.dispose();grid.material.dispose();combat?.dispose();actor?.dispose();reflection.dispose();canvas.removeEventListener('wheel',zoom);for(const o of structures.values()){o.ownedMaterials?.forEach(m=>m.dispose());scene.remove(o.ports);}geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());itemModels?.dispose();renderer.dispose();}
   resize();update(initialState,1);
-  return {renderer,scene,camera,actor,update,pick,aim,setGhost,clearGhost,setLogistics:shown=>{logisticsShown=shown;},setZones:shown=>productionView.setZones(shown),resize,dispose};
+  return {renderer,scene,camera,actor,update,pick,aim,setGhost,clearGhost,setLogistics:shown=>{logisticsShown=shown;},setZones:shown=>productionView.setZones(shown),setPorts,resize,dispose};
 }

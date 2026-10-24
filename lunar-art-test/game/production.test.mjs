@@ -242,3 +242,16 @@ test('belts on uneven ground tilt so joined ends meet, and end at a machine at i
   assert.ok(Math.abs(at(2, 0, 3) - at(3, 0, 3)) < 1e-9, 'into the corner');
   assert.ok(Math.abs(at(3, 1, 4) - height(2, 4)) < 1e-9, 'meets the crate at its height');
 });
+
+test('a belt leading away from a crate pulls items a belt can carry; belts leading in or past it do not', () => {
+  const s = createState(1847); s.inventory = createInventory({ metal: 200 });
+  const from = build(s, 'storage', 0, 2); from.slots = createInventory({ meal: 3, metal: 4 }, from.slots.length);
+  build(s, 'conveyor', 0, 3, 0); build(s, 'conveyor', 0, 4, 0);
+  const to = build(s, 'storage', 0, 5);
+  // Running past the crate's side, and pointing into it: neither should draw from it.
+  build(s, 'conveyor', 1, 2, 0); build(s, 'conveyor', -1, 2, 1);
+  run(s, 30);
+  assert.equal(count(to.slots, 'metal'), 4);
+  assert.equal(count(from.slots, 'metal'), 0);
+  assert.equal(count(from.slots, 'meal'), 3, 'food is not belt cargo');
+});

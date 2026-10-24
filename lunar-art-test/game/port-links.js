@@ -56,10 +56,11 @@ export function createPortLinks(scene, { heightAt }) {
       const o = structures.get(b.id);
       if (!b.built || !o || b.type === 'conveyor') continue;
       for (const kind of ['inputs', 'outputs']) {
-        const list = ports(b, kind); if (!list.length) continue;
+        // A crate's sides are all two-way: a belt leading in fills it, one leading straight out empties it.
+        const crate = b.type === 'storage', list = ports(b, crate ? 'inputs' : kind); if (!list.length) continue;
         list.forEach((port, i) => {
           const belt = belts.get(key(port.neighbor.x, port.neighbor.z)), input = kind === 'inputs';
-          const joined = belt && (input ? belt.rotation === (port.dir + 2) % 4 : belt.rotation !== (port.dir + 2) % 4);
+          const joined = belt && (input ? belt.rotation === (port.dir + 2) % 4 : crate ? belt.rotation === port.dir : belt.rotation !== (port.dir + 2) % 4);
           if (!joined) return;
           const id = `${b.id}:${kind}:${i}:${b.rotation}:${b.x},${b.z}`; seen.add(id);
           let link = links.get(id); if (!link) { link = build(state, o.root, port, input); links.set(id, link); }
