@@ -27,6 +27,7 @@ import { createGooView } from './goo-view.js';
 import { FLARE } from './peril.js';
 import { GOO } from './goo.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { createLightBudget, createAdaptiveResolution, trimShadows } from './render-budget.js';
 
 // Presentation only: the simulation owns all positions, resources, and time.
 /** Where each grower shows its ripe crop: [x, y, z, size] in the model's space. */
@@ -64,6 +65,7 @@ export async function createWorld(canvas, initialState) {
   const camera=new THREE.OrthographicCamera(-20,20,20,-20,.1,600);
   const follow=new THREE.Vector3(initialState.player.x,0,initialState.player.z);
   let viewHeight=48, state=initialState, disposed=false, lastSeed=initialState.seed;
+  const lightBudget=createLightBudget(scene,6),resolution=createAdaptiveResolution(renderer,()=>resize());let shadowClock=1;
   const sun=new THREE.DirectionalLight('#ffe4bc',3.0);
   sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);
   Object.assign(sun.shadow.camera,{left:-40,right:40,top:40,bottom:-40,near:1,far:150});
@@ -447,7 +449,9 @@ export async function createWorld(canvas, initialState) {
     updateSurfaceHunt(dt,underground);
     if(underground){caveView.update(state,dt);if(hunting)combat.light(state,hunt,dt);}else updateStatuses();
     headlamp.update();
-    renderer.render(scene,camera);canvas.dataset.drawCalls=String(renderer.info.render.calls);canvas.dataset.triangles=String(renderer.info.render.triangles);
+    if((shadowClock+=dt)>.5){shadowClock=0;trimShadows(scene);}
+    lightBudget.update(follow);resolution.update(dt);
+    renderer.render(scene,camera);canvas.dataset.pixelRatio=String(resolution.ratio);canvas.dataset.lights=String(lightBudget.lit);canvas.dataset.drawCalls=String(renderer.info.render.calls);canvas.dataset.triangles=String(renderer.info.render.triangles);
   }
   function caveViewFor(id,zone){
     const key=`${id}:${zone}`;let view=caveViews.get(key);if(view)return view;
