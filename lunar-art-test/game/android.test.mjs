@@ -93,6 +93,18 @@ test('when hatchlings are loose an android arms itself from the crates, fights, 
   assert.ok(count(crate.slots, 'rounds') < 40 && count(crate.slots, 'rounds') > 20, 'spent rounds are gone, the rest returned');
 });
 
+test('an armed android on its pad leaves the charger to fight', () => {
+  const { s, crate } = colony();
+  add(crate.slots, 'rounds', 40);
+  const a = android(s);
+  Object.assign(a, { weapon: 'rifle', mag: 10, ammo: 20, charge: .6 });
+  run(s, 3);
+  assert.equal(a.job?.type, 'charge');
+  const c = createCrawler(a.x + 7, a.z + 7, () => .5); c.hp = 30; s.brood = [c];
+  run(s, .5, 1 / 20, () => stepBrood(s, 1 / 20, [], () => .5));
+  assert.equal(a.job?.type, 'fight');
+});
+
 test('a downed android is repaired by another from crate stock, or by the player with E', () => {
   const { s, crate } = colony();
   add(crate.slots, 'metal', 30); add(crate.slots, 'silicon', 10);

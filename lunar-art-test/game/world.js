@@ -23,6 +23,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DEFS, footprint, playerObstructs } from './sim.js';
 import { createAstronaut } from './actor.js';
 import { createCombatView } from './combat-view.js';
+import { createAndroidView } from './android-view.js';
 import { createHeadlamp } from './headlamp.js';
 import { createCrawlerView } from './crawler-view.js';
 import { landerBay } from './encounter.js';
@@ -63,7 +64,7 @@ export async function createWorld(canvas, initialState, options = {}) {
   renderer.toneMapping=THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure=1.12;
   const loader=new GLTFLoader();
-  const assetNames=['starship','launchpad','solar','battery','hopper','habitat-kit','conveyor','conveyor-corner','processor','storage','growbed','hydrorack','verticalfarm','mushroomtray','mill','goovat','armory','galley','recycler','melter','fabricator','assembler','electrolyser','tank','dock','roverbay','xenolab','reactor','fuelcell','thermal','rtg','bioreactor','lander','rover','hauler','rock-a','rock-b','rock-c','cave-mouth'];
+  const assetNames=['starship','launchpad','solar','battery','hopper','habitat-kit','conveyor','conveyor-corner','processor','storage','growbed','hydrorack','verticalfarm','mushroomtray','mill','goovat','armory','galley','recycler','melter','fabricator','assembler','electrolyser','tank','dock','roverbay','foundry','chargepad','xenolab','reactor','fuelcell','thermal','rtg','bioreactor','lander','rover','hauler','rock-a','rock-b','rock-c','cave-mouth'];
   const [loaded,itemModels]=await Promise.all([
     Promise.all(assetNames.map(name=>loader.loadAsync(`./assets/${siteV2&&name==='launchpad'?padFile:name}.glb`).then(g=>[name,g.scene]).catch(e=>{console.error('Asset failed:',name,e);return [name,null];}))),
     loadItemLibrary(loader),
@@ -71,9 +72,10 @@ export async function createWorld(canvas, initialState, options = {}) {
   const models=new Map(loaded);
   const tread=createTreadTexture(renderer);applyTread(models.get('conveyor'),tread);applyTread(models.get('conveyor-corner'),tread);
   const lamps=createStatusLamps();for(const model of models.values())if(model)lamps.prepare(model);let lampClock=0;
-  const [astronautGLTF,crawlerGLTF]=await Promise.all([
+  const [astronautGLTF,crawlerGLTF,androidGLTF]=await Promise.all([
     loader.loadAsync('./assets/astronaut-v3.glb').catch(e=>{console.error('Animated astronaut failed',e);return null;}),
     loader.loadAsync('./assets/crawler.glb').catch(e=>{console.error('Crawler failed',e);return null;}),
+    loader.loadAsync('./assets/android.glb').catch(e=>{console.error('Android failed',e);return null;}),
   ]);
   const scene=new THREE.Scene();
   const pmrem=new THREE.PMREMGenerator(renderer),reflectionRoom=new RoomEnvironment();
@@ -93,6 +95,7 @@ export async function createWorld(canvas, initialState, options = {}) {
   const fill=new THREE.HemisphereLight('#b3cbed','#272a3d',1.15);scene.add(fill);
   const terrainRoot=new THREE.Group();scene.add(terrainRoot);
   const productionView=createProductionView(scene,models,itemModels);
+  const androidView=androidGLTF?createAndroidView(scene,androidGLTF,itemModels):null;
   const groundMarks=createGroundMarks(scene,{heightAt,dust:(x,y,z,dx,dz)=>productionView.regolith.spray(x,y,z,dx*.4,dz*.4,3,'regolith',y-.03,.5,.22)});
   const habitatView=createHabitatView(scene,models.get('habitat-kit'));
   // A fixed pool of lights, so the scene's light count (and every material's shader) never changes. Nearby
@@ -181,9 +184,9 @@ export async function createWorld(canvas, initialState, options = {}) {
       entries.push({key:String(b.id),status,anchor:object?.root,height:object?.statusHeight,name:DEFS[b.type].name});
     }
     for(const r of state.robots??[]){
-      const view=productionView.rovers.get(r.id),status=view?robotStatus(r,state):null;
-      if(view){view.lamp??=lamps.attach(view.model);view.lamp?.set(lampLevel(status));}
-      entries.push({key:`robot-${r.id}`,status,anchor:view?.root,height:1.9,name:r.kind==='hauler'?'Hauler':'Mining rover'});
+      const android=r.kind==='android',view=android?androidView?.views.get(r.id):productionView.rovers.get(r.id),status=view?robotStatus(r,state):null;
+      if(view&&!android){view.lamp??=lamps.attach(view.model);view.lamp?.set(lampLevel(status));}
+      entries.push({key:`robot-${r.id}`,status,anchor:view?.root,height:android?2.3:1.9,name:android?`Android A${r.id}`:r.kind==='hauler'?'Hauler':'Mining rover'});
     }
     if(starship)entries.push({key:'ship',status:shipStatus(state),anchor:starship,height:13.4,name:'Starship'});
     const live=new Set(entries.map(e=>e.key));
@@ -563,7 +566,7 @@ export async function createWorld(canvas, initialState, options = {}) {
     expedition.update(state,dt);iceView.update(state);updateEncounter(dt,underground);
     lampClock+=dt;lamps.update(lampClock,daylight);
     updateLights(daylight);
-    productionView.update(state,dt,daylight);for(const [id,view] of productionView.rovers)if(view.display)groundMarks.drive(state.seed,id,view.display.x,view.display.z,.73);groundMarks.update();logistics.update(state.player.cave==null?storageCrates(state).map(crateCentre):[],logisticsShown,dt);buildFx.update(dt);portLinks.update(state,structures,dt,state.time);groundPads.update(state,padBase);pipes.update(state);
+    productionView.update(state,dt,daylight);androidView?.update(state,dt);for(const [id,view] of productionView.rovers)if(view.display)groundMarks.drive(state.seed,id,view.display.x,view.display.z,.73);groundMarks.update();logistics.update(state.player.cave==null?storageCrates(state).map(crateCentre):[],logisticsShown,dt);buildFx.update(dt);portLinks.update(state,structures,dt,state.time);groundPads.update(state,padBase);pipes.update(state);
     updateShip(dt,daylight);
     follow.set(player.position.x,player.position.y+1.05,player.position.z);
     if(hunting&&combat.shake){follow.x+=(Math.random()-.5)*combat.shake;follow.z+=(Math.random()-.5)*combat.shake;}
@@ -584,7 +587,7 @@ export async function createWorld(canvas, initialState, options = {}) {
     renderer.compileAsync(view.root,camera,scene).catch(()=>{});view.root.visible=false;
     caveViews.set(key,view);return view;
   }
-  function dispose(){disposed=true;logistics.dispose();buildFx.dispose();portLinks.dispose();pipes.dispose();iceView.dispose();groundPads.dispose();groundMarks.dispose();headlamp.dispose();meetView?.dispose();gooView.dispose();broodViews.forEach(v=>v.dispose());surfaceFx.removeFromParent();lamps.dispose();caveViews.forEach(v=>v.dispose());vignette.remove();expedition.dispose();productionView.dispose();habitatView.dispose();statusLayer.remove();terrainView.dispose();grid.geometry.dispose();grid.material.dispose();combat?.dispose();actor?.dispose();reflection.dispose();canvas.removeEventListener('wheel',zoom);for(const o of structures.values()){o.ownedMaterials?.forEach(m=>m.dispose());scene.remove(o.ports);}geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());itemModels?.dispose();renderer.dispose();}
+  function dispose(){disposed=true;logistics.dispose();buildFx.dispose();portLinks.dispose();pipes.dispose();iceView.dispose();groundPads.dispose();groundMarks.dispose();headlamp.dispose();meetView?.dispose();gooView.dispose();broodViews.forEach(v=>v.dispose());surfaceFx.removeFromParent();lamps.dispose();caveViews.forEach(v=>v.dispose());vignette.remove();expedition.dispose();productionView.dispose();androidView?.dispose();habitatView.dispose();statusLayer.remove();terrainView.dispose();grid.geometry.dispose();grid.material.dispose();combat?.dispose();actor?.dispose();reflection.dispose();canvas.removeEventListener('wheel',zoom);for(const o of structures.values()){o.ownedMaterials?.forEach(m=>m.dispose());scene.remove(o.ports);}geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());itemModels?.dispose();renderer.dispose();}
   resize();update(initialState,1);
   return {renderer,scene,camera,actor,update,pick,aim,setGhost,clearGhost,setLogistics:shown=>{logisticsShown=shown;},setZones:shown=>productionView.setZones(shown),setPorts,resize,dispose};
 }

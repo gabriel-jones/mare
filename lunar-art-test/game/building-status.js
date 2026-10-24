@@ -96,7 +96,7 @@ export function buildingStatus(building,state){
   if(ready.length){const [item,n]=ready[0];return {text:ready.length>1||n>1?`${readyCount(building)} ready`:`${ITEM_INFO[item].name} ready`,read:'PACK FULL · PRESS E TO COLLECT',tone:'low'};}
   const st=STATIONS[building.type],next=stationJobs(building)[0];
   if(next)return state.power.powered===false&&st.power?noPower:{text:st.verb,read:jobName(next).toUpperCase(),tone:'charge',fill:building.work};
-  return {text:'Idle',read:`CLICK TO ${building.type==='galley'?'COOK':building.type==='mill'?'MILL':building.type==='roverbay'?'ASSEMBLE':'CRAFT'}`,tone:'inactive'};
+  return {text:'Idle',read:`CLICK TO ${building.type==='galley'?'COOK':building.type==='mill'?'MILL':building.type==='roverbay'||building.type==='foundry'?'ASSEMBLE':'CRAFT'}`,tone:'inactive'};
  }
  if(building.type==='recycler'){
   if(state.reserves.water>=LIFE.waterCap)return {text:'Tanks full',read:`WATER ${Math.floor(state.reserves.water)}`,tone:'inactive'};
@@ -123,12 +123,20 @@ export function buildingStatus(building,state){
   if(!touchesPad(building))return {text:'Not at the pad',read:'MOVE BESIDE THE PAD',tone:'warning'};
   return {text:`Propellant ${Math.round(fill*100)}%`,read:`${Math.floor(building.fuel)} / ${DEFS.tank.capacity}`,tone:'charge',fill};
  }
+ if(building.type==='chargepad'){
+  const a=state.robots.find(r=>r.kind==='android'&&r.home===building.id);
+  if(!a)return {text:'Free',read:'BUILD AN ANDROID AT A FOUNDRY',tone:'inactive'};
+  const docked=a.job?.type==='charge'&&a.job.here;
+  if(docked&&a.charge<.95)return state.power.powered===false?noPower:{text:'Charging',read:`A${a.id} · BATTERY ${Math.round(a.charge*100)}%`,tone:'charge',fill:a.charge,glyph:'charging'};
+  return {text:docked?'Docked':'In use',read:`HOME OF A${a.id}`,tone:'charge'};
+ }
  if(building.type==='solar'&&daylight===0)return {text:'No sunlight',read:'0.0 KW · NIGHT',tone:'inactive'};
  return null;
 }
 
 export function robotStatus(robot,state){
  if(robot.kind==='hauler')return haulerStatus(robot,state);
+ if(robot.kind==='android')return androidStatus(robot,state);
  const hasDock=state.buildings.some(b=>(b.type==='hopper'||b.type==='melter')&&b.built);
  const load=robot.cargo/ROVER.capacity,cargo=`${robot.load==='ice'?'ICE':'REGOLITH'} ${Math.floor(robot.cargo)} / ${ROVER.capacity}`,battery=`BATTERY ${Math.round(robot.charge*100)}%`;
  if(robot.task==='blocked')return {text:'No route',read:'CLEAR A PATH',tone:'warning'};
@@ -152,6 +160,19 @@ function areaStatus(robot,state){
  if(roverHasWork(state,robot))return null;
  if(!hasMelter(state)&&miningCells(state,robot.area??null).some(c=>c.kind==='ice'&&c.remaining>0))return {text:'Needs a melter',read:'ICE GOES STRAIGHT INTO A MELTER',tone:'warning',glyph:'ice'};
  return {text:'Zone unreachable',read:'CLEAR A PATH',tone:'warning'};
+}
+const ANDROID_TASK={fetch:'Fetching',deliver:'Delivering',build:'Building',feed:'Feeding',collect:'Collecting',harvest:'Harvesting',craft:'Ordering',stow:'Storing',disarm:'Putting away arms',arm:'Arming',kit:'Getting parts',repair:'Repairing',fight:'Defending'};
+function androidStatus(robot,state){
+ const battery=`BATTERY ${Math.round(robot.charge*100)}%`,j=robot.job;
+ if(robot.down)return {text:'Down',read:robot.charge<=0?'BATTERY FLAT · PRESS E TO REPAIR':'DAMAGED · PRESS E TO REPAIR',tone:'warning',glyph:'alert'};
+ if(j?.type==='charge'){
+  if(!j.here)return {text:robot.charge<.22?'Low battery':'To pad',read:battery,tone:robot.charge<.22?'low':'charge',fill:robot.charge};
+  return robot.charge<.95&&state.power.powered===false?noPower:{text:robot.charge<.95?'Charging':'Standing by',read:battery,tone:'charge',fill:robot.charge,...(robot.charge<.95?{glyph:'charging'}:{})};
+ }
+ if(!state.buildings.some(b=>b.type==='chargepad'&&b.built))return {text:'No pad',read:'BUILD A CHARGING PAD',tone:'warning'};
+ const what=robot.carry?`${(ITEM_INFO[robot.carry.item]?.name??robot.carry.item).toUpperCase()} ${robot.carry.n}`:robot.weapon?robot.weapon.toUpperCase():battery;
+ if(j)return {text:ANDROID_TASK[j.type]??'Working',read:what,tone:j.type==='fight'?'warning':'charge',fill:robot.charge};
+ return {text:'Idle',read:battery,tone:'inactive'};
 }
 function haulerStatus(robot,state){
  const battery=`BATTERY ${Math.round(robot.charge*100)}%`,cargo=robot.cargo?`${robot.cargo} ${robot.load}`:'empty';

@@ -5,7 +5,7 @@ import { hunger, bedOf, readyCount, stationJobs, STATIONS, jobName } from './lif
 import { BUFFS, CROPS, RECIPES, cropsFor, isGrower } from './farm.js';
 import { infested } from './goo.js';
 import { ARMORY, WEAPONS } from './arms.js';
-import { TECHS, ROBOT_LIMIT, ROBOT_TYPE, ROBOT_NAME } from './space.js';
+import { TECHS, ROBOT_LIMIT, ROBOT_TYPE, ROBOT_NAME, robotCap, techDone } from './space.js';
 import { robotStatus, lampLevel } from './building-status.js';
 import { areaKind, remainingRegolith, MAX_MINING_AREAS } from './production.js';
 import { available, canPay, crates, ledger, usedSlots, CRATE_SLOTS } from './storage.js';
@@ -22,7 +22,7 @@ const TOOLS = {
   dismantle: { name: 'Dismantle', key: 'z', description: 'Click or drag over structures and blueprints to take them down. Materials are returned.' },
 };
 // Palette sections, in menu order.
-const GROUPS = [['Power & industry', ['solar', 'battery', 'rtg', 'fuelcell', 'thermal', 'hopper', 'conveyor', 'processor', 'melter', 'storage']], ['Rooms', ['habitat', 'greenhouse', 'airlock']], ['Fittings', ['growbed', 'hydrorack', 'verticalfarm', 'mushroomtray', 'galley', 'mill', 'armory', 'recycler']], ['Space', ['fabricator', 'assembler', 'electrolyser', 'tank']], ['Robots', ['hauler', 'rover', 'dock', 'roverbay']], ['Deep', ['xenolab', 'reactor', 'goovat', 'bioreactor']], ['Tools', ['mine', 'dismantle']]];
+const GROUPS = [['Power & industry', ['solar', 'battery', 'rtg', 'fuelcell', 'thermal', 'hopper', 'conveyor', 'processor', 'melter', 'storage']], ['Rooms', ['habitat', 'greenhouse', 'airlock']], ['Fittings', ['growbed', 'hydrorack', 'verticalfarm', 'mushroomtray', 'galley', 'mill', 'armory', 'recycler']], ['Space', ['fabricator', 'assembler', 'electrolyser', 'tank']], ['Robots', ['hauler', 'rover', 'dock', 'roverbay', 'chargepad', 'foundry']], ['Deep', ['xenolab', 'reactor', 'goovat', 'bioreactor']], ['Tools', ['mine', 'dismantle']]];
 const svg = (paths, width = 1.5) => `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
 const number = (value) => Math.round(Number(value) || 0).toLocaleString();
 const costText = def => def.cost ? Object.entries(def.cost).map(([item, n]) => `${n} ${ITEM_INFO[item]?.name.toLowerCase() ?? item}`).join(', ') : 'Free';
@@ -160,7 +160,7 @@ export function createUI(root, callbacks = {}) {
     const detail = store.querySelector('.stock-detail'), r = ledgerRows.get(stockFocus);
     if (!r) { detail.hidden = true; return; }
     const chip = (label, n, cls = '') => `<span class="${cls}">${label}<b>${number(n)}</b></span>`;
-    const moving = [r.belts && chip(svg('<path d="M3 9h18M3 15h18M7 9l-2 6M13 9l-2 6M19 9l-2 6"/>', 1.4), r.belts, 'moving'), ...r.robots.map(m => chip(`${m.kind === 'hauler' ? 'H' : 'R'}${m.id}`, m.n, 'moving'))];
+    const moving = [r.belts && chip(svg('<path d="M3 9h18M3 15h18M7 9l-2 6M13 9l-2 6M19 9l-2 6"/>', 1.4), r.belts, 'moving'), ...r.robots.map(m => chip(`${m.kind === 'hauler' ? 'H' : m.kind === 'android' ? 'A' : 'R'}${m.id}`, m.n, 'moving'))];
     detail.innerHTML = `<strong>${ITEM_INFO[r.item].name}</strong><div>${[...r.crates.map(c => chip(c.tag, c.n, 'crate')), r.pockets && chip(svg('<path d="M6 7h12l-1 13H7z"/><path d="M9 7a3 3 0 0 1 6 0"/>', 1.4), r.pockets, 'pockets'), ...r.machines.map(m => chip(m.tag, m.n, 'machine')), ...moving].filter(Boolean).join('')}</div>`;
     detail.hidden = false;
   }
@@ -187,13 +187,14 @@ export function createUI(root, callbacks = {}) {
     } else {
       const st = STATIONS[b.type], jobs = stationJobs(b), ready = readyCount(b);
       const ids = st.recipes.filter(id => b.type === 'armory' || st.known(state, id)), known = id => st.known(state, id), has = id => canPay(state, st.input(id));
-      key = `${b.id}|${ids.map(id => `${id}${known(id)}${has(id)}`)}|${jobs}|${ready}`;
+      const stocked = !st.robots && (techDone(state, 'androids') || state.robots.some(r => r.kind === 'android')) ? ids.filter(known) : [];
+      key = `${b.id}|${ids.map(id => `${id}${known(id)}${has(id)}`)}|${jobs}|${ready}|${stocked.map(id => b.targets?.[id] ?? 0)}`;
       if (key === stationKey) return;
       const label = id => `${jobName(id)}${st.makes(id) > 1 ? ` ×${st.makes(id)}` : ''}`, art = id => st.robots ? pic(`build/${ROBOT_TYPE[id]}`) : icon(id);
       const effect = id => {
         if (b.type === 'armory') return known(id) ? (WEAPONS[id] ? 'Weapon' : 'Ammo') : 'Needs research';
         if (b.type === 'mill') return 'Ground';
-        if (st.robots) return `${state.robots.filter(r => r.kind === id).length} / ${ROBOT_LIMIT[id]}`;
+        if (st.robots) return `${state.robots.filter(r => r.kind === id).length} / ${robotCap(state, id)}`;
         const buff = RECIPES[id].buff;
         return id === 'medkit' ? 'Heals suit' : buff ? (Object.keys(buff).length === Object.keys(BUFFS).length ? 'All four effects' : Object.keys(buff).map(k => BUFFS[k].name).join(' · ')) : 'Filling';
       };
@@ -203,7 +204,7 @@ export function createUI(root, callbacks = {}) {
         <div class="station-options">${ids.map(id => {
           const inputs = Object.entries(st.input(id)), queued = jobs.filter(j => j === id).length;
           return `<button type="button" data-make="${id}" data-station="${b.id}" class="${!known(id) ? 'locked' : has(id) ? '' : 'missing'}${jobs[0] === id ? ' working' : ''}" ${known(id) ? '' : 'disabled'} title="${label(id)}: ${inputs.map(([item, n]) => `${n} ${ITEM_INFO[item].name.toLowerCase()}`).join(' + ')}${known(id) ? '' : ` · research ${TECHS[ARMORY[id]?.tech]?.name ?? 'it'} first`}">${art(id)}<span>${label(id)}</span><small class="station-inputs">${inputs.map(([item, n]) => `${n > 1 ? `<b>${n}</b>` : ''}${icon(item)}`).join('')}</small><em>${effect(id)}</em>${queued ? `<b class="station-count">${queued}</b>` : ''}${jobs[0] === id ? '<i class="station-progress"></i>' : ''}</button>`;
-        }).join('')}</div>`;
+        }).join('')}</div>${stocked.length ? `<div class="station-targets" title="Androids order more whenever the colony holds fewer than this. Shift-click for 5."><small>Android stock</small>${stocked.map(id => { const n = b.targets?.[id] ?? 0; return `<span class="${n ? 'set' : ''}">${icon(id)}<button type="button" data-station="${b.id}" data-target="${id}" data-delta="-1" aria-label="Less ${jobName(id)}" ${n ? '' : 'disabled'}>−</button><b class="lcd">${n}</b><button type="button" data-station="${b.id}" data-target="${id}" data-delta="1" aria-label="More ${jobName(id)}">+</button></span>`; }).join('')}</div>` : ''}`;
     }
     stationKey = key; station.innerHTML = html; station.hidden = false;
   }
@@ -218,17 +219,24 @@ export function createUI(root, callbacks = {}) {
   const HUMANOID_BAYS = 3;
   const humanoid = svg('<circle cx="12" cy="5" r="2.6"/><path d="M8.5 9.5h7l1 6h-2l-.5 6.5h-4L9.5 15.5h-2z"/>', 1.4);
   let robotsState = null;
+  // One bay per charging pad: androids in theirs, free pads waiting on the foundry, and a slot to lay another pad.
+  const humanoids = (state, list, bay) => {
+    const cap = robotCap(state, 'android'), free = Math.max(0, cap - list.length);
+    const pads = Array.from({ length: free }, () => `<div class="bay spare idle" title="A free charging pad: queue an android at the foundry">${humanoid}</div>`).join('');
+    return `<section class="fleet humanoids"><header><b>Androids</b><span class="lcd">${list.length}<small>/${cap}</small></span></header><div class="bays">${list.map(r => bay(r, 'A')).join('')}${pads}<button type="button" class="bay spare" data-build="chargepad" title="Lay another charging pad">${svg('<path d="M12 6v12M6 12h12"/>', 1.6)}</button></div></section>`;
+  };
   function renderRobots(state) {
     robotsState = state;
     const areas = state.miningAreas ?? [], miners = state.robots.filter(r => r.kind === 'miner'), haulers = state.robots.filter(r => r.kind === 'hauler');
-    const key = `${state.robots.map(r => r.id)}|${areas.map(a => a.id)}|${areas.length >= MAX_MINING_AREAS}`;
+    const androids = state.robots.filter(r => r.kind === 'android'), unlocked = techDone(state, 'androids');
+    const key = `${state.robots.map(r => r.id)}|${areas.map(a => a.id)}|${areas.length >= MAX_MINING_AREAS}|${unlocked}|${robotCap(state, 'android')}`;
     if (key !== robotsKey) {
       robotsKey = key;
       const bay = (r, tag) => `<div class="bay" data-robot="${r.id}"><kbd>${tag}${r.id}</kbd><i class="bay-lamp"></i>${pic(`build/${ROBOT_TYPE[r.kind]}`, 'bay-art')}<span class="bay-cargo"></span><i class="bay-charge"><i></i></i>${r.kind === 'miner' ? `<button type="button" class="bay-zone" data-cycle="${r.id}" title="Mining zone: click to change"></button>` : ''}</div>`;
       const spare = (kind, n) => Array.from({ length: Math.max(0, n) }, () => `<button type="button" class="bay spare" data-build="${ROBOT_TYPE[kind]}" title="Build a ${ROBOT_NAME[kind].toLowerCase()}">${svg('<path d="M12 6v12M6 12h12"/>', 1.6)}</button>`).join('');
       const fleet = (kind, list, tag) => `<section class="fleet"><header><b>${ROBOT_NAME[kind]}s</b><span class="lcd">${list.length}<small>/${ROBOT_LIMIT[kind]}</small></span></header><div class="bays">${list.map(r => bay(r, tag)).join('')}${spare(kind, ROBOT_LIMIT[kind] - list.length)}</div></section>`;
       robotsPanel.innerHTML = `${fleet('hauler', haulers, 'H')}${fleet('miner', miners, 'R')}
-        <section class="fleet humanoids" title="Humanoid robots are on their way"><header><b>Humanoids</b><span class="lcd">–</span></header><div class="bays">${Array.from({ length: HUMANOID_BAYS }, () => `<div class="bay reserved">${humanoid}</div>`).join('')}</div></section>
+        ${androids.length || unlocked ? humanoids(state, androids, bay) : `<section class="fleet humanoids" title="Research Androids to build them"><header><b>Androids</b><span class="lcd">–</span></header><div class="bays">${Array.from({ length: HUMANOID_BAYS }, () => `<div class="bay reserved">${humanoid}</div>`).join('')}</div></section>`}
         <section class="fleet"><header><b>Zones</b><span class="lcd">${areas.length}<small>/${MAX_MINING_AREAS}</small></span></header><div class="zones">${areas.map(a => `<div class="zone" data-zone="${a.id}"><span class="zone-tag">${a.id}</span><span class="zone-kind"></span><span class="lcd" data-field="left"></span><button type="button" data-remove-zone="${a.id}" aria-label="Remove zone ${a.id}" title="Remove zone">${svg('<path d="M7 7l10 10M17 7 7 17"/>', 1.8)}</button></div>`).join('')}<button type="button" class="zone spare" data-build="mine" ${areas.length >= MAX_MINING_AREAS ? 'disabled' : ''} title="Mark a mining zone (M)">${svg('<path d="M12 6v12M6 12h12"/>', 1.6)}<kbd>M</kbd></button></div></section>`;
     }
     for (const r of state.robots) {
@@ -237,6 +245,11 @@ export function createUI(root, callbacks = {}) {
       el.dataset.level = lampLevel(status);
       el.title = `${ROBOT_NAME[r.kind]} ${r.id} · ${status?.text ?? 'Ready'} · ${Math.round(r.charge * 100)}%`;
       el.querySelector('.bay-charge i').style.width = `${Math.round(r.charge * 100)}%`;
+      if (r.kind === 'android') {
+        const carry = r.down ? '' : r.carry ? `${icon(r.carry.item)}<b>${r.carry.n}</b>` : r.weapon ? icon(r.weapon) : '';
+        const box = el.querySelector('.bay-cargo'); if (box.dataset.k !== carry) { box.dataset.k = carry; box.innerHTML = carry; }
+        continue;
+      }
       const cargo = r.cargo >= 1 ? `${ITEM_ICON_URLS[r.load ?? 'regolith'] ? icon(r.load ?? 'regolith') : ''}<b>${Math.floor(r.cargo)}</b>` : '';
       const box = el.querySelector('.bay-cargo'); if (box.dataset.k !== cargo) { box.dataset.k = cargo; box.innerHTML = cargo; }
       const zone = el.querySelector('.bay-zone'); if (zone) zone.textContent = r.area != null ? String(r.area) : 'A';
@@ -295,7 +308,7 @@ export function createUI(root, callbacks = {}) {
   const onClick = event => {
     if (swallowClick) { event.stopPropagation(); return; }
     const button = event.target.closest('button'); if (!button) return;
-    if (button.dataset.station) { const id = Number(button.dataset.station); callbacks.onStation?.(button.dataset.close ? { id, close: true } : button.dataset.make ? { id, make: button.dataset.make } : { id, crop: button.dataset.crop }); stationKey = ''; button.blur(); return; }
+    if (button.dataset.station) { const id = Number(button.dataset.station); callbacks.onStation?.(button.dataset.close ? { id, close: true } : button.dataset.target ? { id, target: { item: button.dataset.target, delta: Number(button.dataset.delta) * (event.shiftKey ? 5 : 1) } } : button.dataset.make ? { id, make: button.dataset.make } : { id, crop: button.dataset.crop }); stationKey = ''; button.blur(); return; }
     if (button.dataset.crateSlot != null) { callbacks.onTake?.(crateId, Number(button.dataset.crateSlot), event.shiftKey); button.blur(); return; }
     if (button.dataset.slot && crateId != null) { callbacks.onStore?.(crateId, Number(button.dataset.slot), event.shiftKey); button.blur(); return; }
     if (button.dataset.action === 'store-all') { callbacks.onStoreAll?.(crateId); button.blur(); return; }

@@ -84,6 +84,7 @@ export function createProductionView(scene, models, itemModels = null) {
   function updateRovers(state, dt, daylight) {
     const live = new Set();
     for (const r of state.robots ?? []) {
+      if (r.kind === 'android') continue;
       live.add(r.id);
       let view = rovers.get(r.id);
       if (!view) { view = createRoverView(r.kind); rovers.set(r.id, view); }

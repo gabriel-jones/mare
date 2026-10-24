@@ -411,7 +411,8 @@ export function stepAndroids(state, dt, powered, hooks = {}) {
     if (r.job?.type !== 'charge' || !r.job.here) r.charge = Math.max(0, r.charge - ANDROID.drain * dt);
     if (r.charge <= 0 && !(r.job?.type === 'charge' && r.job.here)) { knockDown(r, 'battery'); continue; }
     // Hatchlings break into whatever it was doing, and a quiet spell ends the fight.
-    if (loose && r.job && !['fight', 'arm', 'charge'].includes(r.job.type) && (armed(r) || (!r.weapon && !r.carry && armSource(state, r)))) { r.job = null; r.next = null; }
+    const resting = r.job?.type === 'charge' && (r.charge <= .08 || (r.charge < ANDROID.low && !r.weapon));
+    if (loose && r.job && !resting && !['fight', 'arm'].includes(r.job.type) && (armed(r) || (!r.weapon && !r.carry && armSource(state, r)))) { r.job = null; r.next = null; }
     if (!loose && r.job?.type === 'fight') r.job = null;
     if (!r.job) { plan(state, r); if (!r.job) continue; }
     if (act(state, r, dt, powered, hooks) === 'done') {
