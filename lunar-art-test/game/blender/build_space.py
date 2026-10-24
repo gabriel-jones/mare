@@ -290,6 +290,47 @@ def satellite():
     finish(bpy.context.object, 'Dish', 'ivory', 0, True)
     box('Thruster block', (0, 0, -.6), (.35, .35, .12), 'dark', .02)
 
+# --- Android foundry: 4 x 4 m clean-room cell with a glazed front bay showing an android on its cradle. Open toward -Y. ---
+def foundry():
+    box('Foundation skid', (0, 0, .12), (3.85, 3.85, .24), 'dark', .05)
+    box('Clean room', (0, .75, 1.4), (3.5, 2.1, 2.3), 'ivory', .12)
+    box('Roof band', (0, .35, 2.6), (3.65, 3.05, .16), 'dark', .04)
+    for x in [-1.1, 0, 1.1]: box('Roof filter', (x, .5, 2.75), (.8, 1.8, .14), 'metal', .02)
+    for x in [-1.5, 1.5]: box('Bay wall', (x, -.95, 1.4), (.5, 1.3, 2.3), 'ivory', .08)
+    box('Bay back panel', (0, -.28, 1.4), (2.5, .04, 2.1), 'glass', .01)
+    for x in [-1.27, 1.27]: box('Bay stripe', (x, -1.6, 1.35), (.06, .06, 2.2), 'orange', .01)
+    # The android on its cradle behind the glass, in silhouette.
+    box('Cradle', (0, -.6, .55), (.9, .7, .1), 'metal', .02)
+    beam('Cradle spine', (0, -.3, .6), (0, -.3, 2.2), .1, 'dark')
+    box('Figure chest', (0, -.62, 1.62), (.42, .25, .38), 'ivory', .06)
+    cyl('Figure head', (0, -.62, 2.02), .15, .3, 'ivory', 14)
+    box('Figure face', (0, -.76, 2.03), (.18, .02, .03), 'cyan', .005)
+    box('Figure pelvis', (0, -.62, 1.22), (.3, .2, .14), 'dark', .03)
+    for x in [-.12, .12]: beam('Figure leg', (x, -.62, 1.15), (x, -.62, .62), .1, 'dark')
+    for x in [-.28, .28]: beam('Figure arm', (x, -.62, 1.78), (x * 1.1, -.62, 1.2), .08, 'ivory')
+    for x in [-.75, .75]:
+        beam('Welder arm', (x, -.2, 2.25), (x * .6, -.55, 1.7), .07, 'orange')
+        box('Welder head', (x * .55, -.6, 1.66), (.1, .1, .1), 'light', .01)
+    box('Parts hopper', (-1.3, 1.65, 2.95), (.8, .6, .5), 'orange', .04)
+    box('Side console', (1.78, -.4, 1.1), (.08, .9, .6), 'dark', .02)
+    box('Console screen', (1.83, -.4, 1.15), (.02, .7, .4), 'cyan', .005)
+    status_lamp(1.55, 1.6, 2.95)
+
+# --- Charging pad: 2 x 2 m walkable plate an android stands on, with a slim pylon at the back. ---
+def chargepad():
+    cyl('Pad plate', (0, 0, .05), .82, .1, 'dark', 24)
+    cyl('Pad deck', (0, 0, .11), .7, .03, 'floor', 24)
+    cyl('Charge ring', (0, 0, .13), .62, .015, 'cyan', 24)
+    cyl('Pad core', (0, 0, .135), .54, .02, 'dark', 24)
+    for a in range(4):
+        ang = a * math.pi / 2 + math.pi / 4
+        box('Pad foot', (math.cos(ang) * .8, math.sin(ang) * .8, .07), (.22, .22, .14), 'orange', .02, (0, 0, ang))
+    beam('Pylon', (0, .82, .1), (0, .82, 1.65), .12, 'ivory')
+    box('Pylon head', (0, .74, 1.62), (.32, .22, .14), 'dark', .03)
+    box('Charge arm', (0, .55, 1.45), (.08, .4, .06), 'metal', .01)
+    box('Charge contact', (0, .36, 1.42), (.12, .04, .08), 'light', .005)
+    status_lamp(0, .78, 1.72)
+
 STATUS = [('Lamp', (0, 0, 0))]
 layout = []
 layout += export_asset('fabricator', fabricator, (-10, 0, 0), parts=STATUS)
@@ -300,6 +341,8 @@ layout += export_asset('dock', dock, (8, 0, 0), parts=STATUS)
 layout += export_asset('roverbay', roverbay, (-8, 6, 0), parts=STATUS)
 layout += export_asset('hauler', hauler, (-3, 6, 0), parts=[('Wheel_*', None), ('Cargo', (0, .25, .75))] + STATUS)
 layout += export_asset('satellite', satellite, (1, 6, 1.5))
+layout += export_asset('foundry', foundry, (5, 6, 0), parts=STATUS)
+layout += export_asset('chargepad', chargepad, (9, 6, 0), parts=STATUS)
 
 scene.world = bpy.data.worlds.new('Space library environment')
 scene.world.use_nodes = True

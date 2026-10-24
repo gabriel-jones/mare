@@ -229,6 +229,14 @@ def building(name):
     return build
 
 
+def android_figure(p):
+    # The android in its rest pose, without the weapon meshes that ride on its hand.
+    building('android')(p)
+    for o in list(bpy.context.scene.objects):
+        if o.name.split('.')[0] in ('Gun', 'Pistol', 'Blade'): bpy.data.objects.remove(o, do_unlink=True)
+        else: o.scale = [v * 1.9 for v in o.scale]
+
+
 def open_tray(p):
     # The grow bed in game is an open tray: drop the canopy, its posts and the status lamp.
     building('growbed')(p)
@@ -246,8 +254,8 @@ HUD = [('build', build_tool), ('robots', building('rover')), ('stock', crate_sta
        ('suit', helmet), ('food', ration), ('comms', comms), ('lock', padlock)]
 GLB_BUILDINGS = ['solar', 'battery', 'hopper', 'habitat', 'growbed', 'hydrorack', 'verticalfarm', 'mushroomtray', 'galley',
                  'armory', 'goovat', 'mill', 'recycler', 'conveyor', 'processor', 'melter', 'storage', 'fabricator',
-                 'assembler', 'electrolyser', 'tank', 'dock', 'roverbay', 'hauler', 'rover', 'xenolab', 'reactor', 'fuelcell', 'thermal', 'rtg', 'bioreactor']
-BUILD = [(k, open_tray if k == 'growbed' else building(k)) for k in GLB_BUILDINGS] + [('greenhouse', greenhouse), ('airlock', airlock), ('mine', mine), ('dismantle', dismantle)]
+                 'assembler', 'electrolyser', 'tank', 'dock', 'roverbay', 'hauler', 'rover', 'xenolab', 'reactor', 'fuelcell', 'thermal', 'rtg', 'bioreactor', 'foundry', 'chargepad']
+BUILD = [(k, open_tray if k == 'growbed' else building(k)) for k in GLB_BUILDINGS] + [('android', android_figure), ('greenhouse', greenhouse), ('airlock', airlock), ('mine', mine), ('dismantle', dismantle)]
 
 
 def studio_batch(entries, out, size):

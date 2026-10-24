@@ -35,6 +35,13 @@ test('astronaut has a 15-bone skin and five distinct Blender clips with animated
  assert.ok(triangles<6000,'player geometry budget');
  assert.ok(d.nodes.some(n=>n.name.startsWith('ConstructionTool')));
 });
+test('android has its work and combat clips, hideable weapons, a face strip and marker bones',()=>{
+ const a=glb('android'),d=a.json,names=d.animations.map(c=>c.name.split('.')[0]).sort();
+ assert.deepEqual(names,['BladeAim','BladeSlash','BladeWalk','Carry','CarryIdle','Charge','Down','GunAim','GunFire','GunWalk','Harvest','Idle','PistolAim','PistolFire','PistolWalk','Walk','Work']);
+ for(const n of ['AndroidBody','Face','Gun','Pistol','Blade','Carry','Muzzle','PistolMuzzle','BladeTip','Hand.R'])assert.ok(d.nodes.some(x=>x.name===n),n);
+ let triangles=0;for(const mesh of d.meshes)for(const p of mesh.primitives)triangles+=d.accessors[p.indices].count/3;
+ assert.ok(triangles<6000,'android geometry budget');
+});
 test('industrial exports contain only intended assets, retain a hideable roof, and fit draw budgets',()=>{
  const budgets={starship:3500,launchpad:1500,solar:1500,battery:1500,hopper:1200,habitat:2500,processor:2600,conveyor:450,storage:800};
  for(const [name,budget] of Object.entries(budgets)){
@@ -88,7 +95,7 @@ test('expedition assets keep the salvageable core and the melter heater as separ
  }
 });
 test('every machine carries a status lamp, and the battery, melter and hopper carry their gauges',()=>{
- const machines={solar:[],battery:['Cell1','Cell2','Cell3','Cell4','Cell5'],hopper:['Level'],processor:[],storage:[],rover:[],melter:['Level'],growbed:[],galley:[],recycler:[],fabricator:[],assembler:[],electrolyser:[],tank:['Level'],dock:[],roverbay:[],hauler:[],xenolab:[],reactor:[],fuelcell:['Level'],thermal:['Level'],rtg:[],bioreactor:['Level']};
+ const machines={solar:[],battery:['Cell1','Cell2','Cell3','Cell4','Cell5'],hopper:['Level'],processor:[],storage:[],rover:[],melter:['Level'],growbed:[],galley:[],recycler:[],fabricator:[],assembler:[],electrolyser:[],tank:['Level'],dock:[],roverbay:[],hauler:[],xenolab:[],reactor:[],fuelcell:['Level'],thermal:['Level'],rtg:[],bioreactor:['Level'],foundry:[],chargepad:[]};
  for(const [name,gauges] of Object.entries(machines)){
   const {json:d}=glb(name),names=d.nodes.map(n=>n.name.replace(/\.\d+$/,''));
   for(const part of ['Lamp',...gauges])assert.ok(names.includes(part),`${name}: ${part} node`);
@@ -106,7 +113,7 @@ test('interior fittings stay light and keep their animated parts separable',()=>
  }
 });
 test('space kit stays within budget; the hauler keeps wheels and its cargo crate separate',()=>{
- for(const [name,budget] of [['fabricator',1400],['assembler',1500],['electrolyser',1500],['tank',2200],['dock',1000],['roverbay',1000],['hauler',1300],['satellite',700],['xenolab',1400],['reactor',2400],['fuelcell',2700],['thermal',1200],['rtg',1200],['bioreactor',2600]]){
+ for(const [name,budget] of [['fabricator',1400],['assembler',1500],['electrolyser',1500],['tank',2200],['dock',1000],['roverbay',1000],['hauler',1300],['satellite',700],['xenolab',1400],['reactor',2400],['fuelcell',2700],['thermal',1200],['rtg',1200],['bioreactor',2600],['foundry',1500],['chargepad',1000]]){
   const {json:d}=glb(name);assert.ok(!d.nodes.some(n=>/Camera|Light/.test(n.name||'')),`${name}: no preview objects`);
   const triangles=d.meshes.reduce((sum,mesh)=>sum+mesh.primitives.reduce((s,p)=>s+d.accessors[p.indices].count/3,0),0);
   assert.ok(triangles<=budget,`${name}: ${triangles} triangles`);

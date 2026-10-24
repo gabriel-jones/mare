@@ -42,6 +42,16 @@ TECHS = [('hydroponics', building('hydrorack')), ('soy', item('soy')), ('tomato'
          ('medicine', item('medkit')), ('vertical', building('verticalfarm')), ('wheat', item('wheat')),
          ('roverbay', building('roverbay')), ('reactor', building('reactor'))]
 TECHS.append(('containment', building('goovat')))
+
+
+def android_figure(p):
+    building('android')(p)
+    for o in list(bpy.context.scene.objects):
+        if o.name.split('.')[0] in ('Gun', 'Pistol', 'Blade'): bpy.data.objects.remove(o, do_unlink=True)
+        else: o.scale = [v * 1.9 for v in o.scale]
+
+
+TECHS.append(('androids', android_figure))
 TECHS += [('pistol', item('pistol')), ('smg', item('smg')), ('katana', item('katana')), ('rifle', item('rifle')), ('flamethrower', item('flamethrower')), ('arc', item('arc')), ('railgun', item('railgun'))]
 
 
