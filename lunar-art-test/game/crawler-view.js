@@ -117,7 +117,7 @@ export const ABDOMEN_STYLES=Object.freeze({
  segments:'Segmented: a curled, ribbed gaster of overlapping goo plates',
  pustules:'Pustules: a lumpy sack studded with glowing red blisters, like the goo vat',
 });
-export const abdomenStyle={value:'bulb'};
+export const abdomenStyle={value:'segments'};
 const RED='#ff1a0a';
 /** A sphere roughed into a lumpy blob, `seed` picking the lumps. */
 function lumpy(segments,seed,amount=.06){
