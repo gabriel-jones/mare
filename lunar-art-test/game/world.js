@@ -461,7 +461,7 @@ export async function createWorld(canvas, initialState) {
       }
       if(o.tread){
         // The tread runs with the items: it halts in a blackout and when the load in front is backed up.
-        const sum=b.items.reduce((s,i)=>s+i.p,0)+b.items.length*7;o.beltIdle=sum!==o.beltSum||!b.items.length?0:(o.beltIdle??0)+dt;o.beltSum=sum;
+        const items=b.items??[],sum=items.reduce((s,i)=>s+i.p,0)+items.length*7;o.beltIdle=sum!==o.beltSum||!items.length?0:(o.beltIdle??0)+dt;o.beltSum=sum;
         const target=b.built&&state.power.powered!==false&&dt>0&&o.beltIdle<.25?BELT_SPEED:0;o.beltSpeed=(o.beltSpeed??0)+(target-(o.beltSpeed??0))*Math.min(1,dt*8);
         o.tread.offset.y=(o.tread.offset.y+o.beltSpeed*dt)%1;
       }

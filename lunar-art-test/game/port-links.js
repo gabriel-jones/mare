@@ -64,7 +64,7 @@ export function createPortLinks(scene, { heightAt }) {
           const id = `${b.id}:${kind}:${i}:${b.rotation}:${b.x},${b.z}`; seen.add(id);
           let link = links.get(id); if (!link) { link = build(state, o.root, port, input); links.set(id, link); }
           // Flaps part for the item crossing the threshold, then settle back with a little wobble.
-          const items = belt.items, busy = input ? items.length && items[0].p > .7 : items.length && items[items.length - 1].p < .3;
+          const items = belt.items ?? [], busy = input ? items.length && items[0].p > .7 : items.length && items[items.length - 1].p < .3;
           link.swing += ((busy ? 1 : 0) - link.swing) * Math.min(1, dt * (busy ? 14 : 4));
           link.flaps.forEach((f, j) => { f.rotation.x = (input ? 1 : -1) * (link.swing * .9 + Math.sin(time * 9 + j) * .05 * link.swing); });
         });
