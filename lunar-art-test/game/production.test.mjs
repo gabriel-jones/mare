@@ -228,3 +228,17 @@ test('version 4 saves turn their single mining area into zone 1', () => {
   const restored = deserialize(JSON.stringify(raw));
   assert.deepEqual(restored.miningAreas, [{ id: 1, x: -5, z: 5 }]); assert.equal(restored.nextAreaId, 2);
 });
+
+test('belts on uneven ground tilt so joined ends meet, and end at a machine at its height', async () => {
+  const { beltSlopes, beltHeight } = await import('./belt-slope.js');
+  const { beltTurns } = await import('./production.js');
+  const height = (x, z) => z * .3 + x * .05;
+  const s = { seed: 1, buildings: [
+    { id: 1, type: 'conveyor', x: 0, z: 0, rotation: 0 }, { id: 2, type: 'conveyor', x: 0, z: 1, rotation: 0 },
+    { id: 3, type: 'conveyor', x: 0, z: 2, rotation: 1 }, { id: 4, type: 'storage', x: 1, z: 2, rotation: 0 },
+  ] };
+  const slopes = beltSlopes(s, beltTurns(s), height), at = (id, x, z) => beltHeight(s.buildings[id - 1], slopes.get(id), x, z);
+  assert.ok(Math.abs(at(1, 0, 1) - at(2, 0, 1)) < 1e-9, 'straight joint');
+  assert.ok(Math.abs(at(2, 0, 3) - at(3, 0, 3)) < 1e-9, 'into the corner');
+  assert.ok(Math.abs(at(3, 1, 4) - height(2, 4)) < 1e-9, 'meets the crate at its height');
+});

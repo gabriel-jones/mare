@@ -3,6 +3,7 @@ import { DIRS, DEFS } from './defs.js';
 import { createRegolithFx } from './regolith-fx.js';
 import { surfaceHeightAt as heightAt } from './terrain.js';
 import { ROVER, MINING_RADIUS, REGOLITH_PER_CELL, beltTurns } from './production.js';
+import { beltHeight, beltSlopes } from './belt-slope.js';
 import { BELT_ITEM_SIZES } from './item-models.js';
 
 // Presentation for the Phase B logistics layer: rovers, belt items and the mining zones.
@@ -33,7 +34,7 @@ export function createProductionView(scene, models, itemModels = null) {
     batches[type] = { set: (i, matrix) => mesh.setMatrixAt(i, matrix), finish: n => { mesh.count = n; mesh.instanceMatrix.needsUpdate = true; }, dispose: () => mesh.dispose() };
   }
   function updateItems(state, time) {
-    const counts = Object.fromEntries(Object.keys(batches).map(type => [type, 0])), turns = beltTurns(state);
+    const counts = Object.fromEntries(Object.keys(batches).map(type => [type, 0])), turns = beltTurns(state), slopes = beltSlopes(state, turns, (x, z) => heightAt(state.seed, x, z));
     for (const b of state.buildings) {
       if (b.type !== 'conveyor' || !b.items?.length) continue;
       const [fx, fz] = DIRS[b.rotation], cx = b.x * 2, cz = b.z * 2, turn = turns.get(b.id) ?? 0;
@@ -47,7 +48,8 @@ export function createProductionView(scene, models, itemModels = null) {
           x = cx + sx + fx - fx * c - sx * s; z = cz + sz + fz - fz * c - sz * s;
           heading = Math.atan2(fx * s - sx * c, fz * s - sz * c);
         } else { const offset = (item.p - .5) * 2; x = cx + fx * offset; z = cz + fz * offset; }
-        dummy.position.set(x, heightAt(state.seed, cx, cz) + .38, z);
+        const slope = slopes.get(b.id);
+        dummy.position.set(x, (slope ? beltHeight(b, slope, x, z) : heightAt(state.seed, cx, cz)) + .38, z);
         dummy.rotation.set(0, heading + (item.type === 'regolith' ? item.p * 2 + time * .1 : 0), 0);
         dummy.scale.setScalar(1); dummy.updateMatrix(); mesh.set(counts[item.type]++, dummy.matrix);
       }

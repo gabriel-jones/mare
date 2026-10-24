@@ -26,6 +26,7 @@ import { createFlareView } from './flare-view.js';
 import { createGooView } from './goo-view.js';
 import { FLARE } from './peril.js';
 import { GOO } from './goo.js';
+import { beltSlopes } from './belt-slope.js';
 import { BIO, THERMAL } from './power.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createLightBudget, createAdaptiveResolution, trimShadows } from './render-budget.js';
@@ -284,6 +285,15 @@ export async function createWorld(canvas, initialState) {
   const suitMaterials=[];actor?.root.traverse(o=>{if(o.isMesh)for(const m of (Array.isArray(o.material)?o.material:[o.material]))if(!suitMaterials.some(x=>x.material===m))suitMaterials.push({material:m,color:m.color.clone(),environment:m.envMapIntensity});});let suitUnderground=false;
   document.body.dataset.characterClips=actor?.clips.join(',')||'unavailable';
   const markerGeo=new THREE.RingGeometry(.58,.66,32);geometries.add(markerGeo);const marker=mesh(markerGeo,mat('#ffbf6c',{emissive:'#a66624',emissiveIntensity:.35}),player,0,.025,0);marker.rotation.x=-Math.PI/2;
+  // A belt on uneven ground tilts onto the plane through its joined ends; a straight one stretches to keep spanning its cell.
+  const UP=new THREE.Vector3(0,1,0),beltNormal=new THREE.Vector3(),beltTilt=new THREE.Quaternion(),beltYaw=new THREE.Quaternion();
+  function tiltBelt(root,b,slope,turn){
+    if(!slope)return;
+    root.position.y=slope.y;
+    beltYaw.setFromAxisAngle(UP,b.rotation*Math.PI/2);beltTilt.setFromUnitVectors(UP,beltNormal.set(-slope.gx,1,-slope.gz).normalize());
+    root.quaternion.copy(beltTilt).multiply(beltYaw);
+    const [fx,fz]=DIRS[b.rotation];root.scale.z=turn?1:Math.hypot(1,slope.gx*fx+slope.gz*fz);
+  }
   function buildModel(type,turn=0){
     // Room squares are assembled per connected room by the habitat view; this is only a label anchor.
     if(DEFS[type].layer==='floor')return {root:new THREE.Group(),roof:null,emits:false,statusHeight:2.45};
@@ -432,7 +442,7 @@ export async function createWorld(canvas, initialState) {
     if(hunting)combat.after(state,hunt,dt);
     if(canvas.dataset.animation!==renderPose.animation)canvas.dataset.animation=renderPose.animation||'idle';
     const ids=new Set(state.buildings.map(b=>b.id));for(const [id,o] of structures)if(!ids.has(id)){buildFx.clear(o);scene.remove(o.root,o.ports);o.ownedMaterials?.forEach(m=>m.dispose());o.tread?.dispose();structures.delete(id);}
-    const turns=beltTurns(state),obstructs=b=>Math.hypot(b.x*2-state.player.x,b.z*2-state.player.z)<8&&playerObstructs(state,b);
+    const turns=beltTurns(state),slopes=beltSlopes(state,turns,(x,z)=>heightAt(state.seed,x,z)),obstructs=b=>Math.hypot(b.x*2-state.player.x,b.z*2-state.player.z)<8&&playerObstructs(state,b);
     habitatView.update(state,dt,{player:renderPose,powered:state.power.powered!==false,obstructs});
     for(const b of state.buildings){
       let o=structures.get(b.id);const turn=b.type==='conveyor'?turns.get(b.id)??0:0;
@@ -442,6 +452,7 @@ export async function createWorld(canvas, initialState) {
       const def=DEFS[b.type],w=b.rotation%2?def.d:def.w,d=b.rotation%2?def.w:def.d;
       const bx=(b.x+(w-1)/2)*2,bz=(b.z+(d-1)/2)*2;
       o.root.position.set(bx,(def.layer==='interior'&&habitatView.floorAt(state,bx,bz))||heightAt(state.seed,bx,bz),bz);o.root.rotation.y=b.rotation*Math.PI/2;
+      if(b.type==='conveyor')tiltBelt(o.root,b,slopes.get(b.id),turn);
       if(o.plants){o.plants.visible=b.built&&(b.grow>0||b.watered);o.plants.scale.setScalar(.2+.8*(b.grow??0));}
       if(o.crops){
         if(o.cropKind!==b.crop&&b.crop&&itemModels?.get(b.crop)){
