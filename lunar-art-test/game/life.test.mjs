@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { payInFull, createState, placeBlueprint, tick, serialize, deserialize, deconstruct, collectStorage, interact, DEFS } from './sim.js';
 import { movePlayer, RUN_SPEED } from './controller.js';
-import { count, createInventory, add, room as space } from './inventory.js';
+import { count, createInventory, add, remove, room as space } from './inventory.js';
 import { ensureBuildingState } from './production.js';
-import { LIFE, ensureLifeState, eat, hunger, lifeAction, roomStatus, setCrop, setRecipe } from './life.js';
+import { LIFE, ensureLifeState, eat, hunger, lifeAction, roomStatus, setCrop, startCraft, growBeds, bedOf } from './life.js';
 import { BUFFS, CROPS, GALLEY, MILL, RECIPES as DISHES, recipeKnown } from './farm.js';
 import { TECHS, selectResearch } from './space.js';
 import { buildingStatus } from './building-status.js';
@@ -56,9 +56,9 @@ test('a grow bed uses water and power to ripen potatoes that the player harvests
   assert.equal(s.reserves.water, water - CROPS.crop.water, 'one cycle drinks once');
   assert.equal(interact(s, bed.id).ok, true);
   assert.equal(count(s.inventory, 'crop'), CROPS.crop.yield); assert.equal(bed.grow, 0);
-  // Unripe, E plants the other crop the bed can grow.
-  assert.equal(lifeAction(s, bed).verb, 'Plant greens instead');
-  assert.equal(interact(s, bed.id).ok, true); assert.equal(bed.crop, 'greens');
+  // Unripe, E has nothing to do; the crop is picked from the bed's popup.
+  assert.equal(lifeAction(s, bed), null);
+  assert.equal(setCrop(s, bed, 'greens').ok, true); assert.equal(bed.crop, 'greens');
   run(s, CROPS.greens.time + 1); assert.equal(interact(s, bed.id).ok, true);
   assert.equal(count(s.inventory, 'greens'), CROPS.greens.yield);
   // Nothing grows without water or outside a pressurised room.
@@ -76,43 +76,63 @@ test('research is a tree; farm machines and crops wait for theirs', () => {
   assert.equal(rack.crop, 'soy', 'a rack defaults to its first crop');
   assert.equal(lifeAction(s, rack), null, 'with none researched it has nothing to switch to');
   s.research.done.push('tomato', 'algae');
-  assert.equal(interact(s, rack.id).reason, 'Planted tomatoes.');
-  assert.equal(interact(s, rack.id).reason, 'Planted algae.');
+  assert.equal(setCrop(s, rack, 'tomato').reason, 'Planted tomatoes.');
+  assert.equal(setCrop(s, rack, 'algae').reason, 'Planted algae.');
   // Algae drinks hard but needs no power.
   const demand = s.power.demand; run(s, .1); assert.equal(s.power.demand, demand);
   assert.equal(Object.keys(TECHS).filter(id => TECHS[id].branch === 'farming').length, 9);
   for (const t of Object.values(TECHS)) for (const r of t.requires ?? []) assert.ok(TECHS[r], `${t.name} needs a real tech`);
 });
 
-test('the galley cooks recipes, the mill grinds, and meals give effects that run together', () => {
+test('grow beds side by side make one bed with one crop, harvested a plot at a time', () => {
+  const s = base();
+  for (const [x, z] of [[2, -1], [3, -1], [4, -1], [3, 0], [4, 0], [2, 1], [3, 1], [4, 1], [5, 0]]) build(s, 'greenhouse', x, z);
+  // A U opening west, and a lone bed beside the opening that touches it only at corners.
+  const cells = [[3, -1], [4, -1], [4, 0], [4, 1], [3, 1]], u = cells.map(([x, z]) => build(s, 'growbed', x, z)), lone = build(s, 'growbed', 2, 0);
+  const beds = growBeds(s);
+  assert.equal(beds.get(u[0].id), beds.get(u[4].id), 'both arms of the U are one bed');
+  assert.equal(beds.get(u[0].id).length, 5); assert.deepEqual(bedOf(s, lone), [lone]);
+  assert.equal(setCrop(s, u[2], 'greens').reason, 'Planted greens across 5 plots.');
+  assert.ok(u.every(b => b.crop === 'greens')); assert.equal(lone.crop, 'crop');
+  run(s, CROPS.greens.time + 1);
+  assert.ok(u.every(b => b.grow === 1));
+  assert.equal(lifeAction(s, u[0]).verb, 'Harvest greens');
+  assert.equal(interact(s, u[0].id).reason, `Harvested ${CROPS.greens.yield} greens.`, 'one plot at a time');
+  assert.deepEqual(u.map(b => b.grow), [0, 1, 1, 1, 1]);
+  for (const b of u.slice(1)) interact(s, b.id);
+  assert.equal(count(s.inventory, 'greens'), 5 * CROPS.greens.yield);
+  assert.ok(u.every(b => b.grow === 0));
+  u[1].grow = 1; assert.match(setCrop(s, u[3], 'crop').reason, /Harvest the greens first/);
+});
+
+test('workstations make what is clicked over a few seconds and hand it to the pack', () => {
   const s = base(), galley = build(s, 'galley', 1, 0), recycler = build(s, 'recycler', 0, 0);
   s.research.done.push('hydroponics', 'soy', 'processing');
   build(s, 'habitat', 0, -1); const mill = build(s, 'mill', 0, -1);
   add(s.inventory, 'crop', 3);
-  assert.equal(lifeAction(s, galley).verb, 'Cook hash browns');
-  assert.equal(interact(s, galley.id).ok, true);
+  assert.equal(lifeAction(s, galley), null, 'E does nothing at an idle galley');
+  assert.equal(startCraft(s, galley, 'meal').ok, true);
   assert.equal(count(s.inventory, 'crop'), 1);
-  assert.match(interact(s, galley.id).reason, /2 potatoes make hash browns/);
-  const water = s.reserves.water;
-  run(s, GALLEY.time + 0.2);
-  assert.deepEqual(galley.ready, { meal: 1 }); assert.equal(buildingStatus(galley, s).text, 'Hash browns ready');
-  const meals = count(s.inventory, 'meal');
-  assert.equal(interact(s, galley.id).ok, true);
-  assert.equal(count(s.inventory, 'meal'), meals + 1);
+  assert.match(startCraft(s, galley, 'meal').reason, /Needs 2 potatoes/);
+  const water = s.reserves.water, meals = count(s.inventory, 'meal');
+  run(s, GALLEY.time / 2); assert.match(buildingStatus(galley, s).text, /Cooking/);
+  run(s, GALLEY.time / 2 + .2);
+  assert.equal(count(s.inventory, 'meal'), meals + 1, 'straight into the pack'); assert.deepEqual(galley.ready, {});
   run(s, LIFE.recycleTime);
   assert.equal(s.reserves.water, water + 1);
   assert.equal(buildingStatus(recycler, s).text, 'Recycling');
   // The mill turns soybeans into protein; soy stew gives stamina.
   add(s.inventory, 'soy', 2);
-  assert.equal(interact(s, mill.id).reason, 'Loaded 2 soybeans.');
-  run(s, MILL.time * 2 + .2);
-  assert.equal(interact(s, mill.id).ok, true); assert.equal(count(s.inventory, 'protein'), 2);
-  assert.equal(lifeAction(s, galley).verb, 'Cook soy stew', 'auto picks the best it can make');
-  interact(s, galley.id); run(s, GALLEY.time + .2); interact(s, galley.id);
+  assert.equal(startCraft(s, mill, 'protein').ok, true); assert.equal(startCraft(s, mill, 'protein').ok, true);
+  assert.equal(startCraft(s, mill, 'flour').ok, false, 'no wheat without vertical farms');
+  run(s, MILL.time * 2 + .2); assert.equal(count(s.inventory, 'protein'), 2);
+  add(s.inventory, 'crop', 1);
+  assert.equal(startCraft(s, galley, 'stew').ok, true); run(s, GALLEY.time + .2);
   // Eating stacks effects: each keeps its own clock, and the same one again adds time.
   s.player.satiety = 100;
   const stew = s.inventory.findIndex(slot => slot?.item === 'stew');
   assert.match(eat(s, stew).reason, /Vigour/, 'a meal with an effect can be eaten full');
+  for (const item of ['meal', 'protein', 'crop']) remove(s.inventory, item, count(s.inventory, item));
   add(s.inventory, 'salad', 1); add(s.inventory, 'stew', 1);
   eat(s, s.inventory.findIndex(slot => slot?.item === 'salad')); eat(s, s.inventory.findIndex(slot => slot?.item === 'stew'));
   assert.deepEqual(s.player.buffs, { stamina: 600, regen: 300 });
@@ -124,23 +144,29 @@ test('the galley cooks recipes, the mill grinds, and meals give effects that run
   s.player.x = 20; s.player.z = 20; s.player.health = 40; s.player.speed = 0;
   for (let i = 0; i < 20; i++) movePlayer(s, 0, -1, 0.05, DEFS);
   assert.ok(Math.abs(s.player.speed - RUN_SPEED * BUFFS.stamina.speed) < 1e-6, 'stew quickens the step');
-  // Medkits: only chosen, only once Field medicine is known, and they mend the suit.
-  galley.recipe = 'medkit'; add(s.inventory, 'tomato', 2);
-  assert.equal(lifeAction(s, galley), null);
-  s.research.done.push('medicine');
-  assert.equal(lifeAction(s, galley).verb, 'Cook medkit');
-  interact(s, galley.id); run(s, GALLEY.time + .2); interact(s, galley.id);
+  // Medkits wait for Field medicine, and mend the suit.
+  add(s.inventory, 'tomato', 2);
+  assert.match(startCraft(s, galley, 'medkit').reason, /Unknown recipe/);
+  s.research.done.push('medicine', 'tomato');
+  assert.equal(startCraft(s, galley, 'medkit').ok, true); run(s, GALLEY.time + .2);
   assert.equal(eat(s, s.inventory.findIndex(slot => slot?.item === 'medkit')).ok, true);
   assert.ok(s.player.health >= 90);
+  // With the pack full, a finished dish waits at the galley for E.
+  add(s.inventory, 'crop', 2); startCraft(s, galley, 'meal');
+  const pack = s.inventory; s.inventory = createInventory({ metal: 1800, silicon: 200 });
+  run(s, GALLEY.time + .2);
+  assert.deepEqual(galley.ready, { meal: 1 }); assert.equal(buildingStatus(galley, s).text, 'Hash browns ready');
+  assert.equal(lifeAction(s, galley).verb, 'Take 1 hash browns');
+  s.inventory = pack; assert.equal(interact(s, galley.id).ok, true); assert.deepEqual(galley.ready, {});
   // Dismantling hands back what is inside.
-  add(s.inventory, 'wheat', 1); interact(s, mill.id);
-  const wheat = count(s.inventory, 'wheat');
-  assert.equal(deconstruct(s, mill.id).ok, true); assert.equal(count(s.inventory, 'wheat'), wheat + 1);
+  add(s.inventory, 'soy', 1); startCraft(s, mill, 'protein');
+  const soy = count(s.inventory, 'soy');
+  assert.equal(deconstruct(s, mill.id).ok, true); assert.equal(count(s.inventory, 'soy'), soy + 1);
   const back = deserialize(serialize(s));
   assert.deepEqual(back.player.buffs, s.player.buffs); assert.deepEqual(back.buildings, s.buildings);
 });
 
-test('pickers replant growers and set the galley dish, offering only what research makes possible', () => {
+test('pickers replant growers and list only the dishes research makes possible', () => {
   const s = base(), bed = build(s, 'growbed', 2, 0), galley = build(s, 'galley', 1, 0);
   assert.equal(setCrop(s, bed, 'soy').ok, false, 'a bed cannot grow rack crops');
   run(s, 10); assert.ok(bed.grow > 0);
@@ -148,11 +174,9 @@ test('pickers replant growers and set the galley dish, offering only what resear
   bed.grow = 1; assert.match(setCrop(s, bed, 'crop').reason, /Harvest the greens first/);
   const known = () => Object.keys(DISHES).filter(id => recipeKnown(s, id));
   assert.deepEqual(known(), ['meal'], 'salad waits for tomatoes, bread for the mill');
-  assert.equal(setRecipe(s, galley, 'bread').ok, false);
+  assert.equal(startCraft(s, galley, 'bread').ok, false);
   s.research.done.push('hydroponics', 'tomato', 'medicine');
   assert.deepEqual(known(), ['meal', 'salad', 'medkit']);
-  assert.equal(setRecipe(s, galley, 'medkit').ok, true); assert.equal(galley.recipe, 'medkit');
-  assert.equal(setRecipe(s, galley, null).ok, true); assert.equal(galley.recipe, null);
 });
 
 test('a galley from before recipes keeps its potatoes and meals', () => {

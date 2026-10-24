@@ -1,9 +1,10 @@
 import { DEFS, ITEM_INFO } from './defs.js';
 import { habitatLayout, openRooms } from './habitat.js';
 import * as inv from './inventory.js';
-import { canPay, pay } from './storage.js';
+import { missing, pay } from './storage.js';
 import { gooOn } from './goo.js';
-import { CROPS, GALLEY, MILL, RECIPES, AUTO, BUFFS, isGrower, cropsFor, defaultCrop, recipeUnlocked, recipeKnown, addBuffs, buffed, stepBuffs } from './farm.js';
+import { ARMORY, BENCH, armoryKnown } from './arms.js';
+import { CROPS, GALLEY, MILL, RECIPES, BUFFS, isGrower, cropsFor, defaultCrop, recipeKnown, obtainable, addBuffs, buffed, stepBuffs } from './farm.js';
 
 // Provisional tuning.
 export const LIFE = Object.freeze({
@@ -23,7 +24,7 @@ export function ensureLifeState(b) {
   if (!b.built) return b;
   if (DEFS[b.type]?.layer === 'floor') b.air ??= false;
   if (isGrower(b)) { b.crop ??= defaultCrop(b.type); b.grow ??= 0; b.watered ??= false; }
-  if (b.type === 'galley' || b.type === 'mill') { b.queue ??= []; b.work ??= 0; b.ready ??= {}; }
+  if (isStation(b)) { b.queue ??= []; b.work ??= 0; b.ready ??= {}; }
   if (b.type === 'galley') b.recipe ??= null;
   if (b.type === 'recycler') b.work ??= 0;
   return b;
@@ -44,8 +45,42 @@ export function roomStatus(state) {
 const pressurisedAt = (status, b) => !!status.at(b.x, b.z)?.pressurised;
 const growing = (state, b, status) => b.built && pressurisedAt(status, b) && b.grow < 1 && !gooOn(state, b) && (b.watered || state.reserves.water >= CROPS[b.crop].water);
 export const readyCount = b => Object.values(b.ready ?? {}).reduce((a, n) => a + n, 0);
-const cooking = (b, status) => b.built && pressurisedAt(status, b) && b.queue?.length > 0 && readyCount(b) < GALLEY.ready;
-const milling = (b, status) => b.built && pressurisedAt(status, b) && b.queue?.length > 0 && readyCount(b) < MILL.cap;
+const grainFor = item => Object.keys(MILL.makes).find(k => MILL.makes[k] === item);
+/**
+ * Workstations. Clicking a recipe pays for it from the pack and base storage and lines up a `job`; each takes `time`
+ * seconds and its product goes straight to the pack, waiting in `ready` (up to that many) only when the pack is full.
+ * `air` stations work only in a pressurised, powered room.
+ */
+export const STATIONS = Object.freeze({
+  galley: { verb: 'Cooking', time: GALLEY.time, queue: GALLEY.queue, ready: GALLEY.ready, power: GALLEY.power, air: true, recipes: Object.keys(RECIPES), known: recipeKnown, input: id => RECIPES[id].input, makes: () => 1, job: id => id, product: job => job },
+  mill: { verb: 'Milling', time: MILL.time, queue: MILL.cap, ready: MILL.cap, power: MILL.power, air: true, recipes: Object.values(MILL.makes), known: obtainable, input: id => ({ [grainFor(id)]: 1 }), makes: () => 1, job: grainFor, product: job => MILL.makes[job] },
+  armory: { verb: 'Crafting', time: BENCH.time, queue: BENCH.queue, ready: BENCH.ready, power: 0, air: false, recipes: Object.keys(ARMORY), known: armoryKnown, input: id => ARMORY[id].input, makes: id => ARMORY[id].makes, job: id => id, product: job => job },
+});
+export const isStation = b => !!STATIONS[b?.type];
+const working = (b, status) => b.built && b.queue?.length > 0 && readyCount(b) < STATIONS[b.type].ready && (!STATIONS[b.type].air || pressurisedAt(status, b));
+function stepStation(state, b, dt) {
+  const s = STATIONS[b.type];
+  b.work += dt / s.time;
+  if (b.work < 1) return;
+  b.work = 0;
+  const item = s.product(b.queue.shift()), n = s.makes(item), k = Math.min(n, inv.room(state.inventory, item));
+  inv.add(state.inventory, item, k);
+  if (n > k) b.ready[item] = (b.ready[item] ?? 0) + n - k;
+}
+/** Every set of grow beds joined side by side, by member id. Only finished beds join; other growers stand alone. */
+export function growBeds(state) {
+  const at = new Map(state.buildings.filter(b => b.type === 'growbed' && b.built).map(b => [`${b.x},${b.z}`, b])), beds = new Map();
+  for (const start of at.values()) {
+    if (beds.has(start.id)) continue;
+    const bed = [start]; beds.set(start.id, bed);
+    for (let i = 0; i < bed.length; i++) for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const n = at.get(`${bed[i].x + dx},${bed[i].z + dz}`);
+      if (n && !beds.has(n.id)) { beds.set(n.id, bed); bed.push(n); }
+    }
+  }
+  return beds;
+}
+export const bedOf = (state, b) => growBeds(state).get(b?.id) ?? (b ? [b] : []);
 const recycling = (state, b, status) => b.built && pressurisedAt(status, b) && state.reserves.water < LIFE.waterCap;
 
 export function lifeDemand(state, status = roomStatus(state)) {
@@ -55,8 +90,7 @@ export function lifeDemand(state, status = roomStatus(state)) {
     const def = DEFS[b.type];
     if (def.layer === 'floor') kw += def.power ?? 0;
     if (isGrower(b) && growing(state, b, status)) kw += CROPS[b.crop].power;
-    if (b.type === 'galley' && cooking(b, status)) kw += GALLEY.power;
-    if (b.type === 'mill' && milling(b, status)) kw += MILL.power;
+    if (isStation(b) && working(b, status)) kw += STATIONS[b.type].power;
     if (b.type === 'recycler' && recycling(state, b, status)) kw += LIFE.recyclerPower;
   }
   return kw;
@@ -68,18 +102,15 @@ export function stepLife(state, dt, powered) {
   p.satiety = Math.max(0, p.satiety - LIFE.satietyDrain * (buffed(p, 'calm') ? BUFFS.calm.drain : 1) * dt);
   stepBuffs(p, dt);
   for (const b of state.buildings) if (b.built && DEFS[b.type].layer === 'floor' && !b.air && state.reserves.oxygen >= LIFE.oxygenPerSquare) { state.reserves.oxygen -= LIFE.oxygenPerSquare; b.air = true; }
-  if (!powered) return;
   const status = roomStatus(state);
+  for (const b of state.buildings) if (isStation(b) && !STATIONS[b.type].power && working(b, status)) stepStation(state, b, dt);
+  if (!powered) return;
   for (const b of state.buildings) {
     if (isGrower(b) && growing(state, b, status)) {
       if (!b.watered) { state.reserves.water -= CROPS[b.crop].water; b.watered = true; }
       b.grow = Math.min(1, b.grow + dt / CROPS[b.crop].time);
-    } else if (b.type === 'galley' && cooking(b, status)) {
-      b.work += dt / GALLEY.time;
-      if (b.work >= 1) { b.work = 0; const dish = b.queue.shift(); b.ready[dish] = (b.ready[dish] ?? 0) + 1; }
-    } else if (b.type === 'mill' && milling(b, status)) {
-      b.work += dt / MILL.time;
-      if (b.work >= 1) { b.work = 0; const out = MILL.makes[b.queue.shift()]; b.ready[out] = (b.ready[out] ?? 0) + 1; }
+    } else if (isStation(b) && STATIONS[b.type].power && working(b, status)) {
+      stepStation(state, b, dt);
     } else if (b.type === 'recycler' && recycling(state, b, status)) {
       b.work += dt / LIFE.recycleTime;
       if (b.work >= 1) { b.work = 0; state.reserves.water = Math.min(LIFE.waterCap, state.reserves.water + 1); }
@@ -108,50 +139,37 @@ export function eat(state, slot) {
   return { ok: true, reason: `Ate ${RECIPES[held.item] ? name(held.item) : `raw ${name(held.item)}`}${buff ? `: ${Object.keys(buff).map(id => BUFFS[id].name).join(', ')}` : ''}.` };
 }
 
-/** The recipe the galley would cook next from what the player carries: its chosen one, or on auto the best it can. */
-export function galleyRecipe(state, b) {
-  const can = id => recipeUnlocked(state, id) && canPay(state, RECIPES[id].input);
-  if (b.recipe) return can(b.recipe) ? b.recipe : null;
-  return AUTO.find(can) ?? null;
-}
-/** The next crop a grower would switch to when E is pressed on it unripe, or null if it has no other. */
-export function nextCrop(state, b) {
-  const options = cropsFor(state, b.type);
-  if (options.length < 2 && options.includes(b.crop)) return null;
-  return options[(options.indexOf(b.crop) + 1) % options.length] ?? null;
-}
-/** Replants a grower with `crop`; an unripe crop in it is lost, a ripe one must be harvested first. */
+/** Replants a whole grow bed (or a lone grower) with `crop`; unripe crops in it are lost, ripe ones must be harvested first. */
 export function setCrop(state, b, crop) {
   if (!isGrower(b) || !b.built) return { ok: false, reason: 'Not a grower.' };
   if (!cropsFor(state, b.type).includes(crop)) return { ok: false, reason: `${DEFS[b.type].name} can't grow that yet.` };
-  if (b.crop === crop) return { ok: true, reason: `Already growing ${name(crop)}.` };
-  if (b.grow >= 1) return { ok: false, reason: `Harvest the ${name(b.crop)} first.` };
-  Object.assign(b, { crop, grow: 0, watered: false });
-  return { ok: true, reason: `Planted ${name(crop)}.` };
+  const bed = bedOf(state, b), change = bed.filter(o => o.crop !== crop);
+  if (!change.length) return { ok: true, reason: `Already growing ${name(crop)}.` };
+  const ripe = change.find(o => o.grow >= 1);
+  if (ripe) return { ok: false, reason: `Harvest the ${name(ripe.crop)} first.` };
+  for (const o of change) Object.assign(o, { crop, grow: 0, watered: false });
+  return { ok: true, reason: `Planted ${name(crop)}${bed.length > 1 ? ` across ${bed.length} plots` : ''}.` };
 }
-/** Picks what the galley cooks; null cooks the best dish the player can make. */
-export function setRecipe(state, b, recipe) {
-  if (b?.type !== 'galley') return { ok: false, reason: 'Not a galley.' };
-  if (recipe != null && (!RECIPES[recipe] || !recipeKnown(state, recipe))) return { ok: false, reason: 'Unknown recipe.' };
-  b.recipe = recipe ?? null;
-  return { ok: true, reason: recipe ? `Galley set to ${name(recipe)}.` : 'Galley cooks the best it can.' };
+/** Lines up one recipe at a workstation, paying for it now. */
+export function startCraft(state, b, id) {
+  const s = STATIONS[b?.type];
+  if (!s || !b.built) return { ok: false, reason: 'Nothing to make here.' };
+  if (!s.recipes.includes(id) || !s.known(state, id)) return { ok: false, reason: b.type === 'armory' ? 'Research it first (T).' : 'Unknown recipe.' };
+  if (b.queue.length >= s.queue) return { ok: false, reason: `The ${DEFS[b.type].name.toLowerCase()} is busy.` };
+  const input = s.input(id), short = missing(state, input);
+  if (short.length) return { ok: false, reason: `Needs ${short.map(([item, n]) => `${n} ${name(item)}`).join(', ')}.` };
+  pay(state, input);
+  b.queue.push(s.job(id));
+  return { ok: true, reason: `${s.verb} ${name(id)}.` };
 }
-const millInput = state => Object.keys(MILL.makes).filter(item => inv.count(state.inventory, item) > 0);
+/** What each queued job at a station will make, in order. */
+export const stationJobs = b => (b.queue ?? []).map(job => STATIONS[b.type].product(job));
 
 /** What pressing E on an interior object would do, or null. */
 export function lifeAction(state, b) {
   if (!b?.built) return null;
-  if (isGrower(b)) {
-    if (b.grow >= 1) return { verb: `Harvest ${name(b.crop)}` };
-    const next = nextCrop(state, b);
-    return next ? { verb: `Plant ${name(next)} instead` } : null;
-  }
-  if (b.type === 'galley' || b.type === 'mill') {
-    const ready = readyCount(b);
-    if (ready) return { verb: `Take ${listing(b.ready)}` };
-    if (b.type === 'galley') { const r = galleyRecipe(state, b); if (r && b.queue.length < GALLEY.queue) return { verb: `Cook ${name(r)}` }; }
-    else if (b.queue.length < MILL.cap && millInput(state).length) return { verb: `Mill ${millInput(state).map(name).join(' and ')}` };
-  }
+  if (isGrower(b)) return b.grow >= 1 ? { verb: `Harvest ${name(b.crop)}` } : null;
+  if (isStation(b) && readyCount(b)) return { verb: `Take ${listing(b.ready)}` };
   return null;
 }
 function takeReady(state, b) {
@@ -160,37 +178,20 @@ function takeReady(state, b) {
   if (!taken) return { ok: false, reason: 'No room in your inventory.' };
   return { ok: true, reason: `Took ${taken} item${taken > 1 ? 's' : ''}${left ? '; your inventory is full' : ''}.` };
 }
+/** Picks one ripe plot. */
+function harvest(state, b) {
+  if (b.grow < 1) return { ok: false, reason: 'Nothing to harvest yet.' };
+  const crop = CROPS[b.crop];
+  if (inv.room(state.inventory, b.crop) < crop.yield) return { ok: false, reason: 'No room in your inventory.' };
+  inv.add(state.inventory, b.crop, crop.yield); b.grow = 0; b.watered = false;
+  const got = b.crop;
+  // A crop whose research was lost (never, today) or that no longer suits the grower falls back to the default.
+  if (!cropsFor(state, b.type).includes(b.crop)) b.crop = defaultCrop(b.type);
+  return { ok: true, reason: `Harvested ${crop.yield} ${name(got)}.` };
+}
 export function useLife(state, b) {
   if (!b.built) return { ok: false, reason: 'Finish building it first.' };
-  if (isGrower(b)) {
-    const crop = CROPS[b.crop];
-    if (b.grow < 1) {
-      const next = nextCrop(state, b);
-      if (!next) return { ok: false, reason: 'Nothing to harvest yet.' };
-      Object.assign(b, { crop: next, grow: 0, watered: false });
-      return { ok: true, reason: `Planted ${name(next)}.` };
-    }
-    if (inv.room(state.inventory, b.crop) < crop.yield) return { ok: false, reason: 'No room in your inventory.' };
-    inv.add(state.inventory, b.crop, crop.yield); b.grow = 0; b.watered = false;
-    // A crop whose research was lost (never, today) or that no longer suits the grower falls back to the default.
-    if (!cropsFor(state, b.type).includes(b.crop)) b.crop = defaultCrop(b.type);
-    return { ok: true, reason: `Harvested ${crop.yield} ${name(b.crop)}.` };
-  }
-  if (b.type === 'galley') {
-    if (readyCount(b)) return takeReady(state, b);
-    if (b.queue.length >= GALLEY.queue) return { ok: false, reason: 'The galley is full.' };
-    const r = galleyRecipe(state, b);
-    if (!r) return { ok: false, reason: b.recipe ? `Needs ${listing(RECIPES[b.recipe].input)} for ${name(b.recipe)}.` : 'Needs ingredients: 2 potatoes make hash browns.' };
-    pay(state, RECIPES[r].input);
-    b.queue.push(r);
-    return { ok: true, reason: `Cooking ${name(r)}.` };
-  }
-  if (b.type === 'mill') {
-    if (readyCount(b)) return takeReady(state, b);
-    const loaded = {};
-    for (const item of millInput(state)) while (b.queue.length < MILL.cap && inv.remove(state.inventory, item, 1)) { b.queue.push(item); loaded[item] = (loaded[item] ?? 0) + 1; }
-    if (!Object.keys(loaded).length) return { ok: false, reason: b.queue.length >= MILL.cap ? 'The mill is full.' : 'Needs wheat or soybeans.' };
-    return { ok: true, reason: `Loaded ${listing(loaded)}.` };
-  }
+  if (isGrower(b)) return harvest(state, b);
+  if (isStation(b)) return readyCount(b) ? takeReady(state, b) : { ok: false, reason: `Click the ${DEFS[b.type].name.toLowerCase()} to choose what to make.` };
   return { ok: false, reason: 'Nothing to do here.' };
 }

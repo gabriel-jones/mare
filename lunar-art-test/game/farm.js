@@ -27,10 +27,7 @@ export const defaultCrop = type => Object.keys(CROPS).find(id => CROPS[id].growe
 /** The mill grinds one item at a time into one of its product. */
 export const MILL = Object.freeze({ time: 4, power: 1, cap: 6, makes: Object.freeze({ wheat: 'flour', soy: 'protein' }) });
 
-/**
- * Galley recipes, by the dish they make. `buff` is seconds of each effect. Left on auto, the galley cooks the first
- * of AUTO it has the ingredients for; medkits are only made when chosen, so they never eat the salad tomatoes.
- */
+/** Galley recipes, by the dish they make. `buff` is seconds of each effect. */
 export const RECIPES = Object.freeze({
   meal: { input: { crop: 2 } },
   salad: { input: { greens: 1, tomato: 1 }, buff: { regen: 300 } },
@@ -41,8 +38,8 @@ export const RECIPES = Object.freeze({
   pizza: { input: { flour: 1, tomato: 1, mushroom: 1 }, buff: { regen: 90, calm: 90, stamina: 90, sight: 90 } },
   medkit: { input: { tomato: 2 }, tech: 'medicine' },
 });
-export const AUTO = Object.freeze(['pizza', 'stew', 'salad', 'broth', 'bread', 'algaecake', 'meal']);
-export const GALLEY = Object.freeze({ time: 6, power: 1.5, queue: 2, ready: 3 });
+/** `queue` dishes wait their turn; finished ones go straight to the pack, and wait in `ready` only when it is full. */
+export const GALLEY = Object.freeze({ time: 4, power: 1.5, queue: 3, ready: 6 });
 export const recipeUnlocked = (state, id) => !RECIPES[id].tech || techDone(state, RECIPES[id].tech);
 /** Whether research lets the colony make `item` at all: a crop some grower can plant, or milled from one. */
 export function obtainable(state, item) {

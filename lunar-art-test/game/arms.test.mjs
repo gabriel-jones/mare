@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createState, serialize, deserialize } from './sim.js';
 import { caveLayout } from './caves.js';
-import { WEAPONS, ARMORY, armsOf, heldWeapon, holdWeapon, reload, stepArms, pullTrigger, craft } from './arms.js';
+import { WEAPONS, ARMORY, BENCH, armsOf, heldWeapon, holdWeapon, reload, stepArms, pullTrigger } from './arms.js';
+import { startCraft, stepLife } from './life.js';
 import { createHunt, stepHunt, fire, release, NEST } from './hunt.js';
 import { nestMouth, liveNests } from './infest.js';
 import { createCrawler } from './crawler.js';
@@ -32,19 +33,27 @@ test('a new colonist carries a loaded pistol and rounds; reloads draw rounds fro
   assert.match(reload(s).reason, /armory/);
 });
 
-test('the armory crafts rounds and fuel from the pack; the rifle and flamethrower wait on research', () => {
+test('the armory crafts rounds and fuel from the pack in a few seconds; the rifle and flamethrower wait on research', () => {
   const s = createState(1); clear(s); give(s, { metal: 100, silicon: 20, titanium: 20, goo: 3 });
-  assert.equal(craft(s, 'rounds').ok, true); assert.equal(inv.count(s.inventory, 'rounds'), ARMORY.rounds.makes);
-  assert.equal(craft(s, 'fuel').ok, true); assert.equal(inv.count(s.inventory, 'fuel'), ARMORY.fuel.makes);
-  assert.equal(craft(s, 'rifle').ok, false, 'not researched');
+  const bench = { id: 900, type: 'armory', x: 30, z: 30, rotation: 0, progress: 1, built: true, queue: [], work: 0, ready: {} };
+  s.buildings.push(bench);
+  const make = id => startCraft(s, bench, id), wait = () => { const end = BENCH.time * bench.queue.length + .1; for (let t = 0; t < end; t += .1) stepLife(s, .1, false); };
+  assert.equal(make('rounds').ok, true); assert.equal(make('fuel').ok, true);
+  assert.equal(inv.count(s.inventory, 'rounds'), 0, 'paid now, made over time');
+  wait();
+  assert.equal(inv.count(s.inventory, 'rounds'), ARMORY.rounds.makes); assert.equal(inv.count(s.inventory, 'fuel'), ARMORY.fuel.makes);
+  assert.equal(make('rifle').ok, false, 'not researched');
   s.research.done.push('rifle');
-  assert.equal(craft(s, 'rifle').ok, true); assert.equal(inv.count(s.inventory, 'rifle'), 1);
-  assert.equal(craft(s, 'flamethrower').ok, false);
+  assert.equal(make('rifle').ok, true); wait(); assert.equal(inv.count(s.inventory, 'rifle'), 1);
+  assert.equal(make('flamethrower').ok, false);
   s.research.done.push('flamethrower');
-  assert.equal(craft(s, 'flamethrower').ok, true);
-  assert.match(craft(s, 'flamethrower').reason, /goo/, 'out of goo');
+  assert.equal(make('flamethrower').ok, true);
+  assert.match(make('flamethrower').reason, /goo/, 'out of goo');
+  wait();
   assert.equal(heldWeapon(s), 'rifle', 'with no pistol, the first weapon carried is held');
   assert.equal(holdWeapon(s, 'flamethrower'), true); assert.equal(heldWeapon(s), 'flamethrower');
+  for (let i = 0; i < BENCH.queue; i++) make('rounds');
+  assert.match(make('rounds').reason, /busy/);
 });
 
 test('the rifle hits harder and further than the pistol', () => {

@@ -9,6 +9,8 @@ import { createStatusLamps, WORK_LIGHT } from './status-lamps.js';
 import { createProductionView } from './production-view.js';
 import { loadItemLibrary, BELT_ITEM_SIZES } from './item-models.js';
 import { createHabitatView } from './habitat-view.js';
+import { createTray } from './growbed-model.js';
+import { growBeds } from './life.js';
 import { airlockOf, habitatLayout, isRoom } from './habitat.js';
 import { surfaceHeightAt as heightAt, terrainData } from './terrain.js';
 import { melterReady, processorReady, PROCESSOR_INPUT_CAP } from './production.js';
@@ -44,7 +46,7 @@ import { BASE_REACH, crates as storageCrates, crateCentre } from './storage.js';
 // Presentation only: the simulation owns all positions, resources, and time.
 /** Where each grower shows its ripe crop: [x, y, z, size] in the model's space. */
 const RIPE_SPOTS={
-  growbed:[[-.42,.51,.4,.42],[.42,.51,.4,.42]],
+  growbed:[[-.5,.49,-.4,.4],[.48,.49,.42,.4],[-.42,.49,.5,.36],[.5,.49,-.48,.36]],
   hydrorack:[[-.45,1.62,.2,.3],[.42,1.62,-.25,.3],[0,1.06,.3,.28]],
   verticalfarm:[[-.4,1.7,1.2,.42],[.35,1.7,.2,.42],[-.2,1.7,-.9,.42],[.3,1.7,-1.5,.38]],
   mushroomtray:[[-.4,.86,.1,.32],[.42,.86,-.35,.32]],
@@ -162,6 +164,7 @@ export async function createWorld(canvas, initialState) {
     build:'<path d="m14 4 6 6-3 3-2-2-8 9-3-3 9-8-2-2 3-3Z"/>',
     satellite:'<path d="M9 9h6v6H9ZM2 10h5v4H2Zm15 0h5v4h-5ZM12 9V5"/>',
     fuel:'<path d="M5 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M3 21h14M15 9h2a2 2 0 0 1 2 2v5a1.5 1.5 0 0 0 3 0V8l-3-3"/>',
+    harvest:'<path d="M12 21v-8"/><path d="M12 13c0-4.2 3-7 8-7 0 4.2-3 7-8 7Z"/><path d="M12 15.5c0-3.2-2.6-5.7-7-5.7 0 3.2 2.6 5.7 7 5.7Z"/>',
     launch:'<path d="M12 2c3 3 4 7 3 12H9C8 9 9 5 12 2Z"/><path d="M9 14l-3 3 1 3 3-2m5-4 3 3-1 3-3-2M12 18v4"/>',
   };
   function updateStatuses(){
@@ -183,6 +186,14 @@ export async function createWorld(canvas, initialState) {
     for(const [id,label] of statusLabels)if(!live.has(id)){label.remove();statusLabels.delete(id);}
     const rect=canvas.getBoundingClientRect(),placed=[];
     // Glyphs only for faults, charging and blueprints; the lamps on each machine carry every other state.
+    // A joined bed floats one harvest badge, over the ripe plot nearest its middle.
+    const harvestAt=new Set();
+    for(const bed of new Set(growBeds(state).values())){
+      const ripe=bed.filter(o=>o.grow>=1);if(!ripe.length)continue;
+      const cx=bed.reduce((a,o)=>a+o.x,0)/bed.length,cz=bed.reduce((a,o)=>a+o.z,0)/bed.length;
+      harvestAt.add(ripe.reduce((a,o)=>Math.hypot(o.x-cx,o.z-cz)<Math.hypot(a.x-cx,a.z-cz)?o:a).id);
+    }
+    for(const e of entries)if(e.status?.glyph==='harvest'&&state.buildings.find(b=>String(b.id)===e.key)?.type==='growbed'&&!harvestAt.has(Number(e.key)))e.status={...e.status,glyph:null};
     for(const e of entries)e.glyph=e.status?.glyph??(e.status?.tone==='warning'?'alert':null);
     const visible=entries.filter(e=>e.glyph&&e.anchor);
     const shown=new Set(visible.map(e=>e.key));
@@ -314,6 +325,11 @@ export async function createWorld(canvas, initialState) {
     // Room squares are assembled per connected room by the habitat view; this is only a label anchor.
     if(DEFS[type].layer==='floor')return {root:new THREE.Group(),roof:null,emits:false,statusHeight:2.45};
     const template=models.get(type==='conveyor'&&turn?'conveyor-corner':type);
+    if(type==='growbed'&&template){
+      const t=createTray(template),crops=itemModels?new THREE.Group():null;
+      if(crops){crops.name='Ripe crop';t.root.add(crops);}
+      return {root:t.root,roof:null,emits:true,plants:t.plants,crops,cropKind:null,tray:null,trayShape:t};
+    }
     if(template){
       const root=template.clone(true),part=name=>{let found=null;root.traverse(n=>{if(!found&&n.name.replace(/\.?\d{3}$/,'')===name)found=n;});return found;};
       if(type==='conveyor'&&turn<0)root.scale.x=-1;
@@ -466,6 +482,7 @@ export async function createWorld(canvas, initialState) {
     const ids=new Set(state.buildings.map(b=>b.id));for(const [id,o] of structures)if(!ids.has(id)){buildFx.clear(o);scene.remove(o.root,o.ports);o.ownedMaterials?.forEach(m=>m.dispose());o.tread?.dispose();structures.delete(id);}
     const turns=beltTurns(state),slopes=beltSlopes(state,turns,(x,z)=>heightAt(state.seed,x,z)),obstructs=b=>Math.hypot(b.x*2-state.player.x,b.z*2-state.player.z)<8&&playerObstructs(state,b);
     habitatView.update(state,dt,{player:renderPose,powered:state.power.powered!==false,obstructs});
+    const bedCells=new Set(state.buildings.filter(b=>b.type==='growbed').map(b=>`${b.x},${b.z}`));
     for(const b of state.buildings){
       let o=structures.get(b.id);const turn=b.type==='conveyor'?turns.get(b.id)??0:0;
       if(o&&(o.type!==b.type||o.rotation!==b.rotation||o.turn!==turn)){buildFx.clear(o);scene.remove(o.root,o.ports);o.ownedMaterials.forEach(m=>m.dispose());o.tread?.dispose();structures.delete(b.id);o=null;}
@@ -475,6 +492,7 @@ export async function createWorld(canvas, initialState) {
       const bx=(b.x+(w-1)/2)*2,bz=(b.z+(d-1)/2)*2;
       o.root.position.set(bx,(def.layer==='interior'&&habitatView.floorAt(state,bx,bz))||heightAt(state.seed,bx,bz),bz);o.root.rotation.y=b.rotation*Math.PI/2;
       if(b.type==='conveyor')tiltBelt(o.root,b,slopes.get(b.id),turn);
+      if(o.trayShape){o.trayShape.tray.rotation.y=-b.rotation*Math.PI/2;o.trayShape.setJoined((dx,dz)=>bedCells.has(`${b.x+dx},${b.z+dz}`));}
       if(o.plants){o.plants.visible=b.built&&(b.grow>0||b.watered);o.plants.scale.setScalar(.2+.8*(b.grow??0));}
       if(o.crops){
         if(o.cropKind!==b.crop&&b.crop&&itemModels?.get(b.crop)){

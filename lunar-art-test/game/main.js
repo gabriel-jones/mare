@@ -6,7 +6,8 @@ import { sampleAction, takeSample, stepBrood, vatAction } from './goo.js';
 import {DEFS,createState,validatePlacement,placeBlueprint,construct,tick,serialize,deserialize,cancelBlueprint,deconstruct,collectStorage,setMiningArea,miningAreaReason,removeMiningArea,assignRover,rotateBelt,playerObstructs,interact,removalCheck,PROCESSOR_LOCKED} from './sim.js';
 import {DIRS,ITEM_INFO,footprint} from './defs.js';
 import {movePlayer,nudgePlayer,nearestBlueprint,buildingCenter,resetLocomotion,interpolatePose,RUN_SPEED} from './controller.js';
-import {eat,lifeAction,setCrop,setRecipe} from './life.js';
+import {eat,lifeAction,setCrop,startCraft,growBeds,isStation} from './life.js';
+import {habitatLayout} from './habitat.js';
 import {isGrower} from './farm.js';
 import {createWorld} from './world.js';
 import {createUI} from './ui.js';
@@ -16,7 +17,7 @@ import {shipAction,holdLaunch,releaseLaunch,loadSatellite,recallShip,selectResea
 import {createOrbitView} from './orbit-view.js';
 import {createResearchView} from './research-view.js';
 import {createHunt,stepHunt,fire,release,roll,wrench,pinned,grabbedBy,rouse} from './hunt.js';
-import {isWeapon,holdWeapon,reload,craft,heldWeapon,armsOf,WEAPONS} from './arms.js';
+import {isWeapon,holdWeapon,reload,heldWeapon,armsOf,WEAPONS} from './arms.js';
 import {installCursors,createReticle} from './cursors.js';
 import {crateDistance,moveStack,storeAll,storeSlot,takeSlot,crates as storageCrates,crateCentre,BASE_REACH,available,baseCount,inReach} from './storage.js';
 import {worldVectorToCave} from './cave-space.js';
@@ -29,7 +30,7 @@ const SHORTCUTS={...Object.fromEntries(Object.entries(DEFS).filter(([,def])=>def
 const canvas=document.querySelector('#game'),boot=document.querySelector('#boot');
 let state=createState(),selectedType=null,rotation=0,world,ui,selectedSlot=0;
 let placeOk=true,placeFar=null,pointerIn=false,placementReason='',constructionReason='',hover=null,targetId=null,constructing=false,speed=1,saveStatus='Not saved',beltPath=null,paintPath=null,erasing=null;
-let orbit=null,research=null,shipStatus='pad';
+let orbit=null,research=null,shipStatus='pad',stationId=null;
 let jumpVelocity=0,accumulator=0,last=performance.now(),uiClock=0,autoClock=0,salvageReason='';
 const encounter=createEncounter();
 const keys=new Set();
@@ -68,30 +69,47 @@ function nearby(){
  if(pointed){const c=buildingCenter(pointed,DEFS);if(Math.hypot(c.x-state.player.x,c.z-state.player.z)<5)return pointed;}
  return nearestBlueprint(state,DEFS);
 }
-/** The nearest finished object E would act on: a ripe grow bed, a galley, or a crate holding goods. */
+/** Whether the player can reach `b` from where they stand: interior machines only from inside their own room. */
+function sameRoom(b,rooms=habitatLayout(state.buildings)){
+ if(DEFS[b.type].layer!=='interior')return true;
+ const p=state.player,mine=rooms.roomOf.get(`${Math.round(p.x/2)},${Math.round(p.z/2)}`);
+ return !!mine&&rooms.roomOf.get(`${b.x},${b.z}`)===mine;
+}
+/** How far the player is from `b`; a grow bed counts from its nearest plot. */
+function reachOf(b,beds){
+ return Math.min(...(beds.get(b.id)??[b]).map(o=>{const c=buildingCenter(o,DEFS);return Math.hypot(c.x-state.player.x,c.z-state.player.z);}));
+}
+/** The nearest finished object E would act on: a ripe plot, a station holding goods, or a crate. */
 function nearbyUse(){
  const pack=dropAction(state);if(pack)return pack;
  if(state.player.cave!=null){const find=lootAction(state);if(find)return {...find,cave:true};const sample=sampleAction(state);return sample&&{...sample,sample:true};}
- let best=null,distance=2.8;
+ let best=null,distance=2.8;const rooms=habitatLayout(state.buildings),plots=new Map();
  for(const b of state.buildings){
   if(!b.built)continue;
   const action=b.type==='storage'?{verb:ui?.crateId===b.id?'Close crate':'Open crate'}:machineAction(state,b)??lifeAction(state,b)??vatAction(state,b);
-  if(!action)continue;
-  const c=buildingCenter(b,DEFS),d=Math.hypot(c.x-state.player.x,c.z-state.player.z);
+  if(!action||!sameRoom(b,rooms))continue;
+  const d=reachOf(b,plots);
   if(d<distance){best={building:b,...action};distance=d;}
  }
  return best;
 }
-/** The grower, galley or armory the player stands at, whose picker the HUD shows. */
-function nearbyStation(){
- if(state.player.cave!=null)return null;
- let best=null,distance=3;
- for(const b of state.buildings){
-  if(!b.built||!(isGrower(b)||b.type==='galley'||b.type==='armory'))continue;
-  const c=buildingCenter(b,DEFS),d=Math.hypot(c.x-state.player.x,c.z-state.player.z);
-  if(d<distance){best=b;distance=d;}
- }
- return best;
+const STATION_REACH=8;
+/** The grower or workstation whose popup is open, while the player can still reach it. */
+function openStation(){
+ const b=stationId!=null&&state.buildings.find(o=>o.id===stationId);
+ if(!b||!b.built||state.player.cave!=null||!sameRoom(b)||reachOf(b,growBeds(state))>STATION_REACH){stationId=null;return null;}
+ return b;
+}
+/** Clicking a grower or workstation opens its popup; true when the click was taken. */
+function clickStation(cell){
+ const b=cell&&state.buildings.find(o=>o.built&&(isGrower(o)||isStation(o))&&footprint(o.type,o.x,o.z,o.rotation).some(c=>c.x===cell.x&&c.z===cell.z));
+ if(!b){const open=stationId!=null;stationId=null;return open;}
+ if(!sameRoom(b)){notify(`Go inside to use the ${DEFS[b.type].name.toLowerCase()}.`);return true;}
+ if(reachOf(b,growBeds(state))>STATION_REACH){notify(`Walk closer to the ${DEFS[b.type].name.toLowerCase()}.`);return true;}
+ const bed=growBeds(state).get(b.id),open=openStation();
+ stationId=open&&(open===b||bed?.includes(open))?null:b.id;
+ ui.update(state,view());
+ return true;
 }
 /** The unbuilt blueprint under the cursor, with what each material still owes against what can be reached. */
 function blueprintTip(){
@@ -107,7 +125,7 @@ function view(){
  const nearest=state.player.cave==null?nearestBlueprint(state,DEFS,100):null,c=nearest?buildingCenter(nearest,DEFS):null;
  const guidance=nearest?`${DEFS[nearest.type].name} blueprint: ${Math.ceil(Math.hypot(c.x-state.player.x,c.z-state.player.z))}m away. Walk within 5m, then hold E.`:null;
  const goal=objective(state),distance=goal.target&&state.player.cave==null?Math.round(Math.hypot(goal.target.x-state.player.x,goal.target.z-state.player.z)):null;
- return {objective:{...goal,distance},missionUse:missionAction(state)??shipAction(state),locked:{...(processorUnlocked(state)?{}:{processor:PROCESSOR_LOCKED}),...Object.fromEntries(Object.keys(DEFS).map(type=>[type,lockedReason(state,type)]).filter(([,reason])=>reason))},selectedType,rotation,placementReason,constructionReason,blueprintTip:blueprintTip(),nearbyBuilding:nearby(),use:nearbyUse(),station:nearbyStation(),selectedSlot,foodSlot:foodSlot(),guidance,constructing,night:Math.sin(state.time/240*Math.PI*2+Math.PI/3)<=0,paused:false,saveStatus:saveStatus+(speed>1?' · Time ×12':''),timeScale:speed};
+ return {objective:{...goal,distance},missionUse:missionAction(state)??shipAction(state),locked:{...(processorUnlocked(state)?{}:{processor:PROCESSOR_LOCKED}),...Object.fromEntries(Object.keys(DEFS).map(type=>[type,lockedReason(state,type)]).filter(([,reason])=>reason))},selectedType,rotation,placementReason,constructionReason,blueprintTip:blueprintTip(),nearbyBuilding:nearby(),use:nearbyUse(),station:openStation(),selectedSlot,foodSlot:foodSlot(),guidance,constructing,night:Math.sin(state.time/240*Math.PI*2+Math.PI/3)<=0,paused:false,saveStatus:saveStatus+(speed>1?' · Time ×12':''),timeScale:speed};
 }
 function point(event){hover=world?.pick(event.clientX,event.clientY);canvas.dataset.hoverCell=hover?`${hover.x},${hover.z}`:'';if(!hover){world?.clearGhost();return;}if(beltPath)extendBeltPath(hover);if(paintPath)extendPaintPath(hover);targetId=hover.buildingId??null;canvas.dataset.targetId=String(targetId??'');if(erasing)eraseAt();refreshGhost();}
 const MAX_PAINT=120;
@@ -351,7 +369,7 @@ async function start(){
  try{
   let restored=false;
   try{const raw=localStorage.getItem(KEY);if(raw){state=deserialize(raw);resetPlayer();restored=true;saveStatus='Restored local save';}}catch(e){saveStatus='New colony · save unreadable';}
-  ui=createUI(document.querySelector('#ui'),{onSelect:select,onAssign:(robot,area)=>{const r=assignRover(state,robot,area);if(!r.ok)notify(r.reason);},onRemoveZone:id=>notify(removeMiningArea(state,id).reason),onSlot:i=>{if(selectedSlot===i)eatSelected();pickSlot(i);},onRotate:()=>{rotation=(rotation+1)%4;refreshGhost();},onSave:save,onLoad:load,onReset:()=>{state=createState(Math.floor(Math.random()*999999));selectedType=null;resetPlayer();targetId=null;keys.clear();world?.clearGhost();save();notify('New lunar landing created.');},onStation:({id,crop,recipe,make})=>{const b=state.buildings.find(o=>o.id===id);if(!b)return;notify((make?craft(state,make):crop?setCrop(state,b,crop):setRecipe(state,b,recipe)).reason);canvas.focus({preventScroll:true});},onCancel:()=>select(null),onStore:(id,i,half)=>crateMove(id,b=>{const s=state.inventory[i];return storeSlot(state,i,b,half&&s?Math.ceil(s.count/2):Infinity);}),onTake:(id,i,half)=>crateMove(id,b=>{const s=b.slots[i];return takeSlot(state,b,i,half&&s?Math.ceil(s.count/2):Infinity);}),onMoveSlot:({crate,from,to,half})=>{if(from.crate||to.crate){crateMove(crate,b=>moveStack(state,b,from,to,half));return;}const r=moveStack(state,null,from,to,half);if(!r.ok)notify(r.reason);else if(to.i!=null&&from.i===selectedSlot){pickSlot(to.i);return;}ui.update(state,view());canvas.focus({preventScroll:true});},onStoreAll:id=>crateMove(id,b=>storeAll(state,b),true),onTakeAll:id=>crateMove(id,b=>collectStorage(state,b.id),true),onCloseStore:()=>canvas.focus({preventScroll:true}),onOrbit:()=>{research?.close();orbit?.toggle();},onResearch:()=>{orbit?.close();research?.toggle();},onTimeToggle:()=>{speed=speed===1?12:1;notify(speed===1?'Normal day/night speed.':'Day/night simulation ×12. Movement stays normal.');}});
+  ui=createUI(document.querySelector('#ui'),{onSelect:select,onAssign:(robot,area)=>{const r=assignRover(state,robot,area);if(!r.ok)notify(r.reason);},onRemoveZone:id=>notify(removeMiningArea(state,id).reason),onSlot:i=>{if(selectedSlot===i)eatSelected();pickSlot(i);},onRotate:()=>{rotation=(rotation+1)%4;refreshGhost();},onSave:save,onLoad:load,onReset:()=>{state=createState(Math.floor(Math.random()*999999));selectedType=null;resetPlayer();targetId=null;keys.clear();world?.clearGhost();save();notify('New lunar landing created.');},onStation:({id,crop,make,close})=>{const b=state.buildings.find(o=>o.id===id);if(close||!b){stationId=null;ui.update(state,view());canvas.focus({preventScroll:true});return;}const r=make?startCraft(state,b,make):setCrop(state,b,crop);if(!r.ok||crop)notify(r.reason);ui.update(state,view());canvas.focus({preventScroll:true});},onCancel:()=>select(null),onStore:(id,i,half)=>crateMove(id,b=>{const s=state.inventory[i];return storeSlot(state,i,b,half&&s?Math.ceil(s.count/2):Infinity);}),onTake:(id,i,half)=>crateMove(id,b=>{const s=b.slots[i];return takeSlot(state,b,i,half&&s?Math.ceil(s.count/2):Infinity);}),onMoveSlot:({crate,from,to,half})=>{if(from.crate||to.crate){crateMove(crate,b=>moveStack(state,b,from,to,half));return;}const r=moveStack(state,null,from,to,half);if(!r.ok)notify(r.reason);else if(to.i!=null&&from.i===selectedSlot){pickSlot(to.i);return;}ui.update(state,view());canvas.focus({preventScroll:true});},onStoreAll:id=>crateMove(id,b=>storeAll(state,b),true),onTakeAll:id=>crateMove(id,b=>collectStorage(state,b.id),true),onCloseStore:()=>canvas.focus({preventScroll:true}),onOrbit:()=>{research?.close();orbit?.toggle();},onResearch:()=>{orbit?.close();research?.toggle();},onTimeToggle:()=>{speed=speed===1?12:1;notify(speed===1?'Normal day/night speed.':'Day/night simulation ×12. Movement stays normal.');}});
   world=await createWorld(canvas,state);
   installCursors();const reticle=createReticle();
   if(window.debugGame)window.game={world,get state(){return state;}};
@@ -365,6 +383,7 @@ async function start(){
    if(e.button===2){select(null);return;}
    if(e.button!==0)return;
    aimClient={x:e.clientX,y:e.clientY};
+   if(!selectedType&&state.player.cave==null&&clickStation(world.pick(e.clientX,e.clientY)))return;
    if(!selectedType&&useHeld())return;
    if(drawn()){const r=fire(hunt,state);if(r.reason)notify(r.reason);try{canvas.setPointerCapture(e.pointerId);}catch{}return;}
    point(e);
@@ -393,7 +412,7 @@ async function start(){
    if(state.player.cave!=null&&caveKey(k))return;
    if(k===' '&&!(state.player.y>0)&&!hunt.rolling&&!pinned(hunt))jumpVelocity=1.8;
    if(k==='shift'&&!ui.storeOpen())dodge();
-   if(k==='escape')select(null);
+   if(k==='escape'){select(null);stationId=null;}
    if(k==='b')ui.toggleMenu();
    if(k==='g')ui.toggleRobots();
    if(k==='i')ui.toggleStock();

@@ -1,10 +1,10 @@
 import { DEFS } from './sim.js';
 import { ITEM_INFO } from './defs.js';
 import { count } from './inventory.js';
-import { hunger, galleyRecipe } from './life.js';
-import { BUFFS, CROPS, RECIPES, cropsFor, isGrower, recipeKnown } from './farm.js';
+import { hunger, bedOf, readyCount, stationJobs, STATIONS } from './life.js';
+import { BUFFS, CROPS, RECIPES, cropsFor, isGrower } from './farm.js';
 import { infested } from './goo.js';
-import { ARMORY, WEAPONS, armoryKnown } from './arms.js';
+import { ARMORY, WEAPONS } from './arms.js';
 import { TECHS } from './space.js';
 import { robotStatus, lampLevel } from './building-status.js';
 import { areaKind, remainingRegolith, MAX_MINING_AREAS } from './production.js';
@@ -158,33 +158,40 @@ export function createUI(root, callbacks = {}) {
   const station = root.querySelector('.station'), buffs = root.querySelector('.buffs');
   const icon = item => `<img src="${ITEM_ICON_URLS[item]}" alt="" aria-hidden="true" draggable="false">`;
   const clock = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
-  // Rebuilt only when the choice or what the player can afford changes, so a hovered chip stays put.
+  // Rebuilt only when the choice, the queue or what the player can afford changes, so a hovered chip stays put.
   function renderStation(state, b) {
     if (!b) { if (!station.hidden) { station.hidden = true; stationKey = ''; } return; }
+    station.style.setProperty('--work', b.work ?? 0);
+    const close = `<button type="button" class="station-close" data-station="${b.id}" data-close="1" aria-label="Close">${svg('<path d="M6 6l12 12M18 6 6 18"/>', 1.8)}</button>`;
     let key, html;
     if (isGrower(b)) {
-      const crops = cropsFor(state, b.type);
-      key = `${b.id}|${b.crop}|${crops}|${b.grow >= 1}`;
+      const crops = cropsFor(state, b.type), bed = bedOf(state, b), ripe = bed.filter(o => o.grow >= 1).length;
+      const planted = new Set(bed.map(o => o.crop)), grow = Math.floor(Math.min(...bed.map(o => o.grow)) * 100);
+      key = `${b.id}|${bed.map(o => o.id)}|${[...planted]}|${crops}|${ripe}|${ripe ? '' : Math.floor(grow / 5)}`;
       if (key === stationKey) return;
-      html = `<header><strong>${DEFS[b.type].name}</strong><small>${b.grow >= 1 ? 'Ripe: harvest with E' : crops.length > 1 ? 'Choose a crop · replanting loses growth' : 'Research unlocks more crops'}</small></header>
-        <div class="station-options">${crops.map(id => { const c = CROPS[id]; return `<button type="button" data-crop="${id}" data-station="${b.id}" aria-pressed="${id === b.crop}" title="${c.name}: ${c.yield} every ${c.time}s · water ${c.water}${c.power ? ` · ${c.power} kW` : ' · no power'}">${icon(id)}<span>${c.name}</span><small>${c.time}s · ${c.yield}×</small></button>`; }).join('')}</div>`;
-    } else if (b.type === 'armory') {
-      const recipes = Object.keys(ARMORY), known = id => armoryKnown(state, id);
-      const has = id => canPay(state, ARMORY[id].input);
-      key = `${b.id}|${recipes.map(id => `${id}${known(id)}${has(id)}`)}`;
-      if (key === stationKey) return;
-      html = `<header><strong>Armory</strong><small>Click to craft from your pack and base storage</small></header>
-        <div class="station-options">${recipes.map(id => { const r = ARMORY[id], inputs = Object.entries(r.input); return `<button type="button" data-make="${id}" data-station="${b.id}" class="${!known(id) ? 'locked' : has(id) ? '' : 'missing'}" ${known(id) ? '' : 'disabled'} title="${ITEM_INFO[id].name}${r.makes > 1 ? ` ×${r.makes}` : ''}: ${inputs.map(([item, n]) => `${n} ${ITEM_INFO[item].name.toLowerCase()}`).join(' + ')}${known(id) ? '' : ` · research ${TECHS[r.tech].name} first`}">${icon(id)}<span>${ITEM_INFO[id].name}${r.makes > 1 ? ` ×${r.makes}` : ''}</span><small class="station-inputs">${inputs.map(([item, n]) => `${n > 1 ? `<b>${n}</b>` : ''}${icon(item)}`).join('')}</small><em>${known(id) ? (WEAPONS[id] ? 'Weapon' : 'Ammo') : 'Needs research'}</em></button>`; }).join('')}</div>`;
+      const name = bed.length > 1 ? `${DEFS[b.type].name} · ${bed.length} plots` : DEFS[b.type].name;
+      const note = ripe ? `${ripe === bed.length ? 'Ripe' : `${ripe} of ${bed.length} ripe`}: harvest with E` : `${planted.size > 1 ? 'Mixed' : CROPS[b.crop].name} · ${grow}% grown${crops.length > 1 ? ' · replanting loses growth' : ''}`;
+      html = `<header><strong>${name}</strong><small>${note}</small>${close}</header>
+        <div class="station-options">${crops.map(id => { const c = CROPS[id]; return `<button type="button" data-crop="${id}" data-station="${b.id}" aria-pressed="${planted.size === 1 && planted.has(id)}" title="${c.name}: ${c.yield} per plot every ${c.time}s · water ${c.water}${c.power ? ` · ${c.power} kW` : ' · no power'}">${icon(id)}<span>${c.name}</span><small>${c.time}s · ${c.yield}×</small></button>`; }).join('')}</div>`;
     } else {
-      const dishes = Object.keys(RECIPES).filter(id => recipeKnown(state, id));
-      const has = id => canPay(state, RECIPES[id].input);
-      const next = galleyRecipe(state, b);
-      key = `${b.id}|${b.recipe}|${dishes.map(id => `${id}${has(id)}`)}|${next}`;
+      const st = STATIONS[b.type], jobs = stationJobs(b), ready = readyCount(b);
+      const ids = st.recipes.filter(id => b.type === 'armory' || st.known(state, id)), known = id => st.known(state, id), has = id => canPay(state, st.input(id));
+      key = `${b.id}|${ids.map(id => `${id}${known(id)}${has(id)}`)}|${jobs}|${ready}`;
       if (key === stationKey) return;
-      const effect = id => { const buff = RECIPES[id].buff; return id === 'medkit' ? 'Heals suit' : buff ? (Object.keys(buff).length === Object.keys(BUFFS).length ? 'All four effects' : Object.keys(buff).map(k => BUFFS[k].name).join(' · ')) : 'Filling'; };
-      html = `<header><strong>Galley</strong><small>${next ? `E cooks ${ITEM_INFO[next].name.toLowerCase()}` : b.recipe ? `Missing ingredients for ${ITEM_INFO[b.recipe].name.toLowerCase()}` : 'No ingredients for any dish'}</small></header>
-        <div class="station-options"><button type="button" class="station-auto" data-recipe="" data-station="${b.id}" aria-pressed="${!b.recipe}" title="Cook the best dish you have ingredients for">${svg('<path d="M4 12a8 8 0 0 1 14-5m2 5a8 8 0 0 1-14 5"/><path d="M18 3v4h-4M6 21v-4h4"/>', 1.6)}<span>Auto</span><small>Best dish</small></button>
-        ${dishes.map(id => `<button type="button" data-recipe="${id}" data-station="${b.id}" aria-pressed="${id === b.recipe}" class="${has(id) ? '' : 'missing'}" title="${ITEM_INFO[id].name}: ${Object.entries(RECIPES[id].input).map(([item, n]) => `${n} ${ITEM_INFO[item].name.toLowerCase()}`).join(' + ')} · ${effect(id)}">${icon(id)}<span>${ITEM_INFO[id].name}</span><small class="station-inputs">${Object.entries(RECIPES[id].input).map(([item, n]) => `${n > 1 ? `<b>${n}</b>` : ''}${icon(item)}`).join('')}</small><em>${effect(id)}</em></button>`).join('')}</div>`;
+      const label = id => `${ITEM_INFO[id].name}${st.makes(id) > 1 ? ` ×${st.makes(id)}` : ''}`;
+      const effect = id => {
+        if (b.type === 'armory') return known(id) ? (WEAPONS[id] ? 'Weapon' : 'Ammo') : 'Needs research';
+        if (b.type === 'mill') return 'Ground';
+        const buff = RECIPES[id].buff;
+        return id === 'medkit' ? 'Heals suit' : buff ? (Object.keys(buff).length === Object.keys(BUFFS).length ? 'All four effects' : Object.keys(buff).map(k => BUFFS[k].name).join(' · ')) : 'Filling';
+      };
+      const note = jobs.length ? `${st.verb} ${ITEM_INFO[jobs[0]].name.toLowerCase()}${jobs.length > 1 ? ` · ${jobs.length - 1} queued` : ''}${jobs.length >= st.queue ? ' · queue full' : ''}`
+        : ready ? 'Your pack is full: press E to collect' : ids.length ? `Click to make · ${st.time}s each` : 'Research crops to grind';
+      html = `<header><strong>${DEFS[b.type].name}</strong><small>${note}</small>${close}</header>
+        <div class="station-options">${ids.map(id => {
+          const inputs = Object.entries(st.input(id)), queued = jobs.filter(j => j === id).length;
+          return `<button type="button" data-make="${id}" data-station="${b.id}" class="${!known(id) ? 'locked' : has(id) ? '' : 'missing'}${jobs[0] === id ? ' working' : ''}" ${known(id) ? '' : 'disabled'} title="${label(id)}: ${inputs.map(([item, n]) => `${n} ${ITEM_INFO[item].name.toLowerCase()}`).join(' + ')}${known(id) ? '' : ` · research ${TECHS[ARMORY[id]?.tech]?.name ?? 'it'} first`}">${icon(id)}<span>${label(id)}</span><small class="station-inputs">${inputs.map(([item, n]) => `${n > 1 ? `<b>${n}</b>` : ''}${icon(item)}`).join('')}</small><em>${effect(id)}</em>${queued ? `<b class="station-count">${queued}</b>` : ''}${jobs[0] === id ? '<i class="station-progress"></i>' : ''}</button>`;
+        }).join('')}</div>`;
     }
     stationKey = key; station.innerHTML = html; station.hidden = false;
   }
@@ -261,7 +268,7 @@ export function createUI(root, callbacks = {}) {
   const onClick = event => {
     if (swallowClick) { event.stopPropagation(); return; }
     const button = event.target.closest('button'); if (!button) return;
-    if (button.dataset.station) { const id = Number(button.dataset.station); callbacks.onStation?.(button.dataset.make ? { id, make: button.dataset.make } : button.dataset.crop ? { id, crop: button.dataset.crop } : { id, recipe: button.dataset.recipe || null }); stationKey = ''; button.blur(); return; }
+    if (button.dataset.station) { const id = Number(button.dataset.station); callbacks.onStation?.(button.dataset.close ? { id, close: true } : button.dataset.make ? { id, make: button.dataset.make } : { id, crop: button.dataset.crop }); stationKey = ''; button.blur(); return; }
     if (button.dataset.crateSlot != null) { callbacks.onTake?.(crateId, Number(button.dataset.crateSlot), event.shiftKey); button.blur(); return; }
     if (button.dataset.slot && crateId != null) { callbacks.onStore?.(crateId, Number(button.dataset.slot), event.shiftKey); button.blur(); return; }
     if (button.dataset.action === 'store-all') { callbacks.onStoreAll?.(crateId); button.blur(); return; }

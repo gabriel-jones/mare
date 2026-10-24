@@ -4,8 +4,8 @@ import { surfaceHeightAt, terrainReason } from './terrain.js';
 import { CELL_SIZE, DEFS, DIRS, ITEMS, ITEM_INFO, dims, footprint } from './defs.js';
 import { airlockApron, habitatLayout, isRoom, trapsPlayer } from './habitat.js';
 import * as inv from './inventory.js';
-import { LIFE, STARTING, ensureLifeState, hunger, lifeDemand, roomStatus, stepLife, useLife } from './life.js';
-import { CROPS, GALLEY, MILL, RECIPES as DISHES, isGrower, restoreBuffs } from './farm.js';
+import { LIFE, STARTING, ensureLifeState, hunger, lifeDemand, roomStatus, stepLife, useLife, STATIONS, isStation } from './life.js';
+import { CROPS, RECIPES as DISHES, isGrower, restoreBuffs } from './farm.js';
 import { createRover, ensureBuildingState, productionDemand, stepProduction, MINING_RADIUS, MAX_MINING_AREAS, REGOLITH_PER_CELL, ROVER, PROCESSOR_INPUT_CAP, PROCESSOR_OUTPUT_CAP, BELT_SPACING, MELT, FAB, ASSEMBLY, RECIPES, KIT, cycleRecipe, robotTopology } from './production.js';
 import { createResearch, createShip, buildRobot, lockedReason, restoreResearch, restoreShip, spaceDemand, stepSpace, studyFinds, touchesPad, REACTOR_POWER } from './space.js';
 import { restoreDelve } from './delve.js';
@@ -219,7 +219,7 @@ export function deconstruct(state, id) {
   for (const item of b.items ?? []) if (['metal', 'silicon', 'frame', 'wing', 'chip', 'satellite'].includes(item.type)) give(item.type, 1);
   // Farm machines hand back what they hold: finished goods, and the ingredients of anything not yet made.
   for (const [item, n] of Object.entries(b.ready ?? {})) give(item, n);
-  for (const q of b.queue ?? []) if (b.type === 'galley') for (const [item, n] of Object.entries(DISHES[q].input)) give(item, n); else give(q, 1);
+  if (isStation(b)) { const st = STATIONS[b.type]; for (const q of b.queue ?? []) for (const [item, n] of Object.entries(st.input(st.product(q)))) give(item, n); }
   if (isGrower(b) && b.grow >= 1) give(b.crop, CROPS[b.crop].yield);
   if (b.type === 'goovat') give('goo', Math.floor(b.stock ?? 0) + (b.seeded ? 1 : 0));
   if (b.type === 'bioreactor') give('goo', Math.floor(b.stock ?? 0));
@@ -363,11 +363,11 @@ function restoreBuilding(raw) {
   const check = (field, valid) => { if (raw[field] == null) return; if (!valid(raw[field])) throw new Error(`Invalid ${DEFS[b.type].name.toLowerCase()} state.`); b[field] = raw[field]; };
   if (isRoom(b)) check('air', v => typeof v === 'boolean');
   if (isGrower(b)) { check('crop', v => CROPS[v]?.grower === b.type); check('grow', v => count(v, 1)); check('watered', v => typeof v === 'boolean'); }
-  if (b.type === 'galley' || b.type === 'mill') {
-    const [cap, ok] = b.type === 'galley' ? [GALLEY, q => !!DISHES[q]] : [MILL, q => !!MILL.makes[q]], readyCap = b.type === 'galley' ? GALLEY.ready : MILL.cap;
-    check('queue', v => Array.isArray(v) && v.length <= (b.type === 'galley' ? cap.queue : cap.cap) && v.every(q => typeof q === 'string' && ok(q)));
+  if (isStation(b)) {
+    const st = STATIONS[b.type], ok = q => st.recipes.includes(st.product(q));
+    check('queue', v => Array.isArray(v) && v.length <= st.queue && v.every(q => typeof q === 'string' && ok(q)));
     check('work', v => count(v, 1));
-    check('ready', v => v && typeof v === 'object' && !Array.isArray(v) && Object.entries(v).every(([item, n]) => ITEM_INFO[item] && wholeCount(n, readyCap)));
+    check('ready', v => v && typeof v === 'object' && !Array.isArray(v) && Object.entries(v).every(([item, n]) => ITEM_INFO[item] && wholeCount(n, st.ready)));
     if (b.type === 'galley') {
       check('recipe', v => v === null || !!DISHES[v]);
       // Before recipes a galley held loose potatoes and plain meals.

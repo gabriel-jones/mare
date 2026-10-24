@@ -187,11 +187,14 @@ body[data-orbit=open] .game-ui, body[data-orbit=open] .building-status-layer { v
 .research-badge { position:absolute;top:-4px;right:-4px;width:10px;height:10px;border-radius:50%;background:#edbd79;box-shadow:0 0 8px #edbd79; }
 body[data-research=open] .game-ui, body[data-research=open] .building-status-layer { visibility:hidden; }
 
-/* Grower crop and galley recipe pickers, shown above the hint while standing at one. */
+/* Grower crop and workstation recipe popups, opened by clicking one. */
 .station { position:fixed;left:50%;bottom:140px;transform:translateX(-50%);width:max-content;max-width:min(860px,calc(100vw - 40px));padding:8px 10px 10px;border:1px solid var(--line);border-radius:6px;background:var(--panel);backdrop-filter:blur(12px);box-shadow:0 6px 30px #0005;pointer-events:auto;font-size:12px;color:#e3dccd; }
 .station header { display:flex;align-items:baseline;gap:10px;margin:0 2px 7px; }
 .station header strong { font-size:12px;font-weight:600; }
 .station header small { color:#8d979c;font-size:11px; }
+.station-close { margin-left:auto;display:grid;place-items:center;width:22px;height:22px;padding:0;border:0;border-radius:4px;background:none;color:#8d979c;cursor:pointer; }
+.station-close:hover { background:#ffffff12;color:#e3dccd; }
+.station-close svg { width:14px;height:14px; }
 .station-options { display:flex;gap:6px;flex-wrap:wrap;justify-content:center; }
 .station-options button { position:relative;display:grid;justify-items:center;gap:1px;width:86px;padding:6px 4px 7px;border:1px solid #ffffff14;border-radius:5px;background:#ffffff08;color:inherit;font:inherit;cursor:pointer; }
 .station-options button:hover { border-color:#edbd7966;background:#edbd7912; }
@@ -207,6 +210,10 @@ body[data-research=open] .game-ui, body[data-research=open] .building-status-lay
 .station-options button.missing span { color:#9a958b; }
 .station-options button.locked { opacity:.5;cursor:not-allowed; }
 .station-options button.locked > img { filter:grayscale(1); }
+.station-options button { overflow:hidden; }
+.station-options button.working { border-color:#e8762c99; }
+.station-progress { position:absolute;left:0;bottom:0;height:3px;width:calc(var(--work,0) * 100%);background:#e8762c;transition:width .1s linear; }
+.station-count { position:absolute;top:4px;right:5px;min-width:15px;padding:0 3px;border-radius:8px;background:#e8762c;color:#14181b;font-size:10px;font-weight:700;line-height:15px; }
 
 .buffs { position:fixed;top:70px;left:24px;display:flex;gap:6px;pointer-events:none; }
 .buffs:empty { display:none; }

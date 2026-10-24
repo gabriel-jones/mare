@@ -1,6 +1,4 @@
 import * as inv from './inventory.js';
-import { missing, pay } from './storage.js';
-import { ITEM_INFO } from './defs.js';
 import { techDone } from './space.js';
 
 /**
@@ -25,6 +23,8 @@ export const ARMORY = Object.freeze({
   flamethrower: { input: { metal: 26, titanium: 10, goo: 2 }, makes: 1, tech: 'flamethrower' },
 });
 export const armoryKnown = (state, id) => !ARMORY[id].tech || techDone(state, ARMORY[id].tech);
+/** Seconds the bench takes per recipe, how many it lines up, and how many finished items wait when the pack is full. */
+export const BENCH = Object.freeze({ time: 3, queue: 3, ready: 30 });
 
 export function armsOf(state) {
   const p = state.player;
@@ -87,18 +87,6 @@ export function burnTank(state, dt) {
   a.loaded[w] = Math.max(0, a.loaded[w] - WEAPONS[w].burn * dt);
   if (!a.loaded[w]) reload(state);
   return true;
-}
-
-/** Craft at an armory bench from the pack. */
-export function craft(state, id) {
-  const r = ARMORY[id]; if (!r) return { ok: false, reason: 'Unknown recipe.' };
-  if (!armoryKnown(state, id)) return { ok: false, reason: 'Research it first (T).' };
-  const short = missing(state, r.input);
-  if (short.length) return { ok: false, reason: `Needs ${short.map(([item, n]) => `${n} ${ITEM_INFO[item].name.toLowerCase()}`).join(', ')}.` };
-  if (inv.room(state.inventory, id) < r.makes) return { ok: false, reason: 'No room in your inventory.' };
-  pay(state, r.input);
-  inv.add(state.inventory, id, r.makes);
-  return { ok: true, reason: `Crafted ${r.makes > 1 ? `${r.makes} ` : ''}${ITEM_INFO[id].name.toLowerCase()}.` };
 }
 
 const finite = n => typeof n === 'number' && Number.isFinite(n);
