@@ -116,7 +116,7 @@ export async function createWorld(canvas, initialState) {
   // Drives a machine's lamp, battery cells and sight glass from its status.
   function driveLamp(o,b,status){
     if(!o.lamp)return;
-    const level=b.built?lampLevel(status):'off';o.lamp.set(level,b.built);
+    const level=b.built&&state.power.powered!==false?lampLevel(status):'off';o.lamp.set(level,b.built);
     if(b.type==='battery')o.lamp.cells(b.built?status?.fill??0:0,level);
     if(b.type==='melter')o.lamp.fill(b.built?(b.inv?.ice??0)/MELT.cap:0,'water');
     if(b.type==='tank')o.lamp.fill(b.built?(b.fuel??0)/DEFS.tank.capacity:0,'fuel');
@@ -211,6 +211,8 @@ export async function createWorld(canvas, initialState) {
     const imported=models.get(name);
     if(imported){imported.position.set(0,name==='starship'?PAD_DECK:0,-10);imported.traverse(o=>{if(o.isMesh){o.castShadow=name==='starship';o.receiveShadow=true;}});scene.add(imported);}
   }
+  // The pad's edge and deck lights are on the colony grid.
+  const padLamps=new Set();models.get('launchpad')?.traverse(o=>{if(o.isMesh)for(const m of [o.material].flat())if(m.emissiveIntensity>0&&m.emissive?.getHex()){m.userData.baseEmission??=m.emissiveIntensity;padLamps.add(m);}});
   // Liftoff and landing: the ship rises on a flame and a glare light, and kicks up a ring of dust near the ground.
   const starship=models.get('starship');
   const flameMaterial=new THREE.MeshBasicMaterial({color:'#ffb35c',transparent:true,opacity:.85,blending:THREE.AdditiveBlending,depthWrite:false});materials.add(flameMaterial);
@@ -391,7 +393,8 @@ export async function createWorld(canvas, initialState) {
     const surfaceLight=1-.94*caveBlend;
     scene.environmentIntensity=(.01+daylight*.29)*surfaceLight;
     sun.intensity=(.05+daylight*3.23)*surfaceLight;fill.intensity=(.1+daylight*1.1)*surfaceLight;
-    suitFill.intensity=2+(1-daylight)*3;headlamp.intensity=8+(1-daylight)*62;padLight.intensity=(5+(1-daylight)*22)*surfaceLight;
+    suitFill.intensity=2+(1-daylight)*3;headlamp.intensity=8+(1-daylight)*62;padLight.intensity=state.power.powered===false?0:(5+(1-daylight)*22)*surfaceLight;
+    for(const m of padLamps)m.emissiveIntensity=state.power.powered===false?0:m.userData.baseEmission;
     sun.position.set(follow.x-25,12+daylight*38,follow.z-30);sun.target.position.set(follow.x,0,follow.z);sun.target.updateMatrixWorld();
     scene.background.setRGB((.01+daylight*.05)*surfaceLight,(.016+daylight*.072)*surfaceLight,(.03+daylight*.11)*surfaceLight);scene.fog.color.copy(scene.background);
     scene.fog.density=.0012;suitFill.distance=underground?6:8;headlamp.distance=underground?20:18;
@@ -434,7 +437,10 @@ export async function createWorld(canvas, initialState) {
       if(o.built!==b.built||o.blocked!==blocked){o.ownedMaterials.forEach(m=>{m.transparent=!b.built;m.opacity=b.built?1:blocked?.6:.5;m.depthWrite=b.built;m.color.copy(b.built?m.userData.baseColor:blueprintColor[blocked?1:0]);m.emissive.copy(b.built?m.userData.baseEmissive:blueprintEmissive[blocked?1:0]);m.emissiveIntensity=b.built?m.userData.baseEmission:.85;});o.root.traverse(n=>{if(n.isMesh)n.castShadow=b.built;});o.built=b.built;o.blocked=blocked;}
       if(!b.built)o.root.scale.y=.35+.65*(b.progress||0);
       else o.root.scale.y=1;
-      if(o.emits){const powered=b.built&&state.power.powered!==false;o.ownedMaterials.forEach(m=>{m.emissiveIntensity=b.built?(m.userData.baseEmission||0)*(powered?1:0):.85;});}
+      // Screens, windows and work lamps on every finished structure run off the grid and go dark with it.
+      const lit=state.power.powered!==false;
+      if(b.built&&o.lit!==lit){o.ownedMaterials.forEach(m=>{m.emissiveIntensity=(m.userData.baseEmission||0)*(lit?1:0);});o.lit=lit;}
+      else if(!b.built)o.lit=null;
       if(o.heater&&b.built){const glow=melterReady(state,b)&&state.power.powered!==false?1:0;o.heater.traverse(n=>{if(n.isMesh)n.material.emissiveIntensity=(n.material.userData.baseEmission||0)*glow;});}
     }
     expedition.update(state,dt);updateEncounter(dt,underground);
