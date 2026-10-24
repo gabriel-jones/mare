@@ -8,9 +8,15 @@ from mathutils import Vector
 OUT = '/Users/gabe/Documents/Playground/lunar-art-test/game/assets'
 os.makedirs(OUT, exist_ok=True)
 EXPORT = globals().get('ONLY') or {'launchpad', 'starship', 'habitat', 'solar', 'battery'}
-previous_scene = bpy.context.window.scene
-scene = bpy.data.scenes.new('Lunar industrial asset library')
-bpy.context.window.scene = scene
+# Inside the Blender UI the kit builds in a scene of its own; run headless (blender -b) it uses the empty startup scene.
+window = bpy.context.window
+previous_scene = window.scene if window else None
+if window:
+    scene = bpy.data.scenes.new('Lunar industrial asset library')
+    window.scene = scene
+else:
+    scene = bpy.context.scene; scene.name = 'Lunar industrial asset library'
+    for o in list(scene.objects): bpy.data.objects.remove(o, do_unlink=True)
 objects = []
 created = {'objects': [], 'meshes': [], 'materials': []}
 
@@ -106,14 +112,27 @@ def join_group(group,name):
     bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
     return o
 
+# Moving parts: every object whose name starts with one of these joins a single node of that name, all its
+# materials kept, with its origin at the pivot given, so the game can turn it.
+PIVOTS = {'Panel': (0, 0, 1.7)}
+
 def export_asset(name, builder, location):
     global objects
     objects=[];builder()
     roof=[o for o in objects if o.name.startswith('Roof')]
     # Status parts stay separate, named nodes the runtime can recolour or scale.
     status=[o for o in objects if o.name.split('.')[0] in ('Lamp','Level') or o.name.startswith('Cell')]
-    regular=[o for o in objects if o not in roof and o not in status]
+    movers={part:[o for o in objects if o.name.startswith(part+' ')] for part in PIVOTS}
+    moving=[o for g in movers.values() for o in g]
+    regular=[o for o in objects if o not in roof and o not in status and o not in moving]
     result=[join_group([o],o.name.split('.')[0]) for o in status]
+    for part,g in movers.items():
+        o=join_group(g,part)
+        if not o: continue
+        scene.cursor.location=PIVOTS[part]
+        bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
+        scene.cursor.location=(0,0,0)
+        result.append(o)
     groups={key:[o for o in regular if o.data.materials[0] == mat] for key,mat in M.items()}
     for key,g in groups.items():
         o=join_group(g,name+'_'+key)
@@ -191,20 +210,24 @@ def launchpad():
     box('Terminal stripe',(6.6,-4.86,1.24),(.62,.02,.05),'orange',0)
 
 def solar():
-    for x in [-1.4,1.4]:
-        box('Foot',(x,0,.1),(.55,1.5,.2),'dark')
-        beam('Panel support',(x,0,.2),(x,0,1.15),.15)
-        beam('Diagonal support',(x,.7,.18),(x,-.6,1.35),.08,'metal')
-    # tilted rack with visible PV cell divisions
-    angle=math.radians(18)
-    box('Array backing',(0,0,1.25),(3.65,3.45,.1),'metal',.025,(angle,0,0))
+    # A two-axis sun tracker: a ballasted cross skid and mast carry the array on a slewing head. Every part named
+    # 'Panel ...' becomes the one Panel node, pivoting on the head, which the game turns and tilts toward the sun.
+    for size in [(2.7,.5,.22),(.5,2.7,.22)]: box('Ballast skid',(0,0,.11),size,'dark',.05)
+    for x,y in [(-1.1,0),(1.1,0),(0,-1.1),(0,1.1)]: box('Ballast block',(x,y,.31),(.44,.44,.2),'ivory',.04)
+    cyl('Mast',(0,0,.9),.15,1.4,'metal')
+    for a in range(4):
+        r=math.radians(45+90*a);beam('Mast brace',(math.cos(r)*.75,math.sin(r)*.75,.22),(math.cos(r)*.12,math.sin(r)*.12,1.05),.07,'metal')
+    cyl('Slewing ring',(0,0,1.56),.28,.12,'dark',24)
+    box('Inverter',(.62,0,.55),(.4,.7,.5),'ivory',.04)
+    box('Inverter indicator',(.825,0,.62),(.02,.26,.06),'light',.005)
+    P=PIVOTS['Panel'][2]
+    box('Panel yoke',(0,0,P-.04),(.56,.42,.2),'dark',.03)
+    cyl('Panel axle',(0,0,P),.07,1.3,'metal',12,(0,math.pi/2,0))
+    box('Panel backing',(0,0,P+.1),(3.65,3.45,.1),'metal',.025)
     for ix in range(6):
         for iy in range(4):
-            x=(ix-2.5)*.575;y=(iy-1.5)*.79
-            box('PV tile',(x,y*math.cos(angle)-.03,1.32+y*math.sin(angle)),(.55,.755,.025),'pv',0,(angle,0,0))
-    box('Inverter',(0,.7,.38),(.8,.45,.55),'ivory',.04)
-    box('Inverter indicator',(0,.455,.43),(.28,.02,.06),'light',.005)
-    status_lamp(-1.92,1.78,2.15,0)
+            box('Panel PV tile',((ix-2.5)*.575,(iy-1.5)*.79,P+.165),(.55,.755,.025),'pv',0)
+    status_lamp(-.62,0,.9,.22)
 
 def battery():
     box('Skid',(0,0,.14),(1.8,3.6,.28),'dark',.06)
@@ -286,6 +309,7 @@ if os.environ.get('LUNAR_RENDER_PREVIEW','1')=='1': bpy.ops.render.render(write_
 bpy.data.libraries.write(os.path.join(OUT,'industrial-library.blend'),{scene},fake_user=True)
 
 # Leave the user's open file as it was.
+if not window: raise SystemExit
 bpy.context.window.scene=previous_scene
 lights=[o.data for o in (sun,area)];cam=camera.data;world=scene.world
 for o in list(scene.collection.objects):bpy.data.objects.remove(o,do_unlink=True)

@@ -282,7 +282,7 @@ export async function createWorld(canvas, initialState) {
       // Ripe produce shows as the crop's own item model, laid where each grower holds it.
       const crops=RIPE_SPOTS[type]&&itemModels?new THREE.Group():null;
       if(crops){crops.name='Ripe crop';root.add(crops);}
-      return {root,roof:null,emits:DEFS[type].layer==='interior',plants:part('Plants'),crops,cropKind:null,tray,level:type==='goovat'?part('Level'):null,heater:part('Heater')};
+      return {root,roof:null,emits:DEFS[type].layer==='interior',plants:part('Plants'),crops,cropKind:null,tray,level:type==='goovat'?part('Level'):null,heater:part('Heater'),panel:type==='solar'?part('Panel'):null};
     }
     const root=new THREE.Group(),w=DEFS[type].w*2,d=DEFS[type].d*2;
     box(root,dark,0,.12,0,w-.12,.24,d-.12);
@@ -305,6 +305,7 @@ export async function createWorld(canvas, initialState) {
     } else box(root,ivory,0,.75,0,w-.4,1.3,d-.4);
     return {root,roof,emits};
   }
+  const sunDir=new THREE.Vector3(0,1,0);
   const buildFx=createConstructionFx(scene,{make:o=>buildModel(o.type,o.turn).root});let booted=false;
   const blueprintColor=[new THREE.Color('#79d5ed'),new THREE.Color('#ff715d')],blueprintEmissive=[new THREE.Color('#2c8ca9'),new THREE.Color('#a3301f')];
   const ghost=new THREE.Group();scene.add(ghost);let ghostKey='';
@@ -389,7 +390,10 @@ export async function createWorld(canvas, initialState) {
     document.body.dataset.region=underground?'cave':'surface';
     canvas.dataset.caveId=String(state.player.cave??'');canvas.dataset.seed=String(state.seed);canvas.dataset.viewHeight=String(viewHeight);
     canvas.dataset.playerX=state.player.x.toFixed(2);canvas.dataset.playerZ=state.player.z.toFixed(2);
-    const daylight=Math.max(0,Math.sin(state.time/240*Math.PI*2+Math.PI/3));
+    const phase=(state.time/240*Math.PI*2+Math.PI/3)%(Math.PI*2),daylight=Math.max(0,Math.sin(phase));
+    // The sun crosses the sky through the day, swinging 70° either side of its noon bearing, so shadows sweep round.
+    const sunBearing=Math.atan2(-25,-30)+THREE.MathUtils.clamp(phase-Math.PI/2,-1.6,1.6)*.78;
+    sunDir.set(Math.sin(sunBearing)*39,12+daylight*38,Math.cos(sunBearing)*39).normalize();
     // Underground the surface sinks almost to black over a second, leaving only the cave light and colony lamps.
     caveBlend+=((underground?1:0)-caveBlend)*(1-Math.exp(-Math.min(dt,.1)*3));
     const surfaceLight=1-.94*caveBlend;
@@ -397,7 +401,7 @@ export async function createWorld(canvas, initialState) {
     sun.intensity=(.05+daylight*3.23)*surfaceLight;fill.intensity=(.1+daylight*1.1)*surfaceLight;
     suitFill.intensity=2+(1-daylight)*3;headlamp.intensity=8+(1-daylight)*62;padLight.intensity=state.power.powered===false?0:(5+(1-daylight)*22)*surfaceLight;
     for(const m of padLamps)m.emissiveIntensity=state.power.powered===false?0:m.userData.baseEmission;
-    sun.position.set(follow.x-25,12+daylight*38,follow.z-30);sun.target.position.set(follow.x,0,follow.z);sun.target.updateMatrixWorld();
+    sun.position.set(follow.x+Math.sin(sunBearing)*39,12+daylight*38,follow.z+Math.cos(sunBearing)*39);sun.target.position.set(follow.x,0,follow.z);sun.target.updateMatrixWorld();
     scene.background.setRGB((.01+daylight*.05)*surfaceLight,(.016+daylight*.072)*surfaceLight,(.03+daylight*.11)*surfaceLight);scene.fog.color.copy(scene.background);
     scene.fog.density=.0012;suitFill.distance=underground?6:8;headlamp.distance=underground?20:18;
     if(underground){suitFill.intensity=9;headlamp.intensity=145;}
@@ -442,6 +446,12 @@ export async function createWorld(canvas, initialState) {
       const lit=state.power.powered!==false;
       if(b.built&&o.lit!==lit){o.ownedMaterials.forEach(m=>{m.emissiveIntensity=(m.userData.baseEmission||0)*(lit?1:0);});o.lit=lit;}
       else if(!b.built)o.lit=null;
+      if(o.panel&&b.built){
+        // Trackers turn to face the sun by day and lie flat for the night. Tilt stops short of the sun's angle: any
+        // steeper and the camera, which looks from the far side of the sky, would see the array edge-on.
+        const up=daylight>.02,yaw=up?Math.atan2(sunDir.x,sunDir.z)-b.rotation*Math.PI/2:o.panel.rotation.y,tilt=up?Math.min(.32,Math.PI/2-Math.asin(sunDir.y)):0,k=1-Math.exp(-dt*1.2);
+        o.panel.rotation.order='YXZ';o.panel.rotation.y+=Math.atan2(Math.sin(yaw-o.panel.rotation.y),Math.cos(yaw-o.panel.rotation.y))*k;o.panel.rotation.x+=(tilt-o.panel.rotation.x)*k;
+      }
       if(o.heater&&b.built){const glow=melterReady(state,b)&&state.power.powered!==false?1:0;o.heater.traverse(n=>{if(n.isMesh)n.material.emissiveIntensity=(n.material.userData.baseEmission||0)*glow;});}
     }
     expedition.update(state,dt);updateEncounter(dt,underground);
