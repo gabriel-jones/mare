@@ -404,7 +404,7 @@ export async function createWorld(canvas, initialState) {
     caveBlend+=((underground?1:0)-caveBlend)*(1-Math.exp(-Math.min(dt,.1)*3));
     const surfaceLight=1-.94*caveBlend;
     scene.environmentIntensity=(.01+daylight*.29)*surfaceLight;
-    sun.intensity=(.05+(1-(1-daylight)**2)*3.23)*surfaceLight;fill.intensity=(.1+daylight*1.1)*surfaceLight;
+    sun.intensity=(.05+(1-(1-daylight)**2)*3.75)*surfaceLight;fill.intensity=(.1+daylight*.55)*surfaceLight;
     suitFill.intensity=2+(1-daylight)*3;headlamp.intensity=8+(1-daylight)*62;padLight.intensity=state.power.powered===false?0:(5+(1-daylight)*22)*surfaceLight;
     for(const m of padLamps)m.emissiveIntensity=state.power.powered===false?0:m.userData.baseEmission;
     sun.position.copy(sunDir).multiplyScalar(70).add(follow);sun.target.position.set(follow.x,0,follow.z);sun.target.updateMatrixWorld();

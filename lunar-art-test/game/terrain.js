@@ -23,6 +23,9 @@ export function terrainData(seed){
  // afterwards keeps the random stream, and so the rest of the landscape, unchanged.
  const site=missionSite();
  const clear=(x,z,r)=>Math.hypot(x-site.x,z-site.z)>site.radius+r;
+ // Small pocks are drawn after the boulders so those keep their places, and stay out past the ring where
+ // colonies have usually built.
+ for(let i=0;i<70;i++){const x=(random()-.5)*236,z=(random()-.5)*236,r=2.6+random()**2*3.4;if(Math.hypot(x,z)>36&&clear(x,z,r+4))addCrater(x,z,r,.35+r*.16);}
  const data={hills,craters:[...craters.filter(c=>clear(c.x,c.z,c.radius+4)),{x:site.x,z:site.z,radius:site.radius,depth:site.depth,aspect:1,angle:0}],caves,boulders:boulders.filter(b=>clear(b.x,b.z,b.radius+3)),site};
  cache.set(seed,data);return data;
 }
@@ -30,6 +33,7 @@ export function terrainData(seed){
 export function missionSite(){return {x:62,z:-14,radius:13,depth:2.2,lander:{x:58.5,z:-17,radius:1.7,angle:.6}};}
 /** Grid cells (2 m) whose floor holds ice: the permanently shadowed middle of the mission crater. */
 export function iceAt(x,z){const s=missionSite();return Math.hypot(x*2-s.x,z*2-s.z)<s.radius*.55&&Math.hypot(x*2-s.lander.x,z*2-s.lander.z)>s.lander.radius+1.2;}
+const CRATER_DEPTH=1.7;
 export function heightAt(seed,x,z){
  const data=terrainData(seed),clearing=smooth(17,25,Math.hypot(x,z)),pad=smooth(9,14,Math.hypot(x,z+10));
  let h=((noise(seed,x*.035,z*.035)-.5)*2.5+(noise(seed+13,x*.115,z*.115)-.5)*.65+Math.sin(x*.26+z*.13)*.055)*clearing*pad;
@@ -41,7 +45,7 @@ export function heightAt(seed,x,z){
  const tier=.9,level=Math.floor(relief/tier),fraction=relief/tier-level;
  const terraced=(level+smooth(.72,1,fraction))*tier;
  h+=terraced*(1-opening);
- for(const c of data.craters){const p=local(c,x,z),d=Math.hypot(p.side/c.radius,p.depth/(c.radius*c.aspect));if(d>1.8)continue;const bowl=-c.depth*(1-smooth(.08,.98,d)),rim=Math.exp(-(((d-1.04)/.18)**2))*c.depth*.42,ejecta=Math.exp(-(((d-1.25)/.42)**2))*c.depth*.13;h+=(bowl+rim+ejecta)*clearing*pad;}
+ for(const c of data.craters){const p=local(c,x,z),d=Math.hypot(p.side/c.radius,p.depth/(c.radius*c.aspect));if(d>1.8)continue;const depth=c.depth*CRATER_DEPTH,bowl=-depth*(1-smooth(.08,.98,d)),rim=Math.exp(-(((d-1.04)/.18)**2))*depth*.5,ejecta=Math.exp(-(((d-1.25)/.42)**2))*depth*.15;h+=(bowl+rim+ejecta)*clearing*pad;}
  return h;
 }
 export function slopeAt(seed,x,z){return Math.hypot((heightAt(seed,x+.3,z)-heightAt(seed,x-.3,z))/.6,(heightAt(seed,x,z+.3)-heightAt(seed,x,z-.3))/.6);}
@@ -61,14 +65,16 @@ const CLIFF=1.2;
 export function surfaceSlopeAt(seed,x,z,e=.35){return Math.hypot(surfaceHeightAt(seed,x+e,z)-surfaceHeightAt(seed,x-e,z),surfaceHeightAt(seed,x,z+e)-surfaceHeightAt(seed,x,z-e))/(2*e);}
 export function terrainBlocked(seed,x,z,buildings=[],defs={}){
  if(buildings.some(b=>{const d=defs[b.type];if(!d)return false;return x>=b.x*2-2&&x<=(b.x+(b.rotation%2?d.d:d.w))*2&&z>=b.z*2-2&&z<=(b.z+(b.rotation%2?d.w:d.d))*2;}))return false;
- const lander=missionSite().lander;
- return (surfaceSlopeAt(seed,x,z)>CLIFF&&slopeAt(seed,x,z)>.65)||Math.hypot(x-lander.x,z-lander.z)<lander.radius||terrainData(seed).boulders.some(b=>Math.hypot(x-b.x,z-b.z)<b.radius+.3);
+ const lander=missionSite().lander,data=terrainData(seed);
+ // Crater bowls and rims are always walkable, however steep, even where one is punched into a hill's terraces.
+ const inCrater=data.craters.some(c=>{const p=local(c,x,z);return Math.hypot(p.side/c.radius,p.depth/(c.radius*c.aspect))<1.45;});
+ return (!inCrater&&surfaceSlopeAt(seed,x,z)>CLIFF&&slopeAt(seed,x,z)>.65)||Math.hypot(x-lander.x,z-lander.z)<lander.radius||data.boulders.some(b=>Math.hypot(x-b.x,z-b.z)<b.radius+.3);
 }
 
 // The visible ground is a faceted triangle lattice sampled from the continuous field above; placement checks keep
 // using the field, while everything that stands on the ground uses the lattice so it sits exactly on the facets.
-// The spacing deliberately misses the 2 m build grid so facets never line up into squares.
-export const FACET=2.4;
+// The spacing deliberately misses the 2 m build grid so facets rarely line up into squares.
+export const FACET=1.8;
 const lattices=new Map();
 const latticeHash=(seed,i,j)=>{let n=Math.imul(i,73856093)^Math.imul(j,19349663)^Math.imul(seed,83492791);n=Math.imul(n^(n>>>13),1274126177);return ((n^(n>>>16))>>>0)/4294967296;};
 /** Height of lattice vertex (i, j): the field plus a little deterministic jitter, none in the level starting clearing. */

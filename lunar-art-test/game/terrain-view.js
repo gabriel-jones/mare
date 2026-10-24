@@ -10,25 +10,30 @@ export function createTerrainView(seed,root,models=new Map()){
  // Faceted maria: one flat-shaded triangle per lattice half-square, each coloured on its own so the facets read.
  // Steep facets go rocky, crater floors darker, and the bigger craters throw bright ejecta rays.
  const positions=[],colors=[],uvs=[],N=Math.ceil(224/FACET);
- const dustColor=new THREE.Color('#9c968a'),stoneColor=new THREE.Color('#655f70'),floorColor=new THREE.Color('#827c73'),rayColor=new THREE.Color('#cdc6b8'),color=new THREE.Color();
+ const dustColor=new THREE.Color('#9c968a'),mareColor=new THREE.Color('#4d4a47'),stoneColor=new THREE.Color('#655f70'),floorColor=new THREE.Color('#5a5650'),rayColor=new THREE.Color('#cdc6b8'),color=new THREE.Color();
  const rays=data.craters.map(()=>Array.from({length:28},()=>random()**3)),craters=data.craters.map(c=>({...c,cos:Math.cos(c.angle),sin:Math.sin(c.angle)}));
  const smooth=(a,b,t)=>{t=Math.max(0,Math.min(1,(t-a)/(b-a)));return t*t*(3-2*t);};
+ const cell=(i,j)=>{let n=Math.imul(i,73856093)^Math.imul(j,19349663)^Math.imul(seed+31,83492791);n=Math.imul(n^(n>>>13),1274126177);return ((n^(n>>>16))>>>0)/4294967296;};
+ const value=(x,z)=>{const i=Math.floor(x),j=Math.floor(z),u=smooth(0,1,x-i),v=smooth(0,1,z-j);return (cell(i,j)*(1-u)+cell(i+1,j)*u)*(1-v)+(cell(i,j+1)*(1-u)+cell(i+1,j+1)*u)*v;};
+ // Dark basalt mare pooled between pale highland dust, broken into a few big blots.
+ const mare=(x,z)=>smooth(.44,.56,value(x*.03,z*.03)*.65+value(x*.09,z*.09)*.35)*.85;
  const ab=new THREE.Vector3(),ac=new THREE.Vector3(),normal=new THREE.Vector3();
  function facet(p0,p1,p2){
   ab.set(p1[0]-p0[0],p1[1]-p0[1],p1[2]-p0[2]);ac.set(p2[0]-p0[0],p2[1]-p0[1],p2[2]-p0[2]);normal.crossVectors(ac,ab).normalize();
-  const x=(p0[0]+p1[0]+p2[0])/3,z=(p0[2]+p1[2]+p2[2])/3;
-  color.copy(dustColor).lerp(stoneColor,smooth(.03,.3,1-Math.abs(normal.y))*.75);
+  const x=(p0[0]+p1[0]+p2[0])/3,z=(p0[2]+p1[2]+p2[2])/3,cavity=(p0[3]+p1[3]+p2[3])/3;
+  color.copy(dustColor).lerp(mareColor,mare(x,z)).lerp(stoneColor,smooth(.03,.3,1-Math.abs(normal.y))*.6);
   craters.forEach((c,n)=>{
    const dx=x-c.x,dz=z-c.z,reach=c.radius*3.2;if(dx>reach||dx<-reach||dz>reach||dz<-reach)return;
    const side=dx*c.cos-dz*c.sin,depth=dx*c.sin+dz*c.cos,d=Math.hypot(side/c.radius,depth/(c.radius*c.aspect));
    if(d>3)return;
-   if(d<.9)color.lerp(floorColor,.4*(1-d/.9)+.1);
+   if(d<.9)color.lerp(floorColor,.45*(1-d/.9)+.2);
    if(c.radius>3&&d>.95){const t=(Math.atan2(depth,side)/(Math.PI*2)+.5)*rays[n].length,k=Math.floor(t),f=t-k,w=rays[n][k%rays[n].length]*(1-f)+rays[n][(k+1)%rays[n].length]*f;color.lerp(rayColor,w*.55*smooth(.95,1.2,d)*(1-smooth(1.3,3,d)));}
   });
-  color.multiplyScalar(.965+((Math.sin(x*12.9898+z*78.233)*43758.5453)%1+1)%1*.07);
-  for(const p of [p0,p1,p2]){positions.push(...p);colors.push(color.r,color.g,color.b);uvs.push(p[0]/384+.5,p[2]/384+.5);}
+  // Hollows sink into shade and ridges catch light, so relief reads even under a high sun.
+  color.multiplyScalar(Math.max(.62,Math.min(1.3,1-cavity*3-Math.min(0,cavity)*1.2))*(.95+((Math.sin(x*12.9898+z*78.233)*43758.5453)%1+1)%1*.1));
+  for(const p of [p0,p1,p2]){positions.push(p[0],p[1],p[2]);colors.push(color.r,color.g,color.b);uvs.push(p[0]/384+.5,p[2]/384+.5);}
  }
- const corner=(i,j)=>[i*FACET,latticeHeight(seed,i,j),j*FACET];
+ const corner=(i,j)=>{const h=latticeHeight(seed,i,j);return [i*FACET,h,j*FACET,((latticeHeight(seed,i+1,j)+latticeHeight(seed,i-1,j)+latticeHeight(seed,i,j+1)+latticeHeight(seed,i,j-1))/4-h)/FACET];};
  for(let j=-N;j<N;j++)for(let i=-N;i<N;i++){
   const a=corner(i,j),b=corner(i+1,j),c=corner(i,j+1),d=corner(i+1,j+1);
   if(facetFlip(seed,i,j)){facet(a,b,c);facet(b,d,c);}else{facet(a,b,d);facet(a,d,c);}
@@ -70,9 +75,10 @@ export function createTerrainView(seed,root,models=new Map()){
   `);
  };
  const ground=add(groundGeo,groundMat);ground.castShadow=false;
- // Only the cliff casts terrain shadows. A huge self-shadowing floor produced
+ // Only raised ground and steep walls cast terrain shadows. A huge self-shadowing floor produced
  // a square of shadow-map acne around the player at overview zoom.
- const casting=[];for(let i=0;i<positions.length;i+=9)if(positions[i+1]>1||positions[i+4]>1||positions[i+7]>1)casting.push(...positions.slice(i,i+9));
+ const casting=[],steep=(i)=>{ab.set(positions[i+3]-positions[i],positions[i+4]-positions[i+1],positions[i+5]-positions[i+2]);ac.set(positions[i+6]-positions[i],positions[i+7]-positions[i+1],positions[i+8]-positions[i+2]);return Math.abs(normal.crossVectors(ac,ab).normalize().y)<.86;};
+ for(let i=0;i<positions.length;i+=9)if(positions[i+1]>1||positions[i+4]>1||positions[i+7]>1||steep(i))casting.push(...positions.slice(i,i+9));
  const cliffGeo=new THREE.BufferGeometry();cliffGeo.setAttribute('position',new THREE.Float32BufferAttribute(casting,3));
  const shadowCaster=add(cliffGeo,new THREE.MeshBasicMaterial({colorWrite:false,depthWrite:false,side:THREE.DoubleSide}));materials.push(shadowCaster.material);shadowCaster.receiveShadow=false;shadowCaster.position.y=-.4;
 
