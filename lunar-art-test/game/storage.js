@@ -100,7 +100,7 @@ export function moveStack(state, crate, from, to, half = false) {
   return { ok: true, moved, reason: `Moved ${moved} ${ITEM_INFO[item].name.toLowerCase()}.` };
 }
 /** Stores everything carried except weapons, ammunition, flares and food. */
-export const KEEP = item => ['pistol', 'rifle', 'flamethrower', 'rounds', 'fuel', 'flare', 'medkit'].includes(item) || !!ITEM_INFO[item]?.food;
+export const KEEP = item => ['pistol', 'smg', 'katana', 'rifle', 'flamethrower', 'rounds', 'fuel', 'flare', 'medkit'].includes(item) || !!ITEM_INFO[item]?.food;
 export function storeAll(state, crate) {
   let moved = 0, full = false;
   state.inventory.forEach((slot, i) => { if (slot && !KEEP(slot.item)) { const r = storeSlot(state, i, crate); moved += r.moved ?? 0; if (!r.ok || state.inventory[i]) full = true; } });

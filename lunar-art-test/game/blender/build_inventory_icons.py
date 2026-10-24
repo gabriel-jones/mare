@@ -52,6 +52,7 @@ def materials(p):
             'olive': mat('rifle olive ceramic', (.13,.15,.11), .15,.55),
             'brass': mat('cartridge brass', (.72,.48,.16), .85,.3),
             'gunmetal': mat('blued gunmetal', (.035,.042,.05), .7,.38),
+            'arc': mat('katana arc edge', (.35,.85,1.), 0,.3,3),
         })
     return p
 
@@ -456,6 +457,50 @@ def rifle(p):
     for y in [-.105,.105]: box('Rifle / power cell',(.0,y,.55),(.42,.01,.04),p['cyan'],0)
 
 
+def smg(p):
+    materials(p)
+    beam('Smg / grip',(-.12,0,.42),(-.24,0,.06),.17,p['dark'])
+    box('Smg / lower receiver',(.08,0,.46),(.74,.19,.14),p['gunmetal'],.03)
+    box('Smg / upper shroud',(.15,0,.6),(.86,.21,.16),p['ivory'],.03)
+    for x in [.3,.44,.58]: box('Smg / vent',(x,-.106,.6),(.08,.01,.06),p['dark'],0)
+    beam('Smg / magazine',(.22,0,.38),(.27,0,.0),.13,p['dark'])
+    box('Smg / magazine base',(.275,0,-.01),(.16,.14,.05),p['orange'],.01)
+    beam('Smg / fore-grip',(.5,0,.4),(.52,0,.16),.1,p['dark'])
+    along_x('Smg / barrel',.58,.82,.6,.04,p['silver'])
+    along_x('Smg / muzzle',.8,.9,.6,.06,p['dark'])
+    for y in [-.05,.05]: box('Smg / stock rail',(-.5,y,.55),(.42,.025,.03),p['dark'],0)
+    box('Smg / stock pad',(-.72,0,.5),(.06,.17,.26),p['dark'],.02)
+    box('Smg / stock cap',(-.755,0,.5),(.02,.14,.2),p['orange'],.005)
+    box('Smg / sight',(.02,0,.73),(.18,.12,.1),p['dark'],.01)
+    box('Smg / sight lens',(.115,0,.74),(.01,.08,.06),p['cyan'],0)
+    for y in [-.097,.097]: box('Smg / power cell',(.1,y,.46),(.44,.01,.04),p['cyan'],0)
+
+
+def prism(name,profile,half,material):
+    """An x-z side profile extruded `half` either side of y=0."""
+    n=len(profile)
+    verts=[(x,-half,z) for x,z in profile]+[(x,half,z) for x,z in profile]
+    faces=[tuple(range(n)),tuple(range(2*n-1,n-1,-1))]+[(i,(i+1)%n,n+(i+1)%n,n+i) for i in range(n)]
+    o=mesh(name,verts,faces,material)
+    o.data.validate(); o.data.update()
+    return o
+
+
+def katana(p):
+    materials(p)
+    box('Katana / handle',(-.78,0,.3),(.5,.1,.11),p['dark'],.02)
+    for x in [-.96,-.84,-.72,-.6]: box('Katana / cord wrap',(x,0,.3),(.03,.11,.12),p['orange'],.005)
+    box('Katana / pommel',(-1.05,0,.3),(.06,.12,.13),p['silver'],.01)
+    box('Katana / guard',(-.5,0,.3),(.05,.22,.26),p['dark'],.01)
+    box('Katana / guard ring',(-.47,0,.3),(.015,.16,.19),p['cyan'],0)
+    box('Katana / collar',(-.44,0,.3),(.08,.08,.11),p['silver'],.01)
+    # The blade is one extruded side profile so its point can sweep up into the glowing edge.
+    blade=[(-.42,.24),(.98,.245),(1.0,.26),(.95,.33),(.86,.37),(-.42,.375)]
+    edge=[(-.42,.36),(.86,.355),(.94,.315),(.99,.255),(1.02,.262),(.97,.34),(.87,.395),(-.42,.395)]
+    prism('Katana / blade',blade,.017,p['gunmetal'])
+    prism('Katana / edge',edge,.022,p['arc'])
+
+
 def flamethrower(p):
     materials(p)
     along_x('Flamethrower / body',-.42,.55,.55,.17,p['dark'],20)
@@ -497,7 +542,7 @@ BUILDERS = [('metal',study['metal']),('silicon',silicon),('regolith',regolith),(
             ('flour',flour),('protein',protein),('meal',meal),('salad',salad),('bread',bread),('stew',stew),
             ('broth',broth),('algaecake',algaecake),('pizza',pizza),('medkit',medkit),('core',core),
             ('frame',frame),('wing',wing),('chip',study['chip']),('satellite',satellite),('titanium',titanium),
-            ('rareearth',rareearth),('artifact',study['artifact']),('heart',heart),('goo',goo),('flare',flare),('rounds',rounds),('fuel',fuel),('pistol',pistol),('rifle',rifle),('flamethrower',flamethrower)]
+            ('rareearth',rareearth),('artifact',study['artifact']),('heart',heart),('goo',goo),('flare',flare),('rounds',rounds),('fuel',fuel),('pistol',pistol),('smg',smg),('katana',katana),('rifle',rifle),('flamethrower',flamethrower)]
 
 
 def build_inventory():

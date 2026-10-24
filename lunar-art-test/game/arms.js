@@ -9,9 +9,13 @@ import { techDone } from './space.js';
  */
 export const WEAPONS = Object.freeze({
   pistol: { ammo: 'rounds', magazine: 6, damage: 12, range: 16, cooldown: .28, reload: 1.4, tolerance: .22 },
+  // One pull looses `burst` rounds `interval` apart, each thrown up to `spread` radians off the aim.
+  smg: { ammo: 'rounds', magazine: 24, damage: 9, range: 18, cooldown: .42, burst: 3, interval: .07, spread: .06, reload: 1.8, tolerance: .2 },
   rifle: { ammo: 'rounds', magazine: 12, damage: 22, range: 26, cooldown: .13, reload: 2.1, tolerance: .16 },
   // The tank holds one fuel cell and burns `burn` a second. Flames reach `range` in a cone of half-angle `cone`.
   flamethrower: { ammo: 'fuel', magazine: 100, burn: 14, damage: 55, range: 5.5, cone: .38, reload: 1.8, stream: true },
+  // No ammunition: a swing cuts everything within `range` and `arc` radians either side of the aim.
+  katana: { magazine: 0, damage: 30, range: 2.4, arc: 1.05, cooldown: .55, melee: true },
 });
 export const isWeapon = item => !!WEAPONS[item];
 /** Armory recipes: what each costs from the pack and how many it makes. */
@@ -19,6 +23,8 @@ export const ARMORY = Object.freeze({
   rounds: { input: { metal: 2 }, makes: 8 },
   fuel: { input: { goo: 1, metal: 1 }, makes: 3 },
   pistol: { input: { metal: 12, silicon: 4 }, makes: 1 },
+  smg: { input: { metal: 20, silicon: 6 }, makes: 1, tech: 'smg' },
+  katana: { input: { metal: 16, titanium: 4, silicon: 6 }, makes: 1, tech: 'katana' },
   rifle: { input: { metal: 28, silicon: 8, titanium: 6 }, makes: 1, tech: 'rifle' },
   flamethrower: { input: { metal: 26, titanium: 10, goo: 2 }, makes: 1, tech: 'flamethrower' },
 });
@@ -47,12 +53,12 @@ export function holdWeapon(state, item) {
   const a = armsOf(state); if (a.held !== item) { a.held = item; a.reloading = 0; a.cooldown = Math.max(a.cooldown, .25); }
   return true;
 }
-export const reserveOf = (state, weapon) => inv.count(state.inventory, WEAPONS[weapon].ammo);
+export const reserveOf = (state, weapon) => WEAPONS[weapon].ammo ? inv.count(state.inventory, WEAPONS[weapon].ammo) : 0;
 
 export function reload(state) {
   const w = heldWeapon(state); if (!w) return { ok: false, reason: 'No weapon. Craft one at an armory.' };
   const a = armsOf(state), spec = WEAPONS[w];
-  if (a.reloading || a.loaded[w] >= spec.magazine) return { ok: false, reason: '' };
+  if (spec.melee || a.reloading || a.loaded[w] >= spec.magazine) return { ok: false, reason: '' };
   if (!reserveOf(state, w)) return { ok: false, reason: spec.ammo === 'fuel' ? 'No fuel cells. Refine some from goo at an armory.' : 'No rounds left. Craft more at an armory.' };
   a.reloading = spec.reload; return { ok: true, reason: 'Reloading…' };
 }
@@ -68,12 +74,16 @@ export function stepArms(state, dt) {
   const n = Math.min(spec.magazine - a.loaded[w], reserveOf(state, w));
   if (n > 0) { inv.remove(state.inventory, spec.ammo, n); a.loaded[w] += n; }
 }
-/** Spend a round if the held gun is ready. Empty, it starts a reload instead. */
-export function pullTrigger(state) {
+/**
+ * Spend a round if the held gun is ready. Empty, it starts a reload instead. A melee weapon spends nothing, it only
+ * waits out its cooldown. `chained` is a later round of a burst, which the burst's cooldown does not hold back.
+ */
+export function pullTrigger(state, chained = false) {
   const w = heldWeapon(state); if (!w) return { ok: false, reason: 'No weapon. Craft one at an armory.' };
   const a = armsOf(state), spec = WEAPONS[w];
   if (spec.stream) return { ok: false, weapon: w };
-  if (a.cooldown > 0 || a.reloading) return { ok: false, weapon: w, reason: a.reloading ? 'Reloading…' : '' };
+  if ((a.cooldown > 0 && !chained) || a.reloading) return { ok: false, weapon: w, reason: a.reloading ? 'Reloading…' : '' };
+  if (spec.melee) { a.cooldown = spec.cooldown; return { ok: true, weapon: w, spec }; }
   if (!a.loaded[w]) { const r = reload(state); return { ok: false, weapon: w, reason: r.reason }; }
   a.loaded[w]--; a.cooldown = spec.cooldown;
   if (!a.loaded[w]) reload(state);

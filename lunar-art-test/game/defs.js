@@ -47,6 +47,8 @@ export const ITEM_INFO = Object.freeze({
   rounds: { name: 'Rounds', stack: 60 },
   fuel: { name: 'Fuel cell', stack: 10 },
   pistol: { name: 'Pistol', stack: 1 },
+  smg: { name: 'Submachine gun', stack: 1 },
+  katana: { name: 'Electric katana', stack: 1 },
   rifle: { name: 'Semi-auto rifle', stack: 1 },
   flamethrower: { name: 'Flamethrower', stack: 1 },
 });

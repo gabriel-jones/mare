@@ -60,7 +60,8 @@ const arc = (a0, a1) => {
 /**
  * The weapon reticle, following the mouse. Guns: four ticks that kick open on every shot and settle back, the
  * magazine as segments round the rim, and a sweep while reloading. Flamethrower: a ring that flares while spraying,
- * with the tank as an arc. It dims when the aim is past the weapon's reach.
+ * with the tank as an arc. Katana: the same ring in cyan, its arc filling back up as the blade recovers from a swing.
+ * It dims when the aim is past the weapon's reach.
  */
 export function createReticle(parent = document.body) {
   const el = document.createElementNS(NS, 'svg');
@@ -74,7 +75,7 @@ export function createReticle(parent = document.body) {
 
   function build(w, magazine) {
     weapon = w; segments = []; tank = null; lastFuel = -1; ammo.textContent = '';
-    if (w === 'flamethrower') {
+    if (w === 'flamethrower' || w === 'katana') {
       ammo.innerHTML = `<path class="seg rim" d="${arc(0, Math.PI * 2 - .001)}"/><path class="seg on"/>`; tank = ammo.lastChild;
       return;
     }
@@ -92,11 +93,11 @@ export function createReticle(parent = document.body) {
     if (!s) { shown = false; return; }
     if (!shown) { shown = true; move(x, y); }
     if (s.weapon !== weapon) { build(s.weapon, s.magazine); lastLoaded = s.loaded; kick = 0; }
-    const flame = s.weapon === 'flamethrower';
-    if (!flame && s.loaded < lastLoaded) kick = Math.min(1.6, kick + (s.weapon === 'rifle' ? .55 : .9));
+    const blade = s.weapon === 'katana', flame = s.weapon === 'flamethrower' || blade;
+    if (!flame && s.loaded < lastLoaded) kick = Math.min(1.6, kick + (s.weapon === 'rifle' ? .55 : s.weapon === 'smg' ? .45 : .9));
     lastLoaded = s.loaded; kick *= Math.exp(-dt * 7);
-    el.classList.toggle('flamer', flame); el.classList.toggle('far', !!s.far); el.classList.toggle('spraying', !!s.spraying);
-    el.classList.toggle('reloading', s.reload != null); el.classList.toggle('empty', !s.loaded && s.reload == null);
+    el.classList.toggle('flamer', flame); el.classList.toggle('blade', blade); el.classList.toggle('far', !!s.far); el.classList.toggle('spraying', !!s.spraying);
+    el.classList.toggle('reloading', s.reload != null); el.classList.toggle('empty', !blade && !s.loaded && s.reload == null);
     if (s.reload != null) reloadArc.style.strokeDasharray = `${s.reload.toFixed(3)} 1`;
     if (flame) {
       const f = Math.round(s.loaded / s.magazine * 200) / 200;

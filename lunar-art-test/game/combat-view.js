@@ -21,6 +21,7 @@ const UP=THREE.Object3D.DEFAULT_UP,TWIST=1,BULLET_SPEED=90,CASES=40,LAND=.3;
 // What each gun's shot looks like, and which marker bones it fires from.
 const GUNS={
  pistol:{muzzle:'Muzzle',ahead:'MuzzleAhead',port:'Port',out:'PortOut',flash:1,light:40,tracer:1,brass:1,shake:.07,sparks:4},
+ smg:{muzzle:'SmgMuzzle',ahead:'SmgMuzzleAhead',port:'SmgPort',out:'SmgPortOut',flash:.9,light:35,tracer:.85,brass:.85,shake:.05,sparks:3},
  rifle:{muzzle:'RifleMuzzle',ahead:'RifleMuzzleAhead',port:'RiflePort',out:'RiflePortOut',flash:1.5,light:60,tracer:1.7,brass:1.35,shake:.11,sparks:8},
 };
 const wrapAngle=a=>Math.atan2(Math.sin(a),Math.cos(a));
@@ -42,7 +43,7 @@ function particles(parent,count,{additive,color,size}){
  };
 }
 
-const LABEL={pistol:'PISTOL',rifle:'RIFLE'};
+const LABEL={pistol:'PISTOL',smg:'SMG',rifle:'RIFLE',katana:'ELECTRIC KATANA'};
 function createHud(){
  const root=document.createElement('div');root.className='hunt-hud';root.hidden=true;
  root.innerHTML=`<div class="hunt-hurt"></div><div class="hunt-prompt"><span>GRABBED — MASH E</span><i><b></b></i></div><div class="hunt-ammo"></div>`;
@@ -61,7 +62,7 @@ function createHud(){
    root.hidden=!on;if(!on)return;
    hurt.style.opacity=String(Math.min(.85,hurtFlash));
    prompt.style.display=grabbed?'block':'none';if(grabbed)meter.style.width=`${Math.min(1,escape)*100}%`;
-   const text=!weapon?'NO WEAPON':WEAPONS[weapon].ammo==='fuel'?`FUEL ${Math.ceil(loaded)}% · ${reserve} CELL${reserve===1?'':'S'}${reloading?' · REFUELLING':''}`:`${LABEL[weapon]} ${loaded}/${reserve}${reloading?' · RELOADING':''}`;
+   const text=!weapon?'NO WEAPON':WEAPONS[weapon].melee?LABEL[weapon]:WEAPONS[weapon].ammo==='fuel'?`FUEL ${Math.ceil(loaded)}% · ${reserve} CELL${reserve===1?'':'S'}${reloading?' · REFUELLING':''}`:`${LABEL[weapon]} ${loaded}/${reserve}${reloading?' · RELOADING':''}`;
    if(text!==lastAmmo){ammo.textContent=text;lastAmmo=text;}
   },
   dispose(){root.remove();},
@@ -88,6 +89,16 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
  const impactFlash=new THREE.Sprite(new THREE.SpriteMaterial({map:flashTex,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,opacity:0}));impactFlash.scale.setScalar(.9);fx.add(impactFlash);
  const ichor=particles(fx,80,{additive:false,color:'#020203',size:10}),sparks=particles(fx,60,{additive:true,color:'#ffb066',size:7}),dust=particles(fx,40,{additive:true,color:'#2c323c',size:30});
  const smoke=createSmoke(fx),flares=createFlareView(fx),thrown=new WeakSet();
+ // The katana: a cyan glow that rides the blade, sparks off it, and a ribbon traced by the blade through each swing.
+ const zaps=particles(fx,90,{additive:true,color:'#8fe6ff',size:6}),bladeLight=new THREE.PointLight('#8fe6ff',0,4,2);fx.add(bladeLight);
+ const TRAIL=24,trailPos=new Float32Array(TRAIL*6),trailAlpha=new Float32Array(TRAIL*2),trailGeo=new THREE.BufferGeometry();
+ trailGeo.setAttribute('position',new THREE.BufferAttribute(trailPos,3));trailGeo.setAttribute('aAlpha',new THREE.BufferAttribute(trailAlpha,1));
+ trailGeo.setIndex(Array.from({length:TRAIL-1},(_,i)=>[2*i,2*i+1,2*i+2,2*i+1,2*i+3,2*i+2]).flat());
+ const trailMat=new THREE.ShaderMaterial({transparent:true,depthWrite:false,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,
+  vertexShader:'attribute float aAlpha;varying float vAlpha;varying float vEdge;void main(){vAlpha=aAlpha;vEdge=float(gl_VertexID%2);gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
+  fragmentShader:'varying float vAlpha;varying float vEdge;void main(){float e=vEdge*vEdge*vEdge;vec3 c=mix(vec3(.1,.55,1.),vec3(.8,1.,1.),e*e);gl_FragColor=vec4(c,vAlpha*e*.85);}'});
+ const trailMesh=new THREE.Mesh(trailGeo,trailMat);trailMesh.frustumCulled=false;fx.add(trailMesh);
+ const trail=[];let slashT=9,crackle=0;
  const aimMarker=new THREE.Mesh(new THREE.RingGeometry(.18,.24,24).rotateX(-Math.PI/2),new THREE.MeshBasicMaterial({color:'#ffcf9a',transparent:true,opacity:.6,depthWrite:false}));aimMarker.position.y=.05;aimMarker.visible=false;fx.add(aimMarker);
 
  const localOf=(o,v=new THREE.Vector3())=>caveView.root.worldToLocal(o.getWorldPosition(v));
@@ -96,7 +107,7 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
 
  function play(clip,rate=1){if(act?.clip===clip)actor.restart();act={clip,t:0,len:actor.duration(clip)/rate,rate};}
  function clearViews(){views.forEach(v=>v.view.dispose());views.clear();wisps.clear();burns.clear();}
- function clearEffects(){bullets.forEach(b=>{b.live=false;b.mesh.visible=false;});hideCases();ichor.clear();sparks.clear();dust.clear();smoke.clear();flares.clear();flash.material.opacity=0;impactFlash.material.opacity=0;muzzleLight.intensity=0;jet.clear();pending=[];}
+ function clearEffects(){bullets.forEach(b=>{b.live=false;b.mesh.visible=false;});hideCases();ichor.clear();sparks.clear();dust.clear();smoke.clear();flares.clear();flash.material.opacity=0;impactFlash.material.opacity=0;muzzleLight.intensity=0;jet.clear();pending=[];zaps.clear();trail.length=0;slashT=9;}
 
  /** The cave the player is now in. Effects move into its space; crawlers of the last cave are dropped. */
  function enter(view,state){
@@ -128,6 +139,7 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
    else if(e.type==='strain')strain+=.8;
    else if(e.type==='throwoff')play('throwoff');
    else if(e.type==='shriek')flicker=Math.max(flicker,.9);
+   else if(e.type==='swing'){play('katanaslash');trail.length=0;slashT=0;}
    else if(e.type==='shot'||e.type==='impact')pending.push(e);
   }
  }
@@ -189,8 +201,28 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
   c.q.setFromEuler(euler.set(Math.random()*6,Math.random()*6,0));c.lie.setFromEuler(euler.set(Math.PI/2,0,Math.random()*6.28,'YXZ'));euler.order='XYZ';
   c.spin.set((Math.random()-.5)*50,(Math.random()-.5)*20,(Math.random()-.5)*50);c.age=0;c.bounces=0;
  }
+ /** The katana's glow and crackle while held, and the ribbon its edge leaves through a swing. */
+ function blade(state,dt){
+  const held=heldWeapon(state)==='katana',base=held&&actor.marker('BladeBase'),tip=held&&actor.marker('BladeTip');
+  slashT+=dt;
+  if(!base||!tip){bladeLight.intensity=0;trail.length=0;trailAlpha.fill(0);trailGeo.attributes.aAlpha.needsUpdate=true;return;}
+  const a=localOf(base),b=localOf(tip),swinging=slashT<.42,cutting=slashT>.09&&slashT<.34;
+  bladeLight.position.lerpVectors(a,b,.6);bladeLight.intensity=swinging?28*(1-slashT/.42)+5:5+Math.random()*1.5;
+  if((crackle-=dt)<0){crackle=.05+Math.random()*.2;const k=Math.random(),at=new THREE.Vector3().lerpVectors(a,b,k);zaps.spawn(at.x,at.y,at.z,(Math.random()-.5)*1.5,Math.random()*1.2,(Math.random()-.5)*1.5,.08+Math.random()*.1);}
+  if(cutting)trail.unshift({a,b,age:0});
+  for(const s of trail)s.age+=dt;
+  while(trail.length&&(trail.length>TRAIL||trail.at(-1).age>.15))trail.pop();
+  for(let i=0;i<TRAIL;i++){
+   const s=trail[Math.min(i,trail.length-1)];
+   if(!s){trailAlpha[2*i]=trailAlpha[2*i+1]=0;continue;}
+   trailPos.set([s.a.x,s.a.y,s.a.z,s.b.x,s.b.y,s.b.z],i*6);
+   const k=i<trail.length?Math.max(0,1-s.age/.15)*(1-i/TRAIL):0;trailAlpha[2*i]=k*.5;trailAlpha[2*i+1]=k;
+  }
+  trailGeo.attributes.position.needsUpdate=true;trailGeo.attributes.aAlpha.needsUpdate=true;
+ }
  function impact(e){
   const dir=new THREE.Vector3(e.dir.x,0,e.dir.z),v=viewFor(e.crawler);
+  if(e.melee){const y=v?v.position.y:.85;for(let i=0;i<18;i++){const a=Math.random()*Math.PI*2,s=2+Math.random()*4;zaps.spawn(e.x-dir.x*.3,y,e.z-dir.z*.3,Math.cos(a)*s,Math.random()*3,Math.sin(a)*s,.12+Math.random()*.18);}shake=Math.max(shake,.12);flicker=Math.max(flicker,.06);}
   if(v){
    const at=new THREE.Vector3(e.x,v.position.y,e.z);
    v.hit(at,dir);impactFlash.position.copy(at).addScaledVector(dir,-.2);impactFlash.material.opacity=1;
@@ -227,7 +259,8 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
    caseMesh.setColorAt(i,caseColor.copy(brass).lerp(hotBrass,Math.max(0,1-c.age/1.4)));
   }
   caseMesh.instanceMatrix.needsUpdate=true;caseMesh.instanceColor.needsUpdate=true;
-  sparks.update(dt,9,1);dust.update(dt,0,2);ichor.update(dt,9,.5);
+  blade(state,dt);
+  sparks.update(dt,9,1);dust.update(dt,0,2);ichor.update(dt,9,.5);zaps.update(dt,4,3);
   flash.material.opacity=Math.max(0,flash.material.opacity-dt*16);impactFlash.material.opacity=Math.max(0,impactFlash.material.opacity-dt*10);muzzleLight.intensity=Math.max(0,muzzleLight.intensity-dt*800);
   const p=state.player;
   for(const [c,v] of views){
@@ -309,6 +342,6 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
   setAim(point){aimMarker.visible=!!point&&!!caveView;if(point)aimMarker.position.set(point.x,.05,point.z);},
   get shake(){return shake*.5;},
   get active(){return !!caveView;},
-  dispose(){leave();hud.dispose();bulletGeo.dispose();bulletMat.dispose();caseMesh.geometry.dispose();caseMesh.material.dispose();caseMesh.dispose();flashTex.dispose();flash.material.dispose();impactFlash.material.dispose();ichor.dispose();sparks.dispose();dust.dispose();smoke.dispose();flares.dispose();jet.dispose();aimMarker.geometry.dispose();aimMarker.material.dispose();},
+  dispose(){leave();hud.dispose();bulletGeo.dispose();bulletMat.dispose();caseMesh.geometry.dispose();caseMesh.material.dispose();caseMesh.dispose();flashTex.dispose();flash.material.dispose();impactFlash.material.dispose();ichor.dispose();sparks.dispose();dust.dispose();zaps.dispose();trailGeo.dispose();trailMat.dispose();smoke.dispose();flares.dispose();jet.dispose();aimMarker.geometry.dispose();aimMarker.material.dispose();},
  };
 }

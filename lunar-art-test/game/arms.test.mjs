@@ -66,6 +66,51 @@ test('the rifle hits harder and further than the pistol', () => {
   assert.equal(h.shots.at(-1).damage, WEAPONS.rifle.damage);
 });
 
+test('the submachine gun fires a burst of lighter rounds per pull, between the pistol and rifle', () => {
+  const s = underground(0), h = createHunt(), rng = seeded(), spec = WEAPONS.smg;
+  stepHunt(h, s, 1 / 30, rng);
+  assert.ok(spec.damage < WEAPONS.rifle.damage && spec.range > WEAPONS.pistol.range && spec.range < WEAPONS.rifle.range);
+  give(s, { smg: 1 }); holdWeapon(s, 'smg'); armsOf(s).loaded.smg = spec.magazine; armsOf(s).cooldown = 0;
+  assert.equal(fire(h, s, false, rng).weapon, 'smg');
+  assert.equal(h.shots.length, 1, 'the first round leaves on the pull');
+  assert.equal(fire(h, s, false, rng).ok, false, 'a second pull waits for the burst');
+  for (let t = 0; t < spec.interval * spec.burst; t += 1 / 60) stepHunt(h, s, 1 / 60, rng);
+  const shots = h.events.filter(e => e.type === 'shot' && e.weapon === 'smg');
+  assert.equal(shots.length, spec.burst);
+  assert.equal(armsOf(s).loaded.smg, spec.magazine - spec.burst);
+  assert.equal(h.burst, null);
+  armsOf(s).loaded.smg = 2; armsOf(s).cooldown = 0; h.events.length = 0;
+  fire(h, s, false, rng); for (let t = 0; t < .5; t += 1 / 60) stepHunt(h, s, 1 / 60, rng);
+  assert.equal(h.events.filter(e => e.type === 'shot').length, 2, 'a burst stops when the magazine runs dry');
+  assert.ok(armsOf(s).reloading > 0);
+});
+
+test('the electric katana cuts everything in its arc and needs no ammunition', () => {
+  const s = underground(0), h = createHunt(), rng = seeded(), spec = WEAPONS.katana;
+  stepHunt(h, s, 1 / 30, rng);
+  clear(s); give(s, { katana: 1 }); assert.equal(heldWeapon(s), 'katana');
+  const p = s.player, at = (dx, dz) => { const c = createCrawler(p.x + dx, p.z + dz, rng); c.state = 'stalk'; return c; };
+  h.crawlers = [at(-.6, 1.4), at(.6, 1.4), at(0, -1.5), at(0, spec.range + 2)];
+  const hp = h.crawlers.map(c => c.hp);
+  const r = fire(h, s, false, rng);
+  assert.equal(r.ok, true); assert.equal(r.hits, 2, 'the two ahead are cut, not the one behind or out of reach');
+  assert.deepEqual(h.crawlers.map((c, i) => c.hp < hp[i]), [true, true, false, false]);
+  assert.ok(h.events.some(e => e.type === 'swing'));
+  assert.equal(fire(h, s, false, rng).ok, false, 'one swing at a time');
+  stepHunt(h, s, spec.cooldown + .01, rng);
+  assert.equal(fire(h, s, false, rng).ok, true);
+  assert.equal(reload(s).ok, false); assert.equal(inv.count(s.inventory, 'rounds'), 0);
+});
+
+test('every weapon but the pistol is researched; the submachine gun leads to the rifle', async () => {
+  const { TECHS } = await import('./space.js');
+  for (const id of Object.keys(WEAPONS)) {
+    if (id === 'pistol') { assert.equal(ARMORY.pistol.tech, undefined); continue; }
+    assert.equal(ARMORY[id].tech, id); assert.ok(TECHS[id] && !TECHS[id].innate, `${id} is a tech`);
+  }
+  assert.deepEqual(TECHS.rifle.requires, ['smg']); assert.deepEqual(TECHS.katana.requires, ['pistol']);
+});
+
 test('the flamethrower burns its tank while held, scorches crawlers and burns nests down as broods boil out', () => {
   const s = underground(1), h = createHunt(), rng = seeded();
   stepHunt(h, s, 1 / 30, rng);

@@ -164,6 +164,16 @@
     "materialParts": 5,
     "originalTriangles": 980
   },
+  "smg": {
+    "triangles": 1444,
+    "materialParts": 6,
+    "originalTriangles": 1444
+  },
+  "katana": {
+    "triangles": 924,
+    "materialParts": 6,
+    "originalTriangles": 924
+  },
   "rifle": {
     "triangles": 1400,
     "materialParts": 7,

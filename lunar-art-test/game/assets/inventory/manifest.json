@@ -37,6 +37,8 @@
     "rounds": "Rounds",
     "fuel": "Fuel cell",
     "pistol": "Pistol",
+    "smg": "Submachine gun",
+    "katana": "Electric katana",
     "rifle": "Semi-auto rifle",
     "flamethrower": "Flamethrower"
   }

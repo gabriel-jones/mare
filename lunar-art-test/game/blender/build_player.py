@@ -210,6 +210,49 @@ for x in [-.11,.11]:
 box('Flamer tank strap',(0,.44,1.3),(.34,.05,.05),graphite,'Spine',.01)
 flameparts=parts[flameparts_before:]
 
+# Submachine gun: a short ceramic-shrouded carbine with a stick magazine ahead of the trigger and a wire stock,
+# held two-handed by a vertical fore-grip. The charging handle rides the Bolt bone.
+smgparts_before=len(parts)
+gbox('Smg grip',(-.012,0,-.005),(.05,.042,.13),rubber,'Hand.R',.008,.25)
+gbox('Smg trigger guard',(.03,0,.008),(.08,.03,.008),gunmetal,'Hand.R',.002)
+gbox('Smg trigger',(.03,0,.022),(.01,.012,.025),steel,'Hand.R',0)
+gbox('Smg lower receiver',(.05,0,.045),(.22,.05,.04),gunmetal,'Hand.R',.006)
+gbox('Smg upper shroud',(.07,0,.08),(.26,.056,.04),ivory,'Hand.R',.008)
+for x in [.12,.16,.2]:
+ for side in [-1,1]:gbox('Smg shroud vent',(x,side*.029,.08),(.022,.004,.016),graphite,'Hand.R',0)
+gbox('Smg magazine',(.1,0,-.035),(.034,.03,.12),graphite,'Hand.R',.004,-.1)
+gbox('Smg magazine base',(.106,0,-.097),(.042,.036,.014),orange,'Hand.R',.003,-.1)
+gbox('Smg fore-grip',(.19,0,.0),(.03,.03,.07),rubber,'Hand.R',.005,-.08)
+gcyl('Smg barrel',.2,.29,.075,.012,steel,'Hand.R')
+gcyl('Smg muzzle',.28,.31,.075,.019,graphite,'Hand.R')
+for side in [-1,1]:gbox('Smg stock rail',(-.12,side*.014,.07),(.12,.006,.008),graphite,'Hand.R',0)
+gbox('Smg stock pad',(-.18,0,.055),(.014,.044,.07),rubber,'Hand.R',.004)
+gbox('Smg stock cap',(-.188,0,.055),(.006,.036,.056),orange,'Hand.R',.002)
+gbox('Smg rail',(.04,0,.104),(.16,.022,.008),graphite,'Hand.R',.002)
+gbox('Smg sight',(.03,0,.122),(.05,.032,.03),graphite,'Hand.R',.004)
+gbox('Smg sight lens',(.056,0,.124),(.004,.022,.018),light,'Hand.R',0)
+for side in [-1,1]:gbox('Smg power cell',(.05,side*.0255,.045),(.12,.004,.01),light,'Hand.R',0)
+gbox('Smg charging handle',(.0,.032,.085),(.026,.014,.012),steel,'Bolt',.003)
+gbox('Smg ejection port',(.01,.0285,.07),(.05,.004,.02),graphite,'Bolt',0)
+smgparts=parts[smgparts_before:]
+
+# Electric katana: the handle runs through the fist along the grip, so the blade rises from the gun frame's +z. The
+# edge is a charged strip that glows.
+arc_edge=mat('Blade • arc cyan',(.35,.85,1.0),.3,0,4)
+blade_steel=mat('Blade • dark titanium',(.09,.11,.13),.28,.85)
+bladeparts_before=len(parts)
+gbox('Katana handle',(0,0,-.035),(.032,.03,.17),graphite,'Hand.R',.004)
+for z in [-.1,-.065,-.03,.005]:gbox('Katana cord wrap',(0,0,z),(.035,.033,.008),orange,'Hand.R',.001)
+gbox('Katana pommel',(0,0,-.125),(.038,.036,.02),steel,'Hand.R',.004)
+gbox('Katana guard',(0,0,.06),(.08,.062,.012),graphite,'Hand.R',.003)
+gbox('Katana guard ring',(0,0,.068),(.054,.042,.005),light,'Hand.R',0)
+gbox('Katana collar',(0,0,.085),(.032,.022,.03),steel,'Hand.R',.002)
+gbox('Katana blade',(-.004,0,.37),(.038,.009,.54),blade_steel,'Hand.R',.0008)
+gbox('Katana edge',(.017,0,.37),(.009,.005,.53),arc_edge,'Hand.R',0)
+gbox('Katana tip',(.003,0,.648),(.034,.0085,.034),blade_steel,'Hand.R',.0008,.7)
+gbox('Katana tip edge',(.016,0,.646),(.009,.005,.03),arc_edge,'Hand.R',0,.7)
+bladeparts=parts[bladeparts_before:]
+
 # Armature: bone-local Y follows each limb; explicit X axis handles forward/back swing.
 arm=bpy.data.armatures.new('Frontier pressure suit skeleton');rig=bpy.data.objects.new('AstronautRig',arm);scene.collection.objects.link(rig)
 bpy.context.view_layer.objects.active=rig;rig.select_set(True);bpy.ops.object.mode_set(mode='EDIT')
@@ -231,7 +274,9 @@ bone('Slide',gun_point(-.08,0,.088),gun_point(.17,0,.088),'Hand.R')
 bone('Bolt',gun_point(-.08,0,.075),gun_point(.06,0,.075),'Hand.R')
 for name,p,parent in [('Muzzle',(.215,0,.088),'Hand.R'),('MuzzleAhead',(.315,0,.088),'Hand.R'),('Port',(.035,.03,.095),'Slide'),('PortOut',(.015,.1,.145),'Slide'),
  ('RifleMuzzle',(.47,0,.06),'Hand.R'),('RifleMuzzleAhead',(.57,0,.06),'Hand.R'),('RiflePort',(-.04,.035,.07),'Bolt'),('RiflePortOut',(-.06,.11,.12),'Bolt'),
- ('Nozzle',(.41,0,.065),'Hand.R'),('NozzleAhead',(.51,0,.065),'Hand.R'),('Pilot',(.37,0,.036),'Hand.R')]:
+ ('Nozzle',(.41,0,.065),'Hand.R'),('NozzleAhead',(.51,0,.065),'Hand.R'),('Pilot',(.37,0,.036),'Hand.R'),
+ ('SmgMuzzle',(.31,0,.075),'Hand.R'),('SmgMuzzleAhead',(.41,0,.075),'Hand.R'),('SmgPort',(.01,.033,.072),'Bolt'),('SmgPortOut',(-.01,.11,.12),'Bolt'),
+ ('BladeBase',(.004,0,.1),'Hand.R'),('BladeTip',(.008,0,.66),'Hand.R')]:
  head=gun_point(*p);bone(name,head,head+GUN_UP*.03,parent,False)
 bpy.ops.object.mode_set(mode='OBJECT')
 
@@ -243,6 +288,7 @@ def join_skin(objects,name):
  mod=o.modifiers.new('Skeleton deformation','ARMATURE');mod.object=rig;o.parent=rig
  return o
 body=join_skin(bodyparts,'FrontierSuit');tool=join_skin(toolparts,'ConstructionTool');pistol=join_skin(gunparts,'Pistol');rifle=join_skin(rifleparts,'Rifle');flamer=join_skin(flameparts,'Flamethrower')
+smg=join_skin(smgparts,'Smg');katana=join_skin(bladeparts,'Katana')
 for p in rig.pose.bones:p.rotation_mode='XYZ'
 rig.animation_data_create()
 
@@ -317,14 +363,18 @@ def build(t):
  rx('UpperArm.L',-.58);rx('Forearm.L',-.55);rx('Spine',.045);rz('Head',-.06)
 
 # ---- Combat clips ----
+# A weapon that is not aimed like a gun (the katana) sets UPPER to pose the arms itself, given the bob.
+UPPER=None
+def hold(bob):
+ if UPPER:UPPER(bob)
+ else:aim(AIM_W+Vector((0,0,bob)),AIM_A,AIM_WL+Vector((0,0,bob)))
 def aim_idle(t):
  wave=math.sin(t*math.tau);aim_body(.05+wave*.008);rz('Head',wave*.01)
- aim(AIM_W+Vector((0,0,wave*.006)),AIM_A,AIM_WL+Vector((0,0,wave*.006)))
+ hold(wave*.006)
 def aim_gait(t,run=False):
  # Legs stride as usual; the upper body keeps the gun level on the target.
  gait(t,run);rz('Spine',0);aim_body(.1 if run else .05)
- bob=math.sin(t*math.tau*2)*(.012 if run else .006)
- aim(AIM_W+Vector((0,0,bob)),AIM_A,AIM_WL+Vector((0,0,bob)))
+ hold(math.sin(t*math.tau*2)*(.012 if run else .006))
 KICK=[0,1,.85,.55,.32,.17,.08,.03,0];SLIDE=[0,.7,1,.5,0,0,0,0,0]
 def fire(t):
  f=round(t*8);k=KICK[f];aim_body(.05-.06*k);rx('Head',.04-.05*k)
@@ -395,6 +445,35 @@ def bolt_fire(t):
  f=round(t*8);k=KICK[f]*.7;aim_body(.05-.05*k);rx('Head',.04-.03*k)
  aim(AIM_W+Vector((0,.04,.02))*k,(AIM_A+Vector((0,0,.22*k))).normalized(),AIM_WL+Vector((0,.04,.02))*k,AIM_AL)
  rig.pose.bones['Bolt'].location.y=-.06*SLIDE[f]
+def smg_fire(t):
+ # Lighter than the pistol's kick, quick enough to sit under each round of a burst.
+ f=round(t*8);k=KICK[f]*.5;aim_body(.05-.04*k);rx('Head',.04-.03*k)
+ aim(AIM_W+Vector((0,.035,.02))*k,(AIM_A+Vector((0,0,.18*k))).normalized(),AIM_WL+Vector((0,.03,.015))*k,AIM_AL)
+ rig.pose.bones['Bolt'].location.y=-.04*SLIDE[f]
+
+def hand_point(p):
+ """Where a gun-frame point on the posed right hand is, in armature space."""
+ refresh();return rig.pose.bones['Hand.R'].matrix@(arm.bones['Hand.R'].matrix_local.inverted()@gun_point(*p))
+def katana_grip(w,blade,fingers=(0,-1,-.4)):
+ """Right fist at wrist `w` with the blade along `blade`; the left hand closes on the handle below it."""
+ B=Vector(blade).normalized();F=Vector(fingers);F=F-B*F.dot(B)
+ F=F.normalized() if F.length>.05 else Vector((0,-1,0))
+ reach('R',w,POLE_R);point('Hand.R',F,B)
+ grip=hand_point((-.005,0,-.1));reach('L',grip-F*GRIP_REACH,POLE_L);point('Hand.L',F)
+KATANA_W,KATANA_B=Vector((.2,-.34,1.1)),Vector((-.15,-1,.8))
+def katana_ready(bob):katana_grip(KATANA_W+Vector((0,0,bob)),KATANA_B)
+# The slash: wound up over the right shoulder, a diagonal cut down across the front, followed through to the left hip.
+SLASH=[(0,KATANA_W,KATANA_B,(0,-1,-.4),0),(.22,(.36,-.08,1.5),(.45,.65,.75),(0,-1,0),.38),(.45,(.1,-.55,1.22),(-.35,-1,.05),(0,-.3,-1),0),
+ (.66,(-.28,-.4,1.0),(-1,.15,-.35),(0,-1,-.2),-.45),(1,KATANA_W,KATANA_B,(0,-1,-.4),0)]
+def katana_slash(t):
+ i=0
+ while i<len(SLASH)-2 and t>=SLASH[i+1][0]:i+=1
+ a,b=SLASH[i],SLASH[i+1];k=ease((t-a[0])/(b[0]-a[0]))
+ aim_body(.08+.12*math.sin(math.pi*t));twist=a[4]+(b[4]-a[4])*k
+ rig.pose.bones['Spine'].rotation_euler.y=twist;rig.pose.bones['Head'].rotation_euler.y=-twist*.7
+ lunge=math.sin(math.pi*min(1,t*1.4));rig.pose.bones['Hips'].location.y=-.06*lunge
+ leg('L',-.16*lunge,-.06*lunge);leg('R',.12*lunge,-.06*lunge)
+ katana_grip(lerp(a[1],b[1],k),lerp(Vector(a[2]).normalized(),Vector(b[2]).normalized(),k),lerp(a[3],b[3],k))
 GRIP_REACH=.077
 def stance(right,fore,lean_left=(0,-.25,1),twist=0):
  """Set the aim globals for a weapon: the right wrist, and the left wrist placed so the glove closes on the fore-grip
@@ -436,12 +515,20 @@ stance((.16,-.3,1.1),.17,(0,-.2,1),.28)
 clips+=[make_clip('FlameAimIdle',60,aim_idle),make_clip('FlameAimWalk',24,lambda t:aim_gait(t)),make_clip('FlameAimRun',20,lambda t:aim_gait(t,True)),
  make_clip('FlameTurnL',24,lambda t:turn(t,1)),make_clip('FlameTurnR',24,lambda t:turn(t,-1))]
 CLIP_NAMES+=['RifleAimIdle','RifleAimWalk','RifleAimRun','RifleFire','RifleTurnL','RifleTurnR','FlameAimIdle','FlameAimWalk','FlameAimRun','FlameTurnL','FlameTurnR']
+stance((.1,-.4,1.3),.19,(0,-.3,1),.18)
+clips+=[make_clip('SmgAimIdle',60,aim_idle),make_clip('SmgAimWalk',24,lambda t:aim_gait(t)),make_clip('SmgAimRun',20,lambda t:aim_gait(t,True)),make_clip('SmgFire',8,smg_fire),
+ make_clip('SmgTurnL',24,lambda t:turn(t,1)),make_clip('SmgTurnR',24,lambda t:turn(t,-1))]
+STANCE_TWIST=.2;UPPER=katana_ready
+clips+=[make_clip('KatanaAimIdle',60,aim_idle),make_clip('KatanaAimWalk',24,lambda t:aim_gait(t)),make_clip('KatanaAimRun',20,lambda t:aim_gait(t,True)),
+ make_clip('KatanaTurnL',24,lambda t:turn(t,1)),make_clip('KatanaTurnR',24,lambda t:turn(t,-1)),make_clip('KatanaSlash',13,katana_slash)]
+UPPER=None
+CLIP_NAMES+=['SmgAimIdle','SmgAimWalk','SmgAimRun','SmgFire','SmgTurnL','SmgTurnR','KatanaAimIdle','KatanaAimWalk','KatanaAimRun','KatanaTurnL','KatanaTurnR','KatanaSlash']
 AIM_W,AIM_WL,AIM_AL=PISTOL_STANCE;STANCE_TWIST=0
 reset_pose();refresh()
 
 scene.render.fps=30;scene.frame_start=1;scene.frame_end=91
 bpy.ops.object.select_all(action='DESELECT')
-for o in [rig,body,tool,pistol,rifle,flamer]:o.select_set(True)
+for o in [rig,body,tool,pistol,rifle,flamer,smg,katana]:o.select_set(True)
 bpy.context.view_layer.objects.active=rig
 for track in rig.animation_data.nla_tracks:track.mute=False
 with contextlib.redirect_stdout(io.StringIO()):
@@ -464,11 +551,14 @@ scene.render.resolution_x=900;scene.render.resolution_y=900;scene.render.image_s
 with contextlib.suppress(Exception):scene.eevee.taa_render_samples=32
 tool.hide_render=True
 PORTRAITS=[('AimIdle',1,'astronaut-v3-aim.png'),('Fire',2,'astronaut-v3-fire.png'),('Struggle',7,'astronaut-v3-struggle.png'),('Roll',7,'astronaut-v3-roll.png'),('TurnL',19,'astronaut-v3-turn.png'),
+ ('SmgAimIdle',1,'astronaut-v3-smg.png'),('KatanaAimIdle',1,'astronaut-v3-katana.png'),('KatanaSlash',4,'astronaut-v3-slash-wind.png'),('KatanaSlash',7,'astronaut-v3-slash.png'),
  ('RifleAimIdle',1,'astronaut-v3-rifle.png'),('RifleFire',2,'astronaut-v3-rifle-fire.png'),('FlameAimIdle',1,'astronaut-v3-flame.png'),('FlameAimWalk',7,'astronaut-v3-flame-walk.png')]
 only=os.environ.get('LUNAR_PORTRAITS')
 for clip,frame,file in PORTRAITS:
  if only and clip not in only.split(','):continue
- pistol.hide_render=clip.startswith(('Rifle','Flame'));rifle.hide_render=not clip.startswith('Rifle');flamer.hide_render=not clip.startswith('Flame')
+ held={'Rifle':rifle,'Flame':flamer,'Smg':smg,'Katana':katana}
+ for pre,o in held.items():o.hide_render=not clip.startswith(pre)
+ pistol.hide_render=clip.startswith(tuple(held))
  rig.animation_data.action=clips[CLIP_NAMES.index(clip)];scene.frame_set(frame)
  scene.render.filepath=os.path.join(OUT,file);bpy.ops.render.render(write_still=True)
 rig.animation_data.action=None

@@ -181,6 +181,7 @@ function cursorMode(){
 const showLogistics=()=>!!(selectedType&&selectedType!=='mine')||constructing||/crate range/.test(constructionReason);
 function reticleState(){
  const w=heldWeapon(state),a=armsOf(state),spec=WEAPONS[w],p=state.player,at=aimClient&&world.aim(aimClient.x,aimClient.y);
+ if(spec.melee)return {weapon:w,magazine:1,loaded:1-a.cooldown/spec.cooldown,reload:null,far:!!at&&Math.hypot(at.x-p.x,at.z-p.z)>spec.range+1.5,spraying:false};
  return {weapon:w,magazine:spec.magazine,loaded:a.loaded[w],reload:a.reloading>0?1-a.reloading/spec.reload:null,far:!!at&&Math.hypot(at.x-p.x,at.z-p.z)>spec.range,spraying:spec.stream&&hunt.trigger&&a.loaded[w]>0&&!a.reloading};
 }
 function useNearby(){
@@ -382,7 +383,7 @@ async function start(){
   ui=createUI(document.querySelector('#ui'),{onSelect:select,onAssign:(robot,area)=>{const r=assignRover(state,robot,area);if(!r.ok)notify(r.reason);},onRemoveZone:id=>notify(removeMiningArea(state,id).reason),onSlot:i=>{if(selectedSlot===i)eatSelected();pickSlot(i);},onRotate:()=>{rotation=(rotation+1)%4;refreshGhost();},onSave:save,onLoad:load,onReset:()=>{state=createState(Math.floor(Math.random()*999999));selectedType=null;resetPlayer();targetId=null;keys.clear();world?.clearGhost();save();notify('New lunar landing created.');},onStation:({id,crop,make,close})=>{const b=state.buildings.find(o=>o.id===id);if(close||!b){stationId=null;ui.update(state,view());canvas.focus({preventScroll:true});return;}const r=make?startCraft(state,b,make):setCrop(state,b,crop);if(!r.ok||crop)notify(r.reason);ui.update(state,view());canvas.focus({preventScroll:true});},onCancel:()=>select(null),onStore:(id,i,half)=>crateMove(id,b=>{const s=state.inventory[i];return storeSlot(state,i,b,half&&s?Math.ceil(s.count/2):Infinity);}),onTake:(id,i,half)=>crateMove(id,b=>{const s=b.slots[i];return takeSlot(state,b,i,half&&s?Math.ceil(s.count/2):Infinity);}),onMoveSlot:({crate,from,to,half})=>{if(from.crate||to.crate){crateMove(crate,b=>moveStack(state,b,from,to,half));return;}const r=moveStack(state,null,from,to,half);if(!r.ok)notify(r.reason);else if(to.i!=null&&from.i===selectedSlot){pickSlot(to.i);return;}ui.update(state,view());canvas.focus({preventScroll:true});},onStoreAll:id=>crateMove(id,b=>storeAll(state,b),true),onTakeAll:id=>crateMove(id,b=>collectStorage(state,b.id),true),onCloseStore:()=>canvas.focus({preventScroll:true}),onOrbit:()=>{research?.close();orbit?.toggle();},onResearch:()=>{orbit?.close();research?.toggle();},onTimeToggle:()=>{speed=speed===1?12:1;notify(speed===1?'Normal day/night speed.':'Day/night simulation ×12. Movement stays normal.');}});
   world=await createWorld(canvas,state);
   installCursors();const reticle=createReticle();
-  if(window.debugGame)window.game={world,get state(){return state;}};
+  if(window.debugGame)window.game={world,hunt,get state(){return state;}};
   orbit=createOrbitView({onReturn:()=>{notify(recallShip(state).reason);orbit.close();},onClose:()=>{keys.clear();canvas.focus({preventScroll:true});}});
   research=createResearchView({onResearch:id=>notify(unlockResearch(state,id).reason),onClose:()=>{keys.clear();canvas.focus({preventScroll:true});}});
   canvas.addEventListener('pointermove',e=>{pointerIn=true;aimClient={x:e.clientX,y:e.clientY};reticle.move(e.clientX,e.clientY);ui.moveTip(e.clientX,e.clientY);point(e);});

@@ -16,7 +16,7 @@ BUDGETS={'metal':350,'silicon':650,'crop':1600,'meal':1500,'core':1100,
          'frame':1000,'wing':1200,'chip':1600,'satellite':2000,'titanium':300,
          'rareearth':250,'artifact':150,'heart':200,'flare':850,
          'greens':900,'soy':900,'tomato':900,'algae':700,'wheat':700,'mushroom':900,'flour':700,'protein':500,
-         'salad':1200,'bread':900,'stew':1000,'broth':1000,'algaecake':900,'pizza':1400,'medkit':800,'goo':900,'rounds':1500,'fuel':1200,'pistol':900,'rifle':1400,'flamethrower':1500,'regolith':150,'ice':150}
+         'salad':1200,'bread':900,'stew':1000,'broth':1000,'algaecake':900,'pizza':1400,'medkit':800,'goo':900,'rounds':1500,'fuel':1200,'pistol':900,'smg':1500,'katana':1200,'rifle':1400,'flamethrower':1500,'regolith':150,'ice':150}
 
 
 def triangles(o):
@@ -50,7 +50,8 @@ def export_models():
             target.scenes=[n for n in source.scenes if n.startswith('Inventory study / ')]
         imported=list(target.scenes)
         for key,budget in BUDGETS.items():
-            source_scene=next((s for s in imported if s.name.split(' / ')[-1].split('.')[0]==key),None)
+            # Regolith and ice ship as the plain rock clusters of extra_item, not their icon scenes.
+            source_scene=None if key in ('regolith','ice') else next((s for s in imported if s.name.split(' / ')[-1].split('.')[0]==key),None)
             source_meshes=[]
             if source_scene:
                 bpy.context.window.scene=source_scene
