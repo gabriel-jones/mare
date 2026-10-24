@@ -1,0 +1,161 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Centipede lab</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#06090f;font:13px/1.35 ui-sans-serif,system-ui,-apple-system,sans-serif;color:#d6dde8;user-select:none}
+canvas#lab{position:fixed;inset:0;width:100%;height:100%;outline:none}
+.panel{position:fixed;top:12px;left:12px;width:250px;max-height:calc(100% - 24px);overflow:auto;background:#0d131dcc;border:1px solid #243041;border-radius:10px;padding:10px;backdrop-filter:blur(6px)}
+.panel h2{margin:0 0 8px;font-size:12px;letter-spacing:.14em;color:#b9a7ff}
+.panel h3{margin:10px 0 6px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#7f8ea3;font-weight:600}
+.grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px}.grid.two{grid-template-columns:1fr 1fr}
+button{font:inherit;color:#d6dde8;background:#172130;border:1px solid #2a384c;border-radius:7px;padding:5px 6px;cursor:pointer}
+button:hover{background:#1f2c40}button.on{background:#3a2a6e;border-color:#7a62e0;color:#fff}
+.row{display:flex;gap:6px;align-items:center;margin:5px 0}.row label{display:flex;gap:5px;align-items:center;cursor:pointer}
+.slider{display:grid;grid-template-columns:76px 1fr 34px;gap:6px;align-items:center;margin:4px 0;font-size:12px;color:#aab6c6}
+input[type=range]{width:100%;accent-color:#8a70ff}
+.note{color:#8796ab;font-size:12px;margin:6px 0 0}
+.readout{font:11px/1.5 ui-monospace,monospace;color:#9fb0c4;white-space:pre;margin-top:8px;background:#0a0f17;border-radius:6px;padding:6px}
+</style>
+<script type="importmap">{"imports":{"three":"../../node_modules/three/build/three.module.js","three/addons/":"../../node_modules/three/examples/jsm/"}}</script></head>
+<body><canvas id="lab" tabindex="0"></canvas>
+<div class="panel">
+ <h2>CENTIPEDE LAB</h2>
+ <h3>Style</h3><div class="grid" id="styles"></div><p class="note" id="style-note"></p>
+ <h3>Tuning</h3>
+ <div class="slider"><span>Freakiness</span><input type="range" id="freak" min="0" max="1" step=".05"><span id="freak-v"></span></div>
+ <div class="slider"><span>Speed</span><input type="range" id="pace" min=".4" max="2" step=".05"><span id="pace-v"></span></div>
+ <div class="slider"><span>Segments</span><input type="range" id="segments" min="8" max="44" step="1"><span id="segments-v"></span></div>
+ <h3>Movement</h3><div class="grid" id="modes"></div>
+ <div class="row"><label><input type="checkbox" id="auto" checked>Burrow by itself</label></div>
+ <h3>Do it now</h3><div class="grid"><button id="burrow">Burrow</button><button id="rear">Rear + slam</button><button id="shudder">Shudder</button></div>
+ <h3>View</h3>
+ <div class="grid"><button data-speed=".25">¼×</button><button data-speed=".5">½×</button><button data-speed="1" class="on">1×</button></div>
+ <div class="row"><button id="light-studio" class="on">Studio</button><button id="light-night">Night, headlamp</button></div>
+ <div class="row"><label><input type="checkbox" id="follow" checked>Camera follows</label><label><input type="checkbox" id="astro" checked>Astronaut</label></div>
+ <p class="note">Drag to orbit, scroll to zoom. The astronaut is 1.8 m tall.</p>
+ <div class="readout" id="readout"></div>
+</div>
+<script type="module">
+// Isolated centipede review. Never reads or writes colony saves.
+// ?style=needle|millipede|plated &mode=wander|chase|circle &freak=0..1
+import * as THREE from 'three';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+import {createAstronaut} from '../actor.js';
+import {CENTIPEDE,createCentipede,stepCentipede,burrow,rear,popSpot} from '../centipede.js';
+import {createCentipedeView,CENTIPEDE_STYLES} from '../centipede-view.js';
+
+const params=new URLSearchParams(location.search),$=id=>document.getElementById(id);
+const canvas=$('lab'),renderer=new THREE.WebGLRenderer({canvas,antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio||1,1.75));renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.1;renderer.shadowMap.enabled=true;renderer.localClippingEnabled=true;
+const loader=new GLTFLoader();
+const [crawlerGLTF,astronautGLTF]=await Promise.all([loader.loadAsync('../assets/crawler.glb'),loader.loadAsync('../assets/astronaut-v3.glb')]);
+
+const scene=new THREE.Scene();scene.background=new THREE.Color('#0b1018');
+{const pmrem=new THREE.PMREMGenerator(renderer),room=new RoomEnvironment();scene.environment=pmrem.fromScene(room,.02).texture;scene.environmentIntensity=.5;room.dispose();pmrem.dispose();}
+const camera=new THREE.PerspectiveCamera(36,1,.05,200);camera.position.set(12,11,17);
+const orbit=new OrbitControls(camera,canvas);orbit.target.set(0,.8,0);orbit.enableDamping=true;orbit.maxDistance=50;
+const hemi=new THREE.HemisphereLight('#b8c8e8','#1d1a22',1),key=new THREE.DirectionalLight('#fff1dc',2.4),rim=new THREE.DirectionalLight('#9fb8e0',1.8);
+key.position.set(-6,12,8);key.castShadow=true;key.shadow.mapSize.set(2048,2048);Object.assign(key.shadow.camera,{left:-16,right:16,top:16,bottom:-16,far:60});rim.position.set(6,5,-8);
+scene.add(hemi,key,rim);
+const floor=new THREE.Mesh(new THREE.CircleGeometry(18,96).rotateX(-Math.PI/2),new THREE.MeshStandardMaterial({color:'#3a3a3d',roughness:.97}));floor.receiveShadow=true;scene.add(floor);
+for(let r=2;r<=16;r+=2){const ring=new THREE.Mesh(new THREE.RingGeometry(r-.01,r+.01,128).rotateX(-Math.PI/2),new THREE.MeshBasicMaterial({color:'#4a5466',transparent:true,opacity:.5}));ring.position.y=.003;scene.add(ring);}
+const astronaut=createAstronaut({...astronautGLTF,scene:SkeletonUtils.clone(astronautGLTF.scene)});scene.add(astronaut.root);astronaut.root.position.set(0,0,0);
+const headlamp=new THREE.SpotLight('#cfe8ff',0,26,.5,.6,1.4);headlamp.position.set(0,1.55,.25);headlamp.castShadow=true;astronaut.root.add(headlamp);const lampTarget=new THREE.Object3D();lampTarget.position.set(0,.2,8);astronaut.root.add(lampTarget);headlamp.target=lampTarget;
+
+// Burrowing: craters that fade, dirt thrown up, and a trail of cracking ground over the tunnel.
+const craterGeo=new THREE.CircleGeometry(1,28).rotateX(-Math.PI/2);{const p=craterGeo.attributes.position;for(let i=1;i<p.count;i++){const a=Math.atan2(p.getZ(i),p.getX(i)),r=.8+.12*Math.sin(a*5+1)+.08*Math.sin(a*9);p.setX(i,Math.cos(a)*r);p.setZ(i,Math.sin(a)*r);}}
+const craters=[...Array(24)].map(()=>{const m=new THREE.Mesh(craterGeo,new THREE.MeshStandardMaterial({color:'#0c0c0e',roughness:1,transparent:true,opacity:0,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-2}));m.position.y=.01;m.visible=false;scene.add(m);return {m,age:99,life:8,r:1};});
+let nextCrater=0;
+function crater(x,z,r,life=9){const c=craters[nextCrater];nextCrater=(nextCrater+1)%craters.length;c.m.position.set(x,.01+nextCrater*.0004,z);c.m.rotation.y=Math.random()*6;c.r=r;c.age=0;c.life=life;c.m.visible=true;}
+const DIRT=500,dirtPos=new Float32Array(DIRT*3),dirtVel=new Float32Array(DIRT*3),dirtLife=new Float32Array(DIRT),dirtAlpha=new Float32Array(DIRT);
+const dirtGeo=new THREE.BufferGeometry();dirtGeo.setAttribute('position',new THREE.BufferAttribute(dirtPos,3));dirtGeo.setAttribute('aAlpha',new THREE.BufferAttribute(dirtAlpha,1));
+const dirt=new THREE.Points(dirtGeo,new THREE.ShaderMaterial({transparent:true,depthWrite:false,uniforms:{uColor:{value:new THREE.Color('#77736b')},uSize:{value:14*Math.min(2,devicePixelRatio||1)}},
+ vertexShader:'uniform float uSize;attribute float aAlpha;varying float vA;void main(){vA=aAlpha;vec4 mv=modelViewMatrix*vec4(position,1.);gl_Position=projectionMatrix*mv;gl_PointSize=uSize*(.5+aAlpha)*8./-mv.z;}',
+ fragmentShader:'uniform vec3 uColor;varying float vA;void main(){float a=smoothstep(.5,.15,length(gl_PointCoord-.5))*vA;if(a<.01)discard;gl_FragColor=vec4(uColor,a);}'}));dirt.frustumCulled=false;scene.add(dirt);
+let nextDirt=0;
+function kick(x,z,n,power=1,spread=.6){for(let i=0;i<n;i++){const k=nextDirt;nextDirt=(nextDirt+1)%DIRT;const a=Math.random()*Math.PI*2,r=Math.random()*spread,s=(1+Math.random()*3)*power;
+ dirtPos.set([x+Math.cos(a)*r,.05,z+Math.sin(a)*r],k*3);dirtVel.set([Math.cos(a)*s*.6,(2+Math.random()*4)*power,Math.sin(a)*s*.6],k*3);dirtLife[k]=.7+Math.random()*.9;}}
+let shake=0;
+
+// The specimen.
+let style=CENTIPEDE_STYLES[params.get('style')]?params.get('style'):'needle',mode=['wander','chase','circle'].includes(params.get('mode'))?params.get('mode'):'chase';
+let freak=params.has('freak')?Number(params.get('freak')):.65,pace=1,segments=CENTIPEDE_STYLES[style].segments;
+let body,view;
+function build(){
+ view?.dispose();const S=CENTIPEDE_STYLES[style];
+ const at=body?{x:body.x,z:body.z,f:body.facing}:{x:-7,z:-5,f:.8};
+ body=createCentipede(at.x,at.z,{segments,spacing:S.spacing,gait:S.gait,facing:at.f});body.pace=pace;
+ view=createCentipedeView(crawlerGLTF,scene,{style,segments,freak});
+ styleButtons.forEach((b,k)=>b.classList.toggle('on',k===style));$('style-note').textContent=S.note;
+ $('segments').value=segments;$('segments-v').textContent=segments;
+ const q=new URLSearchParams(location.search);q.set('style',style);q.set('mode',mode);q.set('freak',freak);history.replaceState(null,'',location.pathname+'?'+q);
+}
+const styleButtons=new Map();
+for(const [id,S] of Object.entries(CENTIPEDE_STYLES)){const b=document.createElement('button');b.textContent=S.name.split(' ').at(-1)[0].toUpperCase()+S.name.split(' ').at(-1).slice(1);b.title=S.name;b.onclick=()=>{style=id;segments=S.segments;build();};$('styles').append(b);styleButtons.set(id,b);}
+const modeButtons=new Map();
+for(const [id,label] of [['wander','Wander'],['chase','Hunt you'],['circle','Circle']]){const b=document.createElement('button');b.textContent=label;b.onclick=()=>{mode=id;modeButtons.forEach((x,k)=>x.classList.toggle('on',k===id));build.url?.();};$('modes').append(b);modeButtons.set(id,b);}
+modeButtons.get(mode).classList.add('on');
+const slider=(id,get,set,fmt=v=>v.toFixed(2))=>{const el=$(id);el.value=get();$(id+'-v').textContent=fmt(get());el.oninput=()=>{set(Number(el.value));$(id+'-v').textContent=fmt(Number(el.value));};};
+slider('freak',()=>freak,v=>freak=v);slider('pace',()=>pace,v=>{pace=v;body.pace=v;});
+$('segments').onchange=e=>{segments=Number(e.target.value);build();};$('segments').oninput=e=>$('segments-v').textContent=e.target.value;
+build();
+
+let speed=1;document.querySelectorAll('[data-speed]').forEach(b=>b.onclick=()=>{speed=Number(b.dataset.speed);document.querySelectorAll('[data-speed]').forEach(x=>x.classList.toggle('on',x===b));});
+function setLight(night){scene.environmentIntensity=night?.02:.5;hemi.intensity=night?.04:1;key.intensity=night?0:2.4;rim.intensity=night?.12:1.8;headlamp.intensity=night?160:0;scene.background.set(night?'#020305':'#0b1018');$('light-studio').classList.toggle('on',!night);$('light-night').classList.toggle('on',night);}
+$('light-studio').onclick=()=>setLight(false);$('light-night').onclick=()=>setLight(true);
+$('astro').onchange=e=>astronaut.root.visible=e.target.checked;
+const near=()=>mode==='chase'?{x:astronaut.root.position.x,z:astronaut.root.position.z}:null;
+$('burrow').onclick=()=>burrow(body,popSpot(body,near()));
+$('rear').onclick=()=>rear(body);
+$('shudder').onclick=()=>{const f=freak;freak=1;setTimeout(()=>freak=f,900);};
+
+// Behaviour: where it heads, and when it goes under on its own.
+let wanderGoal=null,nextBurrow=6,strikeCool=0,lap=0;
+function goal(dt){
+ const a=astronaut.root.position;
+ if(mode==='chase'){
+  const d=Math.hypot(a.x-body.x,a.z-body.z);
+  // It circles in close, then rears over you and comes down.
+  if(d<3.2&&strikeCool<=0&&body.state==='crawl'){rear(body);strikeCool=5;}
+  return d<4?{x:a.x+Math.sin(body.facing+1.2)*3,z:a.z+Math.cos(body.facing+1.2)*3}:{x:a.x,z:a.z};
+ }
+ if(mode==='circle'){lap+=dt*.32*pace;return {x:Math.sin(lap)*7,z:Math.cos(lap)*7};}
+ if(!wanderGoal||Math.hypot(wanderGoal.x-body.x,wanderGoal.z-body.z)<1.5){const r=4+Math.random()*9,t=Math.random()*Math.PI*2;wanderGoal={x:Math.sin(t)*r,z:Math.cos(t)*r};}
+ return wanderGoal;
+}
+let tunnelT=0;
+function step(dt){
+ strikeCool-=dt;
+ if($('auto').checked&&body.state==='crawl'&&(nextBurrow-=dt)<=0){nextBurrow=6+Math.random()*5;burrow(body,popSpot(body,near()));}
+ for(const e of stepCentipede(body,dt,{goal:goal(dt)})){
+  if(e.type==='dive'){crater(e.x,e.z,1.1);kick(e.x,e.z,70,1);shake=.25;}
+  if(e.type==='surface'){crater(e.x,e.z,1.5,11);kick(e.x,e.z,160,1.6,.9);shake=.6;}
+  if(e.type==='slam'){kick(e.x+Math.sin(body.facing)*1.2,e.z+Math.cos(body.facing)*1.2,60,.8,1);shake=.45;}
+ }
+ // Under the ground it leaves a line of cracking dirt above the tunnel.
+ if(body.state==='under'){tunnelT-=dt;if(tunnelT<=0){tunnelT=.05;kick(body.x,body.z,4,.35,.3);if(Math.random()<.5)crater(body.x+(Math.random()-.5)*.4,body.z+(Math.random()-.5)*.4,.35+Math.random()*.2,4);shake=Math.max(shake,.08);}}
+ view.update(body,dt,{freak});
+ // The astronaut turns to face it.
+ const a=astronaut.root;a.rotation.y+=Math.atan2(Math.sin(Math.atan2(body.x-a.position.x,body.z-a.position.z)-a.rotation.y),Math.cos(Math.atan2(body.x-a.position.x,body.z-a.position.z)-a.rotation.y))*Math.min(1,dt*3);
+ astronaut.update({animation:'aimidle',gun:true,speed:0},dt);
+ for(let i=0;i<DIRT;i++){if(dirtLife[i]<=0){dirtAlpha[i]=0;continue;}dirtLife[i]-=dt;const o=i*3;dirtVel[o+1]-=9*dt;dirtPos[o]+=dirtVel[o]*dt;dirtPos[o+1]=Math.max(.02,dirtPos[o+1]+dirtVel[o+1]*dt);dirtPos[o+2]+=dirtVel[o+2]*dt;if(dirtPos[o+1]<=.02){dirtVel[o]*=.6;dirtVel[o+2]*=.6;}dirtAlpha[i]=Math.min(1,dirtLife[i]*2)*.85;}
+ dirtGeo.attributes.position.needsUpdate=true;dirtGeo.attributes.aAlpha.needsUpdate=true;
+ for(const c of craters){if(!c.m.visible)continue;c.age+=dt;const k=c.age/c.life;if(k>=1){c.m.visible=false;continue;}c.m.scale.setScalar(c.r*Math.min(1,c.age*8));c.m.material.opacity=.85*(k>.6?(1-k)/.4:1);}
+}
+const followAt=new THREE.Vector3();
+function frame(){
+ const dt=Math.min(.05,clock.getDelta())*speed;
+ if(!window.lab.paused)step(dt);
+ if($('follow').checked){followAt.set((body.x+astronaut.root.position.x)/2,.8,(body.z+astronaut.root.position.z)/2);const d=followAt.clone().sub(orbit.target).multiplyScalar(1-Math.exp(-dt*2));orbit.target.add(d);camera.position.add(d);}
+ shake=Math.max(0,shake-dt*1.5);camera.position.x+=(Math.random()-.5)*shake*.15;camera.position.y+=(Math.random()-.5)*shake*.15;
+ orbit.update();
+ $('readout').textContent=`state  ${body.state}\nhead   ${body.y.toFixed(2)} m\nspeed  ${body.speed.toFixed(1)} m/s\nlength ${(segments*CENTIPEDE_STYLES[style].spacing).toFixed(1)} m · ${segments} segments\nlegs   ${segments*2}`;
+ renderer.render(scene,camera);requestAnimationFrame(frame);
+}
+function resize(){renderer.setSize(innerWidth,innerHeight,false);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();}
+addEventListener('resize',resize);resize();
+const clock=new THREE.Clock();
+window.lab={get body(){return body;},get view(){return view;},camera,orbit,paused:false,burrow:()=>$('burrow').onclick(),rear:()=>$('rear').onclick()};
+requestAnimationFrame(frame);
+</script></body></html>
