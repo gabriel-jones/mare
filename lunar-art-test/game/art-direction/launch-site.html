@@ -1,0 +1,67 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Launch site v2 • art review</title><link rel="stylesheet" href="../game.css">
+<style>
+body{margin:0;overflow:hidden;background:#0b1118}canvas{display:block;width:100vw;height:100vh}
+.review{position:fixed;left:16px;top:16px;display:grid;gap:8px;padding:12px;border-radius:12px;background:rgba(14,18,22,.82);color:#e3dccd;font:12px Inter,ui-sans-serif,sans-serif;backdrop-filter:blur(8px);width:250px}
+.review h1{margin:0;font-size:13px}.review p{margin:0;color:#8d979c;line-height:1.4}
+.review .row{display:flex;gap:6px;flex-wrap:wrap}
+.review button{padding:6px 10px;border:1px solid #ffffff22;border-radius:6px;background:#ffffff0c;color:inherit;font:inherit;cursor:pointer}
+.review button[aria-pressed=true]{border-color:#edbd79;color:#edbd79}
+.review .lcd{font:600 12px ui-monospace,Menlo,monospace;color:#8fe6ff}
+</style></head><body><canvas aria-label="Launch site review"></canvas>
+<div class="review">
+  <h1>Launch site v2</h1>
+  <p>Three pad directions with the same fuelling tower, plus new plumes and dust. The game is unchanged until approved.</p>
+  <div class="row"><button data-pad="a">A · Painted square</button><button data-pad="b">B · Beacon ring</button><button data-pad="c">C · Corner curbs</button></div>
+  <div class="row"><button data-play="loop" aria-pressed="true">Loop</button><button data-play="land">Land</button><button data-play="launch">Launch</button><button data-play="pad">On pad</button></div>
+  <div class="row"><button data-time="day" aria-pressed="true">Day</button><button data-time="dusk">Dusk</button><button data-time="night">Night</button></div>
+  <div class="row"><button data-speed="1" aria-pressed="true">1×</button><button data-speed=".35">Slow</button><button data-view="near">Close</button><button data-view="far">Wide</button></div>
+  <div class="row"><span class="lcd" id="readout"></span></div>
+  <p>Compare: <a href="?v=1" style="color:#7fd3ea" id="compare">current site</a></p>
+</div>
+<script type="importmap">{"imports":{"three":"../../node_modules/three/build/three.module.js","three/addons/":"../../node_modules/three/examples/jsm/"}}</script>
+<script type="module">
+// Isolated review of the second launch site. Never reads or writes colony saves.
+import{createWorld}from'../world.js';import{createState,tick}from'../sim.js';import{ensureBuildingState}from'../production.js';import{LAUNCH}from'../space.js';
+const params=new URLSearchParams(location.search),current=params.get('v')==='1';
+document.getElementById('compare').href=current?'?':'?v=1';document.getElementById('compare').textContent=current?'second site':'current site';
+const state=createState();state.time=25;state.player.facing=Math.PI;state.player.animation='idle';
+const layout=[['tank',5,-6,0,{fuel:70}],['tank',6,-7,0,{fuel:60}],['electrolyser',8,-4,0],['solar',9,-1,0],['battery',10,1,0],['dock',-8,-3,0],['storage',-6,0,0]];
+state.buildings=layout.map(([type,x,z,rotation,extra],i)=>Object.assign(ensureBuildingState({id:i+1,type,x,z,rotation,progress:1,built:true,serial:1}),extra));state.nextId=layout.length+1;
+Object.assign(state.player,{x:7,z:-1});
+tick(state,0);state.power.stored=state.power.capacity;
+const base=document.createElement('base');base.href='../';document.head.append(base);
+const pad=params.get('pad')||'a';document.querySelectorAll('[data-pad]').forEach(b=>b.setAttribute('aria-pressed',String(!current&&b.dataset.pad===pad)));
+const canvas=document.querySelector('canvas'),world=await createWorld(canvas,state,current?{}:{launchSite:'v2',pad});window.addEventListener('resize',world.resize);
+const zoomTo=h=>{const now=Number(canvas.dataset.viewHeight||48);canvas.dispatchEvent(new WheelEvent('wheel',{deltaY:Math.log(h/now)/.001,cancelable:true}));};
+let mode=params.get('play')||'loop',speed=1,phase='pad',clock=0;
+const ship=state.ship;
+// The loop: sit, hold (arm swings away), climb out, a beat in orbit, come back down and settle.
+const SCRIPT={pad:3,hold:LAUNCH.hold,ascent:12,orbit:2,descent:LAUNCH.descent,settle:4};
+function go(next){phase=next;clock=0;
+  if(next==='pad'||next==='settle')Object.assign(ship,{status:'pad',t:0,hold:0});
+  if(next==='hold')Object.assign(ship,{status:'pad',t:0,hold:.01});
+  if(next==='ascent')Object.assign(ship,{status:'ascent',t:0,hold:0});
+  if(next==='orbit')Object.assign(ship,{status:'orbit',t:0});
+  if(next==='descent')Object.assign(ship,{status:'descent',t:0});}
+const after={pad:'hold',hold:'ascent',ascent:'orbit',orbit:'descent',descent:'settle',settle:'pad'};
+function play(m){mode=m;document.querySelectorAll('[data-play]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.play===m)));
+  if(m==='land'){go('descent');zoomTo(75);}if(m==='launch'){go('hold');zoomTo(75);}if(m==='pad'){go('pad');zoomTo(44);}if(m==='loop')go('pad');}
+document.querySelector('.review').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+  if(b.dataset.pad){location.search=`?pad=${b.dataset.pad}`;return;}
+  if(b.dataset.play)play(b.dataset.play);
+  if(b.dataset.time){state.time={day:25,dusk:60,night:150}[b.dataset.time];document.querySelectorAll('[data-time]').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));}
+  if(b.dataset.speed){speed=Number(b.dataset.speed);document.querySelectorAll('[data-speed]').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));}
+  if(b.dataset.view)zoomTo(b.dataset.view==='near'?36:90);});
+const readout=document.getElementById('readout');
+play(mode);zoomTo(60);
+window.review={state,seek(t){ship.t=t;clock=t;},pause(p){speed=p?0:1;}};
+let last=performance.now();
+function frame(now){const dt=Math.min((now-last)/1000,.1)*speed;last=now;clock+=dt;
+  if(ship.status==='ascent'||ship.status==='descent')ship.t+=dt;
+  if(phase==='hold')ship.hold=clock;
+  if(clock>=SCRIPT[phase]){const next=after[phase];
+    if(mode==='loop'||(mode==='land'&&phase==='descent')||(mode==='launch'&&(phase==='hold'||phase==='ascent')))go(mode==='land'&&phase==='descent'?'settle':next);
+    else if(phase==='settle'||phase==='pad')clock=0;}
+  readout.textContent=`${phase.toUpperCase()} · ${clock.toFixed(1)}s`;
+  world.update(state,dt);requestAnimationFrame(frame)}requestAnimationFrame(frame);
+</script></body></html>

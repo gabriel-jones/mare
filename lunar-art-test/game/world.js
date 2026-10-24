@@ -10,6 +10,7 @@ import { createProductionView } from './production-view.js';
 import { loadItemLibrary, BELT_ITEM_SIZES } from './item-models.js';
 import { createHabitatView } from './habitat-view.js';
 import { createTray } from './growbed-model.js';
+import { createLaunchFx } from './launch-fx.js';
 import { growBeds } from './life.js';
 import { airlockOf, habitatLayout, isRoom } from './habitat.js';
 import { surfaceHeightAt as heightAt, terrainData } from './terrain.js';
@@ -51,7 +52,9 @@ const RIPE_SPOTS={
   verticalfarm:[[-.4,1.7,1.2,.42],[.35,1.7,.2,.42],[-.2,1.7,-.9,.42],[.3,1.7,-1.5,.38]],
   mushroomtray:[[-.4,.86,.1,.32],[.42,.86,-.35,.32]],
 };
-export async function createWorld(canvas, initialState) {
+/** `options.launchSite: 'v2'` swaps in a reworked pad (`options.pad` 'a', 'b' or 'c') and the new launch effects, for review. */
+export async function createWorld(canvas, initialState, options = {}) {
+  const siteV2 = options.launchSite === 'v2', padFile = `launchpad-v2${options.pad ?? 'a'}`;
   const renderer = new THREE.WebGLRenderer({canvas,antialias:true,alpha:false});
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
   renderer.shadowMap.enabled=true;renderer.localClippingEnabled=true;
@@ -61,7 +64,7 @@ export async function createWorld(canvas, initialState) {
   const loader=new GLTFLoader();
   const assetNames=['starship','launchpad','solar','battery','hopper','habitat-kit','conveyor','conveyor-corner','processor','storage','growbed','hydrorack','verticalfarm','mushroomtray','mill','goovat','armory','galley','recycler','melter','fabricator','assembler','electrolyser','tank','dock','roverbay','xenolab','reactor','fuelcell','thermal','rtg','bioreactor','lander','rover','hauler','rock-a','rock-b','rock-c','cave-mouth'];
   const [loaded,itemModels]=await Promise.all([
-    Promise.all(assetNames.map(name=>loader.loadAsync(`./assets/${name}.glb`).then(g=>[name,g.scene]).catch(e=>{console.error('Asset failed:',name,e);return [name,null];}))),
+    Promise.all(assetNames.map(name=>loader.loadAsync(`./assets/${siteV2&&name==='launchpad'?padFile:name}.glb`).then(g=>[name,g.scene]).catch(e=>{console.error('Asset failed:',name,e);return [name,null];}))),
     loadItemLibrary(loader),
   ]);
   const models=new Map(loaded);
@@ -248,7 +251,7 @@ export async function createWorld(canvas, initialState) {
     grid.geometry.dispose();grid.geometry=new THREE.BufferGeometry();grid.geometry.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));grid.material.vertexColors=false;grid.material.color.set('#8590a2');
   }drapeGrid();
   // The Starship stands on the pad's deck, not on the ground.
-  const PAD_DECK=.34;
+  const PAD_DECK=siteV2?0:.34;
   for(const name of ['launchpad','starship']){
     const imported=models.get(name);
     if(imported){imported.position.set(0,name==='starship'?PAD_DECK:0,-10);imported.traverse(o=>{if(o.isMesh){o.castShadow=name==='starship';o.receiveShadow=true;}});scene.add(imported);}
@@ -265,8 +268,13 @@ export async function createWorld(canvas, initialState) {
   const dustMaterial=new THREE.MeshBasicMaterial({color:'#c9c1b4',transparent:true,opacity:0,depthWrite:false});materials.add(dustMaterial);
   const dustGeo=new THREE.RingGeometry(.6,1,48);dustGeo.rotateX(-Math.PI/2);geometries.add(dustGeo);
   const dust=new THREE.Mesh(dustGeo,dustMaterial);dust.position.set(0,.3,-10);scene.add(dust);let dustClock=0;
-  function updateShip(dt){
+  const launchFx=siteV2?createLaunchFx(scene,{heightAt:(x,z)=>heightAt(state.seed,x,z)}):null;
+  if(launchFx&&starship){launchFx.attach(starship);flame.visible=false;dust.visible=false;}
+  const umbilical=siteV2?(()=>{let found=null;models.get('launchpad')?.traverse(o=>{if(!found&&o.name.startsWith('Umbilical'))found=o;});return found;})():null;
+  let thrustLeft=0,armSwing=0;
+  function updateShip(dt,daylight=1){
     if(!starship)return;
+    if(launchFx){updateLaunchSite(dt,daylight);return;}
     const s=state.ship,flying=s.status==='ascent'||s.status==='descent';
     let altitude=0;
     if(s.status==='ascent')altitude=.5*(2*170/LAUNCH.ascent**2)*s.t**2;
@@ -279,6 +287,22 @@ export async function createWorld(canvas, initialState) {
     // Dust billows out while the plume is close to the ground.
     const near=flying&&altitude<25;dustClock=near?dustClock+dt:Math.max(0,dustClock-dt*2);
     dust.visible=dustClock>0;dust.scale.setScalar(4+dustClock*6%14);dustMaterial.opacity=near?.35*(1-altitude/25):dustMaterial.opacity*.95;
+  }
+  // The second site: engines throttle up on the way down and cut at touchdown, the dust settles after.
+  function updateLaunchSite(dt,daylight){
+    const s=state.ship,flying=s.status==='ascent'||s.status==='descent';
+    let altitude=0;
+    if(s.status==='ascent')altitude=.5*(2*170/LAUNCH.ascent**2)*s.t**2;
+    if(s.status==='descent')altitude=170*(1-Math.min(1,s.t/LAUNCH.descent))**2;
+    starship.visible=s.status!=='orbit';
+    const thrust=s.status==='ascent'?Math.min(1,.35+s.t*1.6):s.status==='descent'?.45+.55*Math.min(1,s.t/LAUNCH.descent)**2:0;
+    thrustLeft=flying?thrust:Math.max(0,thrustLeft-dt*2.5);
+    const shake=thrustLeft>0&&altitude<6?(Math.random()-.5)*.1*thrustLeft:0;
+    starship.position.set(shake,PAD_DECK+altitude,-10+shake);
+    // The fuelling arm swings clear before liftoff and back once the ship is down and still.
+    const away=s.status!=='pad'||s.hold>0;armSwing=THREE.MathUtils.damp(armSwing,away?1:0,away?3:1.2,dt);
+    if(umbilical)umbilical.rotation.y=-armSwing*1.35;
+    launchFx.update(dt,{ship:{x:0,z:-10},altitude,thrust:thrustLeft,daylight,ground:0});
   }
   const padLight=new THREE.PointLight('#ffc584',18,23,2);padLight.position.set(0,3,-10);scene.add(padLight);
   const player=new THREE.Group();scene.add(player);
@@ -539,7 +563,7 @@ export async function createWorld(canvas, initialState) {
     lampClock+=dt;lamps.update(lampClock,daylight);
     updateLights(daylight);
     productionView.update(state,dt,daylight);for(const [id,view] of productionView.rovers)if(view.display)groundMarks.drive(state.seed,id,view.display.x,view.display.z,.73);groundMarks.update();logistics.update(state.player.cave==null?storageCrates(state).map(crateCentre):[],logisticsShown,dt);buildFx.update(dt);portLinks.update(state,structures,dt,state.time);groundPads.update(state,padBase);pipes.update(state);
-    updateShip(dt);
+    updateShip(dt,daylight);
     follow.set(player.position.x,player.position.y+1.05,player.position.z);
     if(hunting&&combat.shake){follow.x+=(Math.random()-.5)*combat.shake;follow.z+=(Math.random()-.5)*combat.shake;}
     if(encounterState?.phase==='shriek'){const k=.12*Math.max(0,1-encounterState.t);follow.x+=(Math.random()-.5)*k;follow.z+=(Math.random()-.5)*k;}
