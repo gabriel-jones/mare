@@ -7,7 +7,7 @@ import { ensureVat } from '../goo.js';
 import { ensurePower } from '../power.js';
 import { spawnRobot } from '../space.js';
 import { CELL_SIZE } from '../defs.js';
-import { createCrawler } from '../crawler.js';
+import { asKind, createCrawler } from '../crawler.js';
 import { launchRaid } from '../raid.js';
 
 const DUSK = 81, DAWN = 200;
@@ -58,23 +58,23 @@ function colony({ reactor = true, crew = [] } = {}) {
   return s;
 }
 /** Raiders already at the base, as if the pack had just arrived. */
-function atBase(s, n, small = 0) {
-  for (let i = 0; i < n + small; i++) {
-    const a = i / (n + small) * Math.PI * 2, c = createCrawler(Math.sin(a) * 18, Math.cos(a) * 18 + 6);
+function atBase(s, kinds) {
+  kinds.forEach((kind, i) => {
+    const a = i / kinds.length * Math.PI * 2, c = asKind(createCrawler(Math.sin(a) * 18, Math.cos(a) * 18 + 6), kind);
     Object.assign(c, { raider: true, state: 'march' });
-    if (i >= n) { c.small = true; c.hp = 30; }
     (s.brood ??= []).push(c);
-  }
+  });
 }
 
 export const SCENARIOS = {
-  first: { name: 'First raid', note: 'Dusk falls; one crawler leaves a cave. Two armed androids.', make() { const s = colony({ crew: ['rifle', 'smg'] }); s.time = DUSK; launchRaid(s, 1, 4); return s; } },
-  pack: { name: 'Pack of three', note: 'Third raid: two adults and a hatchling, from one cave.', make() { const s = colony({ crew: ['rifle', 'smg'] }); s.time = DUSK; launchRaid(s, 3, 3); return s; } },
-  swarm: { name: 'Swarm', note: 'Ninth raid: five adults and four hatchlings from two caves, three androids.', make() { const s = colony({ crew: ['railgun', 'rifle', 'katana'] }); s.time = DUSK; launchRaid(s, 9, 3); return s; } },
-  alone: { name: 'No defenders', note: 'Fifth raid, no androids. You and an SMG.', make() { const s = colony(); s.time = DUSK; launchRaid(s, 5, 3); return s; } },
+  first: { name: 'First raid', note: 'Dusk falls; one drone leaves a cave. Two armed androids.', make() { const s = colony({ crew: ['rifle', 'smg'] }); s.time = DUSK; launchRaid(s, 1, 4); return s; } },
+  pack: { name: 'First brute', note: 'Fifth raid: three drones and a brute in two packs. Two armed androids.', make() { const s = colony({ crew: ['rifle', 'smg'] }); s.time = DUSK; launchRaid(s, 5, 3); return s; } },
+  swarm: { name: 'Swarm', note: 'Ninth raid: four drones and two brutes in two packs, three androids.', make() { const s = colony({ crew: ['railgun', 'rifle', 'katana'] }); s.time = DUSK; launchRaid(s, 9, 3); return s; } },
+  alone: { name: 'No defenders', note: 'Third raid, two drones, no androids. You and an SMG.', make() { const s = colony(); s.time = DUSK; launchRaid(s, 3, 3); return s; } },
   dark: { name: 'Lights out', note: 'No reactor and flat batteries: the base is dark, no alarm lights.', make() { const s = colony({ reactor: false, crew: ['rifle'] }); s.time = DUSK; launchRaid(s, 4, 3); return s; } },
-  siege: { name: 'Holed up', note: 'You are inside the habitat, out of reach: the raiders tear at the base around you.', make() { const s = colony(); s.time = DUSK + 10; s.player = { ...s.player, x: -8, z: 7 }; atBase(s, 3); s.raid = { wave: 4, night: 0, quiet: 0, spawns: [] }; return s; } },
-  dawn: { name: 'Dawn breaks', note: 'Raiders at the base ten seconds before sunrise: they run for the caves.', make() { const s = colony({ crew: ['rifle'] }); s.time = DAWN - 10; atBase(s, 3, 1); s.raid = { wave: 5, night: 0, quiet: 0, spawns: [] }; return s; } },
+  siege: { name: 'Holed up', note: 'You are inside the habitat, out of reach: the raiders tear at the base around you.', make() { const s = colony(); s.time = DUSK + 10; s.player = { ...s.player, x: -8, z: 7 }; atBase(s, ['drone', 'drone', 'brute']); s.raid = { wave: 4, night: 0, quiet: 0, spawns: [] }; return s; } },
+  matron: { name: 'Matron', note: 'Tenth raid: a matron leads drones and brutes. Kill her and her brood pour out. Three androids.', make() { const s = colony({ crew: ['railgun', 'rifle', 'katana'] }); s.time = DUSK; launchRaid(s, 10, 3); return s; } },
+  dawn: { name: 'Dawn breaks', note: 'Raiders at the base ten seconds before sunrise: they run for the caves.', make() { const s = colony({ crew: ['rifle'] }); s.time = DAWN - 10; atBase(s, ['drone', 'drone', 'brute', 'brood']); s.raid = { wave: 5, night: 0, quiet: 0, spawns: [] }; return s; } },
 };
 export const makeSave = id => serialize((SCENARIOS[id] ?? SCENARIOS.first).make());
 export { DUSK, DAWN, DEFS };

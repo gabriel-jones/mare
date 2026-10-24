@@ -7,6 +7,7 @@ canvas#lab{position:fixed;inset:0;width:100%;height:100%;outline:none;cursor:cro
 button{font:inherit;color:#d6dde8;background:#172130;border:1px solid #2a384c;border-radius:7px;padding:5px 10px;cursor:pointer}
 button:hover{background:#1f2c40}button.on{background:#3a2a6e;border-color:#7a62e0;color:#fff}
 .panel{position:fixed;top:64px;left:12px;width:230px;background:#0d131dcc;border:1px solid #243041;border-radius:10px;padding:10px;backdrop-filter:blur(6px)}
+.tag{position:fixed;transform:translate(-50%,0);pointer-events:none;font:600 12px ui-sans-serif,system-ui;letter-spacing:.06em;color:#e9defc;background:#120c22cc;border:1px solid #5a43b8;border-radius:6px;padding:3px 8px;white-space:nowrap}
 .panel h3{margin:2px 0 8px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#7f8ea3;font-weight:600}
 .clips{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;margin-bottom:10px}.clips button{padding:5px 4px}
 .row{display:flex;gap:6px;align-items:center;margin:6px 0}.row label{display:flex;gap:5px;align-items:center;cursor:pointer}
@@ -30,6 +31,10 @@ input[type=range]{width:100%;accent-color:#8a70ff}
  <h3>Astronaut</h3><div class="clips" id="astro-clips"></div>
  <div class="row"><button id="play">Replay</button><span id="frame" style="font:11px ui-monospace,monospace;color:#9fb0c4"></span></div>
  <div class="row"><button data-speed="0.25">¼×</button><button data-speed="0.5">½×</button><button data-speed="1" class="on">1×</button></div>
+ <h3 style="margin-top:12px">Raider size</h3><div class="clips" id="sizes"></div>
+ <h3>Abdomen</h3><div class="clips" id="abdomens"></div>
+ <div class="row"><label><input type="checkbox" id="lineup">Line up all four styles</label></div>
+ <p class="note" id="abdomen-note"></p>
  <h3 style="margin-top:12px">View</h3>
  <div class="row"><label><input type="checkbox" id="turntable" checked>Turntable</label><label><input type="checkbox" id="scale" checked>Astronaut</label></div>
  <div class="row"><button id="light-studio" class="on">Studio</button><button id="light-lamp">Headlamp only</button></div>
@@ -56,13 +61,13 @@ import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
-import {createCrawlerView} from '../crawler-view.js';
+import {createCrawlerView,ABDOMEN_STYLES} from '../crawler-view.js';
 import {createAstronaut} from '../actor.js';
 import {createCaveView} from '../cave-view.js';
 import {caveLayout,caveKey} from '../caves.js';
 import {terrainData} from '../terrain.js';
 import {FLARE,HEALTH} from '../peril.js';
-import {CRAWLER,PISTOL,DODGE,PLAYER_RADIUS,createCrawler,stepCrawler,struggle,hurtCrawler,exposure,walkable,createGun,stepGun,fireGun,reloadGun,craftAmmo,shotEnd,createDodge,startDodge,stepDodge} from '../crawler.js';
+import {KINDS,CRAWLER,PISTOL,DODGE,PLAYER_RADIUS,createCrawler,stepCrawler,struggle,hurtCrawler,exposure,walkable,createGun,stepGun,fireGun,reloadGun,craftAmmo,shotEnd,createDodge,startDodge,stepDodge} from '../crawler.js';
 
 const params=new URLSearchParams(location.search),$=id=>document.getElementById(id);
 const canvas=$('lab'),renderer=new THREE.WebGLRenderer({canvas,antialias:true});
@@ -81,7 +86,35 @@ const lamp=new THREE.SpotLight('#cfe8ff',0,24,.42,.6,1.4);studioCam.add(lamp);la
 studio.add(hemi,key,rim);
 const floor=new THREE.Mesh(new THREE.CircleGeometry(6,64).rotateX(-Math.PI/2),new THREE.MeshStandardMaterial({color:'#2a2d33',roughness:.95}));floor.receiveShadow=true;studio.add(floor);
 for(let r=1;r<=5;r++){const ring=new THREE.Mesh(new THREE.RingGeometry(r-.008,r+.008,96).rotateX(-Math.PI/2),new THREE.MeshBasicMaterial({color:'#4a5466'}));ring.position.y=.002;studio.add(ring);}
-const specimen=createCrawlerView(crawlerGLTF,studio,{mode:'studio'});
+/** The specimen at a raider size with a chosen abdomen, or all four abdomens side by side. */
+const SIZES={cave:{label:'Cave',size:1,belly:0},...Object.fromEntries(Object.entries(KINDS).map(([k,v])=>[k,{label:k[0].toUpperCase()+k.slice(1),size:v.size,belly:v.belly}]))};
+let size=SIZES[params.get('size')]?params.get('size'):'drone',abdomen=ABDOMEN_STYLES[params.get('abdomen')]?params.get('abdomen'):'bulb',lineup=params.has('lineup');
+let specimens=[],specimen=null;const tags=[];
+const STYLE_NAMES={bulb:'Spider bulb',sac:'Brood sac',segments:'Segmented',pustules:'Pustules'};
+function buildSpecimens(){
+ specimens.forEach(s=>{s.view.dispose();s.holder.removeFromParent();});tags.forEach(t=>t.remove());tags.length=0;
+ const k=SIZES[size],styles=lineup?Object.keys(ABDOMEN_STYLES):[abdomen],gap=Math.max(2.6,k.size*2.9);
+ specimens=styles.map((style,i)=>{
+  // Lined up two by two, side-on to the camera so each abdomen shows in profile.
+  const holder=new THREE.Group(),x=lineup?(i%2-.5)*gap*1.15:0,z=lineup?(Math.floor(i/2)-.5)*gap:0;holder.scale.setScalar(k.size);holder.position.set(x,0,z);if(lineup)holder.rotation.y=Math.PI/2;studio.add(holder);
+  const view=createCrawlerView(crawlerGLTF,holder,{mode:'studio',girth:k.belly,abdomen:style});
+  if(lineup){const t=document.createElement('div');t.className='tag';t.textContent=STYLE_NAMES[style];document.body.append(t);tags.push(t);}
+  return {holder,view,style,x,z};
+ });
+ specimen=specimens[0].view;
+ orbit.target.set(lineup?-gap*.45:0,.75*k.size,0);orbit.autoRotate=!lineup&&$('turntable').checked;
+ if(lineup)studioCam.position.set(gap*.15,gap*2.1,gap*3.7);
+ else{const reach=5+k.size*3;studioCam.position.set(.55*reach,.34*reach+.5*k.size,.76*reach);}orbit.maxDistance=60;
+ $('abdomen-note').textContent=lineup?`Back row: ${STYLE_NAMES[styles[0]]}, ${STYLE_NAMES[styles[1]]}. Front row: ${STYLE_NAMES[styles[2]]}, ${STYLE_NAMES[styles[3]]}.`:k.belly?ABDOMEN_STYLES[abdomen]+'.':'The cave crawler has no abdomen.';
+ sizeButtons.forEach((b,n)=>b.classList.toggle('on',n===size));abdomenButtons.forEach((b,n)=>b.classList.toggle('on',n===abdomen&&!lineup));$('lineup').checked=lineup;
+ const q=new URLSearchParams(location.search);q.set('size',size);q.set('abdomen',abdomen);if(lineup)q.set('lineup','1');else q.delete('lineup');history.replaceState(null,'',location.pathname+'?'+q);
+}
+const sizeButtons=new Map(),abdomenButtons=new Map();
+for(const [id,k] of Object.entries(SIZES)){const b=document.createElement('button');b.textContent=k.label;b.onclick=()=>{size=id;buildSpecimens();};$('sizes').append(b);sizeButtons.set(id,b);}
+for(const id of Object.keys(ABDOMEN_STYLES)){const b=document.createElement('button');b.textContent=STYLE_NAMES[id];b.title=ABDOMEN_STYLES[id];b.onclick=()=>{abdomen=id;lineup=false;buildSpecimens();};$('abdomens').append(b);abdomenButtons.set(id,b);}
+$('lineup').onchange=e=>{lineup=e.target.checked;buildSpecimens();};
+$('abdomens').style.gridTemplateColumns='1fr 1fr';
+resize.framed=true;buildSpecimens();
 const reference=createAstronaut({...astronautGLTF,scene:SkeletonUtils.clone(astronautGLTF.scene)});studio.add(reference.root);
 /** Each pose runs the real behaviour states on a stand-in crawler: walks circle the stage, attacks loop. */
 const POSES={idle:{},stalk:{walk:2.2},skitter:{walk:6.5},shriek:{loop:[['shriek',2.2]]},attack:{loop:[['stalk',1.2],['shriek',.9],['lunge',.42],['recover',1.4]]},
@@ -113,8 +146,13 @@ function updateStudio(dt){
  else{stand.state='idle';stand.speed=0;}
  // The astronaut stands where the attacks land, or off to the side for scale.
  const target=refClip==='auto'&&(pose==='grab'||pose==='slash'||pose==='attack');
- reference.root.position.set(target?0:-2.2,0,target?1.3:-.6);reference.root.rotation.y=target?Math.PI:.5;
- orbit.update();specimen.update(stand,step,{player:{x:reference.root.position.x,z:reference.root.position.z}});
+  const side=2.2+SIZES[size].size*.9;
+ if(lineup){reference.root.position.set(0,0,0);reference.root.rotation.y=.5;}
+ else{reference.root.position.set(target?0:-side,0,target?1.3*SIZES[size].size:-.6);reference.root.rotation.y=target?Math.PI:.5;}
+ orbit.update();
+ for(const s of specimens){const k=s.holder.scale.x,local={...stand,x:lineup&&p.walk?0:stand.x,z:lineup&&p.walk?0:stand.z},at=reference.root.position;
+  s.view.update(local,step,{player:lineup?{x:local.x,z:local.z+2}:{x:at.x/k,z:at.z/k}});}
+ tags.forEach((t,i)=>{const v=new THREE.Vector3(specimens[i].x,specimens[i].holder.scale.x*1.75+.3,specimens[i].z).project(studioCam);t.style.left=`${(v.x+1)/2*innerWidth}px`;t.style.top=`${(1-v.y)/2*innerHeight}px`;t.hidden=mode!=='specimen';});
  let anim=refClip==='fire'?'aimidle':refClip;refT+=step;
  if(refClip==='auto')anim=pose==='grab'?'struggle':pose==='slash'&&stand.state==='slash'?'hurt':'aimidle';
  else if(refClip==='fire'){if(refT>.6){refT=0;reference.fire();}}

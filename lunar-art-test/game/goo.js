@@ -1,7 +1,7 @@
 import { CELL_SIZE, footprint } from './defs.js';
 import { caveKey, caveLayout } from './caves.js';
 import * as inv from './inventory.js';
-import { CRAWLER, createCrawler, stepCrawler, hurtCrawler } from './crawler.js';
+import { CRAWLER, KINDS, MAX_KIND_HP, createCrawler, stepCrawler, hurtCrawler } from './crawler.js';
 import { INFEST, liveNests, nestMouth } from './infest.js';
 import { techDone } from './space.js';
 import { BIO } from './power.js';
@@ -21,7 +21,7 @@ export const GOO = Object.freeze({
   burnReach: 2.4, burnDamage: 30, hatchlingHp: 30, biteDamage: 9,
   sampleReach: 2.2,
 });
-const RAIDERS = 10;
+const RAIDERS = 30;
 
 const zoneKey = (id, zone = 0) => zone ? `${id}:${zone}` : `${id}`;
 export const gooCells = state => state.goo?.cells ?? [];
@@ -193,9 +193,14 @@ export function restoreGoo(state, raw) {
   }
   if (raw.brood != null) {
     // Raiders (raid.js) share the brood, so it can hold a raid as well as a breach.
-    if (!Array.isArray(raw.brood) || raw.brood.length > GOO.maxBrood + RAIDERS || !raw.brood.every(c => finite(c?.x) && finite(c?.z) && Math.abs(c.x) < 140 && Math.abs(c.z) < 140 && finite(c.hp) && c.hp > 0 && c.hp <= CRAWLER.hp)) throw new Error('Invalid hatchlings.');
-    state.brood = raw.brood.filter(c => c.state !== 'dead' && !c.gone).map(c => Object.assign(createCrawler(c.x, c.z), { hp: c.hp, facing: finite(c.facing) ? c.facing : 0 },
-      c.raider === true ? { raider: true, small: c.small === true, ...(Number.isInteger(c.retreat) && c.retreat >= 0 && c.retreat <= 2 ? { retreat: c.retreat } : {}) } : {}));
+    if (!Array.isArray(raw.brood) || raw.brood.length > GOO.maxBrood + RAIDERS || !raw.brood.every(c => finite(c?.x) && finite(c?.z) && Math.abs(c.x) < 140 && Math.abs(c.z) < 140 && finite(c.hp) && c.hp > 0 && c.hp <= (c.raider === true ? MAX_KIND_HP : CRAWLER.hp))) throw new Error('Invalid hatchlings.');
+    // A raider keeps its size; one saved before raiders had sizes comes back as a drone, or brood if it was small.
+    const raider = c => {
+      const kind = KINDS[c.kind] ? c.kind : c.small === true ? 'brood' : 'drone', k = KINDS[kind];
+      return { raider: true, kind, size: k.size, pace: k.pace, hp: Math.min(c.hp, k.hp), ...(Number.isInteger(c.pack) ? { pack: c.pack, mustered: true } : {}), ...(c.burst === true ? { burst: true } : {}),
+        ...(finite(c.grudge) ? { grudge: Math.min(c.grudge, 30) } : {}), ...(Number.isInteger(c.retreat) && c.retreat >= 0 && c.retreat <= 2 ? { retreat: c.retreat } : {}) };
+    };
+    state.brood = raw.brood.filter(c => c.state !== 'dead' && !c.gone).map(c => Object.assign(createCrawler(c.x, c.z), { hp: c.hp, facing: finite(c.facing) ? c.facing : 0 }, c.raider === true ? raider(c) : {}));
   }
   if (raw.scraped != null && typeof raw.scraped === 'object' && !Array.isArray(raw.scraped)) {
     state.scraped = {};

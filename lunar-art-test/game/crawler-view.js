@@ -110,7 +110,86 @@ export function legGeometry(keep=g=>g){
  return geo;
 }
 
-export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=null,viewDir=null}={}){
+/** Abdomen looks under review (alien-lab.html); `abdomenStyle` is the one the game draws. */
+export const ABDOMEN_STYLES=Object.freeze({
+ bulb:'Spider bulb: a heavy glossy sphere riding high behind',
+ sac:'Brood sac: a thin dark membrane, the brood squirming inside against a red glow',
+ segments:'Segmented: a curled, ribbed gaster of overlapping goo plates',
+ pustules:'Pustules: a lumpy sack studded with glowing red blisters, like the goo vat',
+});
+export const abdomenStyle={value:'bulb'};
+const RED='#ff1a0a';
+/** A sphere roughed into a lumpy blob, `seed` picking the lumps. */
+function lumpy(segments,seed,amount=.06){
+ const g=new THREE.SphereGeometry(1,segments,Math.round(segments*.7)),p=g.attributes.position,v=new THREE.Vector3();
+ for(let i=0;i<p.count;i++){v.fromBufferAttribute(p,i);const n=1+amount*(Math.sin(v.x*6.1+seed)*Math.sin(v.y*5.3+seed*1.7)+.6*Math.sin(v.z*8.7-seed*2.3)*Math.sin(v.x*4.4+v.y*3.1));p.setXYZ(i,v.x*n,v.y*n,v.z*n);}
+ g.computeVertexNormals();return g;
+}
+/**
+ * The abdomen behind the body, in the body's space (+Z ahead). `belly` (0–1) sizes it. It breathes, swings out
+ * behind on a turn, and splits open when its crawler dies. `keep` collects disposables.
+ */
+function createAbdomen(style,belly,{ink,keep,castShadow}){
+ const pivot=new THREE.Group(),k=.75+.95*belly,parts=[];pivot.position.set(0,.02,-.2);
+ const add=(geo,mat,x,y,z,sx,sy,sz,into=pivot)=>{const m=new THREE.Mesh(geo,mat);m.position.set(x,y,z);m.scale.set(sx,sy,sz);m.castShadow=castShadow;m.frustumCulled=false;into.add(m);parts.push(m);return m;};
+ const goo=ink(.018),neck=keep(lumpy(14,1.3,.03));
+ add(neck,goo,0,0,-.04,.08,.07,.09);
+ const centre=new THREE.Vector3(),glow=[],wrigglers=[],plates=[];let membrane=null;
+ if(style==='bulb'||style==='pustules'){
+  const r=.27*k;centre.set(0,.08*k,-.06-r*1.05);
+  add(keep(lumpy(32,2.1,style==='pustules'?.09:.035)),goo,centre.x,centre.y,centre.z,r*.95,r*.85,r*1.15);
+  if(style==='pustules'){
+   const blister=keep(new THREE.MeshStandardMaterial({color:'#4a0404',emissive:RED,emissiveIntensity:1.4,roughness:.25})),bump=keep(new THREE.SphereGeometry(1,10,8));
+   for(let i=0;i<9+Math.round(belly*8);i++){
+    const a=i*2.39996,y=1-(i+.5)/(9+belly*8)*1.6,rr=Math.sqrt(Math.max(0,1-y*y)),dir=new THREE.Vector3(Math.cos(a)*rr,y*.9,Math.sin(a)*rr-.15).normalize();
+    if(dir.y<-.55)continue;const s=r*(.09+.07*((i*.618)%1));
+    const m=add(bump,blister,centre.x+dir.x*r*.93,centre.y+dir.y*r*.82,centre.z+dir.z*r*1.1,s,s*.8,s);glow.push({m,phase:i*1.7,s});
+   }
+  }
+ }else if(style==='sac'){
+  const r=.3*k;centre.set(0,-.02*k,-.04-r*1.1);
+  membrane=keep(new THREE.MeshPhysicalMaterial({color:'#1a0606',roughness:.12,clearcoat:1,clearcoatRoughness:.08,transparent:true,opacity:.55,depthWrite:false,emissive:'#3a0302',emissiveIntensity:.6}));
+  const skin=add(keep(lumpy(32,4.2,.05)),membrane,centre.x,centre.y,centre.z,r*.9,r*.82,r*1.2);skin.renderOrder=2;
+  const core=keep(new THREE.MeshBasicMaterial({color:RED,transparent:true,opacity:.5,blending:THREE.AdditiveBlending,depthWrite:false}));
+  const heart=add(keep(new THREE.SphereGeometry(1,16,12)),core,centre.x,centre.y,centre.z,r*.45,r*.4,r*.6);glow.push({m:heart,phase:0,s:r*.45,core:true});
+  const embryo=keep(lumpy(12,7.7,.12)),dark=ink(.03);
+  for(let i=0;i<3+Math.round(belly*4);i++){
+   const a=i*2.1,home=new THREE.Vector3(Math.cos(a)*r*.38,Math.sin(i*1.3)*r*.25,Math.sin(a)*r*.5).add(centre);
+   const m=add(embryo,dark,home.x,home.y,home.z,r*.24,r*.17,r*.3);m.renderOrder=1;wrigglers.push({m,home,phase:i*1.9});
+  }
+ }else{
+  // Overlapping plates along a curve that sweeps back and curls down, each narrower than the last.
+  const plate=keep(lumpy(24,5.5,.025)),gloss=ink(.01),n=5;let at=new THREE.Vector3(0,.02,-.08),dir=new THREE.Vector3(0,.25,-1).normalize();
+  let parent=pivot;
+  for(let i=0;i<n;i++){
+   const r=.2*k*(1-i*.13),seg=new THREE.Group();seg.position.copy(at);parent.add(seg);
+   const m=add(plate,gloss,0,0,-r*.75,r*1.05,r*.86,r*.95,seg);
+   plates.push({seg,rest:new THREE.Euler(i?-.42-.04*i:.3,0,0)});seg.rotation.copy(plates.at(-1).rest);
+   parent=seg;at=new THREE.Vector3(0,0,-r*1.25);dir.applyAxisAngle(new THREE.Vector3(1,0,0),.35);
+   if(i===0)centre.set(0,0,-r*2.4);
+  }
+ }
+ let swing=0,popped=false;const lastYaw={v:null};
+ return {pivot,centre,
+  update(dt,clock,{yaw,dead,t,drip,splatAt,toRoot}){
+   if(dead&&!popped&&t>.12){popped=true;pivot.visible=false;
+    const at=toRoot(pivot.position.clone().add(centre));
+    for(let i=0;i<24;i++)drip(at.clone().add(new THREE.Vector3((Math.random()-.5)*.25*k,0,(Math.random()-.5)*.25*k)),.02+Math.random()*.03*k,new THREE.Vector3((Math.random()-.5)*5,1.5+Math.random()*3,(Math.random()-.5)*5));
+    splatAt(at,.35*k);}
+   if(!dead&&popped){popped=false;pivot.visible=true;}
+   const turn=lastYaw.v==null?0:Math.atan2(Math.sin(yaw-lastYaw.v),Math.cos(yaw-lastYaw.v))/Math.max(dt,1e-4);lastYaw.v=yaw;
+   swing+=(THREE.MathUtils.clamp(-turn*.12,-.5,.5)-swing)*(1-Math.exp(-dt*4));
+   const breathe=1+.045*Math.sin(clock*1.9);
+   pivot.rotation.set(-.06+.04*Math.sin(clock*1.3),swing,swing*.3);pivot.scale.set(breathe,1+.6*(breathe-1),breathe);
+   plates.forEach((p,i)=>{p.seg.rotation.set(p.rest.x+.06*Math.sin(clock*2.2-i*.7),swing*.35,0);});
+   for(const g of glow){const pulse=.5+.5*Math.sin(clock*(g.core?2.4:1.7)+g.phase);if(g.core){g.m.material.opacity=.28+.3*pulse;}else{g.m.material.emissiveIntensity=1.1+.7*pulse;}}
+   for(const w of wrigglers){w.m.position.set(w.home.x+.03*k*Math.sin(clock*3.1+w.phase),w.home.y+.02*k*Math.sin(clock*4.3+w.phase*2),w.home.z+.03*k*Math.cos(clock*2.7+w.phase));w.m.rotation.set(Math.sin(clock*2+w.phase),clock*.7+w.phase,0);}
+  },
+  reset(){popped=false;pivot.visible=true;lastYaw.v=null;},
+ };
+}
+
+export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=null,viewDir=null,girth=0,abdomen=null,lite=false}={}){
  const root=new THREE.Group(),time={value:0},owned=[];parent.add(root);
  const keep=x=>(owned.push(x),x);
  const sag={value:new THREE.Vector3()},pulse={value:0};
@@ -134,7 +213,7 @@ export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=n
  model.traverse(o=>{
   if(o.name==='ShellL'||o.name==='ShellR')shells[o.name]=o;
   if(o.name==='Core')o.visible=false;
-  if(!o.isMesh)return;o.castShadow=mode==='studio';o.frustumCulled=false;
+  if(!o.isMesh)return;o.castShadow=mode==='studio'&&!lite;o.frustumCulled=false;
   const name=o.material.name;o.material=name.includes('bone')?bone:name.includes('maw')?maw:bodyInk;
  });
  // Where belly strands may grow: underside points of the shells, in the body's space.
@@ -146,16 +225,18 @@ export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=n
   for(let i=0;i<p.count;i+=3){const v=new THREE.Vector3().fromBufferAttribute(n,i).applyMatrix3(nm).normalize();if(v.y<-.75)belly.push(new THREE.Vector3().fromBufferAttribute(p,i).applyMatrix4(m));}
  }));
 
+ const tail=girth>0&&mode==='studio'?createAbdomen(abdomen??abdomenStyle.value,girth,{ink,keep,castShadow:!lite}):null;
+ if(tail)body.add(tail.pivot);
  const geo=legGeometry(keep);
  const legs=legInfo.map((info,i)=>{
   const parts={femur:new THREE.Mesh(geo.femur,legInk),tibia:new THREE.Mesh(geo.tibia,legInk),meta:new THREE.Mesh(geo.meta,legInk),needle:new THREE.Mesh(geo.needle,legInk),strand:new THREE.Mesh(geo.strand,legInk)};
-  Object.values(parts).forEach(m=>{m.castShadow=mode==='studio';m.frustumCulled=false;root.add(m);});
+  Object.values(parts).forEach(m=>{m.castShadow=mode==='studio'&&!lite;m.frustumCulled=false;root.add(m);});
   return {...info,parts,foot:new THREE.Vector3(),from:new THREE.Vector3(),to:new THREE.Vector3(),step:0,duration:.1,lift:.3,free:false,knee:new THREE.Vector3(),ankle:new THREE.Vector3(),strand:Math.random(),strandLength:.12+(i*.37%1)*.22,
    shrink:1,wrapAnkle:null,wrapFrom:new THREE.Vector3(),wrapPole:null,spasm:new THREE.Vector3(),spasmT:0};
  });
 
  // Belly strands: each gathers a drop somewhere on the underside, stretches until it lets go, then forms again elsewhere.
- const BELLY=6;
+ const BELLY=lite?3:6;
  const bellyStrands=[...Array(BELLY)].map(()=>{
   const mesh=new THREE.Mesh(geo.strand,legInk);mesh.castShadow=mode==='studio';mesh.frustumCulled=false;root.add(mesh);
   return {mesh,at:new THREE.Vector3(),grow:Math.random(),rate:.3,length:.2,retract:0};
@@ -365,6 +446,7 @@ export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=n
    dummy.position.set(s.x,.012+i*.00005,s.z);dummy.rotation.set(0,i*1.7,0);dummy.scale.set(s.r*grow*(1+.15*Math.sin(i)),1,s.r*grow);
    if(k>=1)dummy.scale.setScalar(0);dummy.updateMatrix();splats.setMatrixAt(i,dummy.matrix);
   });
+  tail?.update(dt,clock,{yaw:pose.yaw,dead,t:c.t,drip,splatAt:(p,r)=>splat(p.x,p.z,r,14),toRoot:v=>toParent(v,v)});
   drops.instanceMatrix.needsUpdate=splats.instanceMatrix.needsUpdate=true;
   return events;
  }
@@ -377,7 +459,7 @@ export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=n
   }
  }
  /** Snap to the next update's position instead of gliding there, for spawns and respawns. */
- function reset(){started=false;legs.forEach(l=>{l.step=0;l.free=false;});}
+ function reset(){started=false;legs.forEach(l=>{l.step=0;l.free=false;});tail?.reset();}
  /** How hot it is burning (0–1) and how charred it is (0–1). */
  function burn(h,c){heat.value=h;char.value=c;}
  /** Where flames take hold, in the root's space: the body and every knee and ankle. */

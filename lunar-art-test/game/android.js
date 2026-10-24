@@ -5,7 +5,7 @@ import { STATIONS, isStation, jobProduct, readyCount, roomStatus } from './life.
 import { CROPS, cropsFor, defaultCrop, isGrower } from './farm.js';
 import { BIO } from './power.js';
 import { WEAPONS } from './arms.js';
-import { hurtCrawler } from './crawler.js';
+import { CRAWLER, hurtCrawler, radiusOf, sizeOf } from './crawler.js';
 import { cellPassable } from './paths.js';
 import { habitatLayout } from './habitat.js';
 import { createAndroid, freePad } from './space.js';
@@ -66,8 +66,8 @@ function sightBlockers(state) {
   return cells;
 }
 /** The odds a shot lands: worse with range, and much worse at something on the move. A blade swing is surer. */
-export function hitChance(spec, distance, speed = 0) {
-  const odds = spec.melee ? .92 - speed * .05 : ANDROID.hit - distance / 45 - speed * .075;
+export function hitChance(spec, distance, speed = 0, size = 1) {
+  const odds = spec.melee ? .92 - speed * .05 : ANDROID.hit - distance / 45 - speed * .075 + (size - 1) * .08;
   return Math.max(.12, Math.min(.92, odds));
 }
 
@@ -417,7 +417,7 @@ function fight(state, r, dt, rng) {
   const spec = WEAPONS[r.weapon], list = threats(state);
   if (!list.length || !spec) return 'done';
   const target = list.sort((a, b) => Math.hypot(a.x - r.x, a.z - r.z) - Math.hypot(b.x - r.x, b.z - r.z))[0];
-  const d = Math.hypot(target.x - r.x, target.z - r.z), reach = spec.melee ? spec.range * .75 : Math.min(spec.range * .7, 14);
+  const d = Math.hypot(target.x - r.x, target.z - r.z) - Math.max(0, radiusOf(target) - CRAWLER.radius), reach = spec.melee ? spec.range * .75 : Math.min(spec.range * .7, 14);
   r.cool = Math.max(0, (r.cool ?? 0) - dt);
   r.aim = { x: target.x, z: target.z };
   // Out of sight (round a building, over a rise) it closes in rather than firing blind.
@@ -432,7 +432,7 @@ function fight(state, r, dt, rng) {
   r.moving = false; routes.delete(r);
   face(r, Math.atan2(target.x - r.x, target.z - r.z), dt * 12);
   if (r.cool > 0) return 'working';
-  const odds = hitChance(spec, d, target.speed ?? 0);
+  const odds = hitChance(spec, d, target.speed ?? 0, sizeOf(target));
   if (spec.melee) { if (rng() < odds) hurtCrawler(target, spec.damage * ANDROID.damage); r.cool = spec.cooldown + .25; r.shot = (r.shot ?? 0) + 1; return 'working'; }
   if (r.mag <= 0) {
     if (r.ammo <= 0) return 'done';

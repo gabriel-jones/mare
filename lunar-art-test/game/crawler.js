@@ -32,6 +32,23 @@ export function createCrawler(x,z,rng=Math.random){
  return {x,z,facing:0,state:'lurk',t:0,hp:CRAWLER.hp,patience:between(rng,CRAWLER.patience),lunge:{x:0,z:1},escape:0,goal:null,think:0,speed:0,anim:'idle',after:null,
   burn:0,evadeCool:0,evade:{x:1,z:0},tell:CRAWLER.shriekTime};
 }
+/**
+ * Raider sizes. Bigger ones stand taller than the astronaut, take far more killing, hit harder and move slower; when
+ * one dies its abdomen splits and `burst` brood spill out: babies, quick and weak. `belly` sizes the abdomen (0–1).
+ */
+export const KINDS=Object.freeze({
+ brood:Object.freeze({size:.55,hp:10,pace:1.5,might:.3,burst:0,belly:.25}),
+ drone:Object.freeze({size:1.9,hp:80,pace:.95,might:1.1,burst:1,belly:.45}),
+ brute:Object.freeze({size:2.5,hp:170,pace:.78,might:1.6,burst:4,belly:.75}),
+ matron:Object.freeze({size:3.2,hp:300,pace:.62,might:2.2,burst:7,belly:1}),
+});
+export const MAX_KIND_HP=Math.max(...Object.values(KINDS).map(k=>k.hp));
+/** Makes `c` a raider of `kind`, at full health. */
+export function asKind(c,kind){const k=KINDS[kind];return Object.assign(c,{kind,size:k.size,pace:k.pace,hp:k.hp});}
+/** How big it stands (1 = the cave crawler) and how fast it moves for its size: raiders come in several sizes. */
+export const sizeOf=c=>c.size??1;
+const paceOf=c=>c.pace??1;
+export const radiusOf=c=>CRAWLER.radius*sizeOf(c);
 export const crawlerAnimation=c=>c.state==='lurk'&&c.speed<.2?'idle':ANIM[c.state];
 
 export function walkable(cave,x,z,r=CRAWLER.radius*.6){
@@ -86,7 +103,7 @@ function moveToward(c,env,goal,speed,dt){
  if(!goal){c.speed=0;return;}
  const dx=goal.x-c.x,dz=goal.z-c.z,d=Math.hypot(dx,dz);
  if(d<.05){c.speed=0;return;}
- const step=Math.min(d,speed*dt),nx=c.x+dx/d*step,nz=c.z+dz/d*step;
+ const step=Math.min(d,speed*paceOf(c)*dt),nx=c.x+dx/d*step,nz=c.z+dz/d*step;
  if(walkable(env.cave,nx,nz)){c.x=nx;c.z=nz;}else if(walkable(env.cave,nx,c.z))c.x=nx;else if(walkable(env.cave,c.x,nz))c.z=nz;
  c.speed=step/Math.max(dt,1e-6);turn(c,Math.atan2(dx,dz),dt*8);
 }
@@ -114,7 +131,7 @@ export function stepCrawler(c,env,dt,rng=Math.random){
  const lit=exposure(env,c.x,c.z),inFlare=(env.flares??[]).some(f=>Math.hypot(c.x-f.x,c.z-f.z)<f.r);
  const sees=lineVisible(cave,cellOf(c.x),cellOf(c.z),cellOf(player.x),cellOf(player.z));
  c.burn=Math.max(0,Math.min(1.5,c.burn+(lit>.05?lit*CRAWLER.burnRate:-CRAWLER.burnCool)*dt));c.evadeCool=Math.max(0,c.evadeCool-dt);
- const inRange=sees&&d>=CRAWLER.lungeRange[0]&&d<=CRAWLER.lungeRange[1];
+ const inRange=sees&&d>=CRAWLER.lungeRange[0]&&d<=CRAWLER.lungeRange[1]*Math.max(1,Math.sqrt(sizeOf(c)));
  const think=want=>{c.think-=dt;if(c.think<=0||!c.goal){c.goal=choose(c,env,want,rng);c.think=.22;}};
  switch(c.state){
   case 'lurk':
@@ -145,10 +162,10 @@ export function stepCrawler(c,env,dt,rng=Math.random){
    if(c.t>=c.tell){c.facing=toPlayer;c.lunge={x:dx/(d||1),z:dz/(d||1)};enter(c,'lunge',rng);events.push({type:'lunge'});}
    break;
   case 'lunge':{
-   const step=CRAWLER.lungeSpeed*dt,nx=c.x+c.lunge.x*step,nz=c.z+c.lunge.z*step;
-   const blocked=!walkable(cave,nx,nz);if(!blocked){c.x=nx;c.z=nz;c.speed=CRAWLER.lungeSpeed;}
+   const step=CRAWLER.lungeSpeed*paceOf(c)*dt,nx=c.x+c.lunge.x*step,nz=c.z+c.lunge.z*step;
+   const blocked=!walkable(cave,nx,nz);if(!blocked){c.x=nx;c.z=nz;c.speed=CRAWLER.lungeSpeed*paceOf(c);}
    const hd=Math.hypot(player.x-c.x,player.z-c.z);
-   if(hd<CRAWLER.reach+PLAYER_RADIUS&&!player.invulnerable){
+   if(hd<CRAWLER.reach*sizeOf(c)+PLAYER_RADIUS&&!player.invulnerable){
     const fromBehind=(Math.sin(player.facing)*(c.x-player.x)+Math.cos(player.facing)*(c.z-player.z))/(hd||1)<.1;
     if(fromBehind||!player.lamp){enter(c,'grab',rng);events.push({type:'grab',damage:CRAWLER.grabDamage*.5});}
     else{enter(c,'slash',rng);events.push({type:'slash',damage:CRAWLER.slashDamage,short:CRAWLER.shortTime});}
@@ -170,7 +187,7 @@ export function stepCrawler(c,env,dt,rng=Math.random){
    break;}
   case 'evade':{
    if(inFlare){enter(c,'recoil',rng);c.burn=Math.min(c.burn,.5);events.push({type:'recoil'});break;}
-   const step=CRAWLER.evadeSpeed*dt,nx=c.x+c.evade.x*step,nz=c.z+c.evade.z*step;
+   const step=CRAWLER.evadeSpeed*paceOf(c)*dt,nx=c.x+c.evade.x*step,nz=c.z+c.evade.z*step;
    if(walkable(cave,nx,nz)){c.x=nx;c.z=nz;c.speed=CRAWLER.evadeSpeed;}else{c.evade={x:-c.evade.x,z:-c.evade.z};c.speed=0;}
    turn(c,toPlayer,dt*6);
    if(c.t>=CRAWLER.evadeTime){enter(c,'stalk',rng);c.patience=0;c.goal=null;}
@@ -227,7 +244,7 @@ export function hurtCrawler(c,damage,rng=Math.random){
  c.hp=Math.max(0,c.hp-dealt);
  if(c.hp<=0){enter(c,'dead',rng);c.anim='death';return {killed:true,dealt};}
  if(c.state==='grab'){if(struggle(c,CRAWLER.escapePerShot))return {killed:false,dealt,released:true};return {killed:false,dealt};}
- if(c.state!=='lunge'){c.after=c.state==='shriek'||c.state==='recover'||c.state==='flee'?'flee':'angry';enter(c,'hit',rng);c.anim='hit';}
+ if(c.state!=='lunge'&&(sizeOf(c)<=1||rng()<1/sizeOf(c)**2)){c.after=c.state==='shriek'||c.state==='recover'||c.state==='flee'?'flee':'angry';enter(c,'hit',rng);c.anim='hit';}
  return {killed:false,dealt,interrupted:exposed};
 }
 
@@ -258,7 +275,7 @@ export function shotTarget(cave,from,aim,crawlers,gun=PISTOL){
  for(const c of crawlers){
   if(c.state==='dead')continue;
   const ox=c.x-from.x,oz=c.z-from.z,along=ox*ax+oz*az;if(along<0||along>gun.range)continue;
-  const off=Math.abs(ox*az-oz*ax);if(off>CRAWLER.radius+gun.tolerance)continue;
+  const off=Math.abs(ox*az-oz*ax);if(off>radiusOf(c)+gun.tolerance)continue;
   if(cave&&!lineVisible(cave,cellOf(from.x),cellOf(from.z),cellOf(c.x),cellOf(c.z)))continue;
   if(!best||along<best.distance)best={crawler:c,distance:along};
  }

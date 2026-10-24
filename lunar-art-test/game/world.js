@@ -34,7 +34,7 @@ import { createGooView } from './goo-view.js';
 import { FLARE } from './peril.js';
 import { GOO } from './goo.js';
 import { beltSlopes } from './belt-slope.js';
-import { DODGE } from './crawler.js';
+import { DODGE, KINDS } from './crawler.js';
 import { BIO, THERMAL } from './power.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createLightBudget, createAdaptiveResolution, trimShadows } from './render-budget.js';
@@ -341,13 +341,13 @@ export async function createWorld(canvas, initialState, options = {}) {
     const brood=underground?[]:state.brood??[];
     // Hatchlings are a smaller brood: each view sits in a holder scaled about the hatchling, so its legs stay planted.
     // Raiders are full-grown, bar the hatchlings that join later raids.
-    for(const c of brood)if(!broodViews.has(c)&&crawlerGLTF){const scale=c.raider&&!c.small?1:HATCHLING,holder=new THREE.Group();holder.scale.setScalar(scale);surfaceFx.add(holder);const view=createCrawlerView(crawlerGLTF,holder,{mode:'studio'});broodViews.set(c,{holder,view,scale,update:(c,dt,ctx)=>{holder.position.set(c.x*(1-scale),broodGround(c.x,c.z)-surfaceFx.position.y,c.z*(1-scale));view.update(c,dt,ctx);},dispose:()=>{view.dispose();holder.removeFromParent();}});}
+    for(const c of brood)if(!broodViews.has(c)&&crawlerGLTF){const scale=c.raider?c.size??(c.small?HATCHLING:1):HATCHLING,holder=new THREE.Group();holder.scale.setScalar(scale);surfaceFx.add(holder);const view=createCrawlerView(crawlerGLTF,holder,{mode:'studio',girth:c.raider?KINDS[c.kind]?.belly??0:0,lite:scale<1});broodViews.set(c,{holder,view,scale,update:(c,dt,ctx)=>{holder.position.set(c.x*(1-scale),broodGround(c.x,c.z)-surfaceFx.position.y,c.z*(1-scale));view.update(c,dt,ctx);},dispose:()=>{view.dispose();holder.removeFromParent();}});}
     for(const [c,v] of broodViews)if(!brood.includes(c)){v.dispose();broodViews.delete(c);}
     if(underground)return;
     surfaceFx.position.y=smoothedGround??0;
     for(const f of state.flares??[])if(f.cave==null&&f.age!=null&&f.age<FLARE.release&&!thrownOnSurface.has(f)){thrownOnSurface.add(f);actor?.throwFlare();}
     surfaceFlares.update(state,dt,{root:surfaceFx,actor});
-    for(const [c,v] of broodViews)v.update(c,dt,{player:c.aimAt??state.player});
+    for(const [c,v] of broodViews){const at=c.aimAt??state.player;v.update(c,dt,{player:{x:c.x+(at.x-c.x)/v.scale,z:c.z+(at.z-c.z)/v.scale}});}
   }
   const suitMaterials=[];actor?.root.traverse(o=>{if(o.isMesh)for(const m of (Array.isArray(o.material)?o.material:[o.material]))if(!suitMaterials.some(x=>x.material===m))suitMaterials.push({material:m,color:m.color.clone(),environment:m.envMapIntensity});});let suitUnderground=false;
   document.body.dataset.characterClips=actor?.clips.join(',')||'unavailable';

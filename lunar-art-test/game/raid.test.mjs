@@ -4,10 +4,10 @@ import { payInFull, createState, placeBlueprint, tick, serialize, deserialize, c
 import { createInventory, add, count } from './inventory.js';
 import { ensureBuildingState } from './production.js';
 import { ensureLifeState } from './life.js';
-import { createCrawler, hurtCrawler } from './crawler.js';
+import { KINDS, asKind, createCrawler, hurtCrawler } from './crawler.js';
 import { terrainData, randomStream } from './terrain.js';
 import { CELL_SIZE, DEFS } from './defs.js';
-import { RAID, buildingHp, damageBuilding, mend, raidAlert, stepRaiders, waveSize } from './raid.js';
+import { RAID, MAX_RAIDERS, buildingHp, damageBuilding, launchRaid, mend, raidAlert, raiders, stepRaid, stepRaiders, waveSize } from './raid.js';
 import { WEAPONS } from './arms.js';
 import { hitChance, threats } from './android.js';
 
@@ -49,12 +49,58 @@ test('raids arm once alien work is built and the first comes out of a cave mouth
   assert.equal(s.raid.wave, 1);
 });
 
-test('raids grow, and hatchlings join from the third', () => {
-  assert.deepEqual(waveSize(1), { adults: 1, small: 0 });
-  assert.deepEqual(waveSize(2), { adults: 1, small: 0 });
-  assert.deepEqual(waveSize(3), { adults: 2, small: 1 });
-  assert.ok(waveSize(9).adults + waveSize(9).small > 5);
-  assert.ok(waveSize(99).adults <= RAID.maxAdults && waveSize(99).small <= RAID.maxSmall);
+test('raids grow, and bigger raiders join as they go on', () => {
+  assert.deepEqual(waveSize(1), { drone: 1, brute: 0, matron: 0 });
+  assert.deepEqual(waveSize(3), { drone: 2, brute: 0, matron: 0 });
+  assert.deepEqual(waveSize(5), { drone: 3, brute: 1, matron: 0 });
+  assert.ok(waveSize(10).matron >= 1 && waveSize(10).brute >= 2);
+  const most = waveSize(99);
+  assert.ok(most.drone <= RAID.maxDrones && most.brute <= RAID.maxBrutes && most.matron <= RAID.maxMatrons);
+});
+
+test('the bigger the raider, the taller, tougher, harder-hitting and slower it is', () => {
+  const order = ['brood', 'drone', 'brute', 'matron'].map(k => KINDS[k]);
+  for (let i = 1; i < order.length; i++) {
+    assert.ok(order[i].size > order[i - 1].size && order[i].hp > order[i - 1].hp && order[i].might > order[i - 1].might && order[i].pace < order[i - 1].pace);
+  }
+  assert.ok(KINDS.drone.size > 1.6, 'a drone stands over the astronaut');
+  assert.ok(KINDS.brood.size < .7 && KINDS.brood.pace > 1.2, 'brood are small and quick');
+});
+
+test('a pack waits at the cave mouth until all of it is out, then sets off together', () => {
+  const { s } = colony(), rng = randomStream(11);
+  s.time = NIGHT; tick(s, 0);
+  launchRaid(s, 7, 0, rng);
+  const step = () => { stepRaid(s, 1 / 30, rng); stepRaiders(s, 1 / 30, [], rng); };
+  const pack = s.raid.spawns[0].pack, members = s.raid.spawns.filter(p => p.pack === pack).length;
+  assert.ok(members >= 2, 'a pack of several');
+  let marchedEarly = false;
+  for (let t = 0; t < 12; t += 1 / 30) {
+    step();
+    const out = raiders(s).filter(c => c.pack === pack);
+    if (out.length < members && out.some(c => c.mustered)) marchedEarly = true;
+  }
+  assert.equal(marchedEarly, false, 'nobody sets off before the whole pack is out');
+  for (let t = 0; t < 8; t += 1 / 30) step();
+  const out = raiders(s).filter(c => c.pack === pack && c.state !== 'dead'), x = out.reduce((a, c) => a + c.x, 0) / out.length, z = out.reduce((a, c) => a + c.z, 0) / out.length;
+  assert.ok(out.every(c => c.mustered), 'all on the march');
+  assert.ok(out.every(c => Math.hypot(c.x - x, c.z - z) < 9), 'and still together');
+});
+
+test('a big raider bursts into brood as it dies; the brood come for whoever is near', () => {
+  const { s } = colony(), rng = randomStream(13);
+  s.player = { ...s.player, x: 2, z: 30, health: 100 };
+  const brute = raider(s, 2, 22);
+  asKind(brute, 'brute');
+  hurtCrawler(brute, 9999, rng);
+  fight(s, .1, rng);
+  const brood = raiders(s).filter(c => c.kind === 'brood');
+  assert.equal(brood.length, KINDS.brute.burst);
+  fight(s, 1.5, rng);
+  assert.ok(brood.some(c => c.prey === 'player'), 'they rush the player');
+  fight(s, .1, rng);
+  assert.equal(raiders(s).filter(c => c.kind === 'brood').length, KINDS.brute.burst, 'only once');
+  assert.ok(MAX_RAIDERS >= 20);
 });
 
 test('most nights bring a raid, and never two quiet nights running', () => {
@@ -143,12 +189,16 @@ test('at dawn raiders run for the caves and are gone', () => {
 test('raids, raiders, damage and wrecks survive a save', () => {
   const { s, lab, solar } = colony();
   const crate = build(s, 'storage', 0, 4); add(crate.slots, 'metal', 30);
-  s.raid = { wave: 3, night: 4, quiet: 0, spawns: [{ t: 4, cave: 1, small: true }] };
-  raider(s, 10, 10, { small: true, hp: 20 });
+  s.raid = { wave: 3, night: 4, quiet: 0, spawns: [{ t: 4, cave: 1, kind: 'brute', pack: 6 }] };
+  asKind(raider(s, 10, 10), 'brute').hp = 120;
   damageBuilding(s, lab, 30); damageBuilding(s, solar, 999); damageBuilding(s, crate, 999);
   const back = deserialize(serialize(s));
   assert.deepEqual(back.raid, s.raid);
-  assert.equal(back.brood[0].raider, true); assert.equal(back.brood[0].small, true); assert.equal(back.brood[0].hp, 20);
+  assert.equal(back.brood[0].raider, true); assert.equal(back.brood[0].kind, 'brute'); assert.equal(back.brood[0].size, KINDS.brute.size); assert.equal(back.brood[0].hp, 120);
+  const old = JSON.parse(serialize(s)); old.raid.spawns = [{ t: 4, cave: 1, small: true }]; old.brood = [{ ...old.brood[0], kind: undefined, small: true, hp: 10 }];
+  const legacy = deserialize(JSON.stringify(old));
+  assert.equal(legacy.raid.spawns[0].kind, 'brood', 'an old hatchling spawn comes back as brood');
+  assert.equal(legacy.brood[0].kind, 'brood');
   assert.equal(back.buildings.find(b => b.id === lab.id).hp, buildingHp('xenolab') - 30);
   const wreck = back.buildings.find(b => b.id === solar.id);
   assert.equal(wreck.wreck, true); assert.equal(wreck.built, false);

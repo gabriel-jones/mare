@@ -3,7 +3,7 @@ import {FLARE,flareNow} from './peril.js';
 import {burnNest,liveNests,nestMouth,silkBlocks,stepInfest} from './infest.js';
 import {burnGoo} from './goo.js';
 import {WEAPONS,stepArms,pullTrigger,burnTank,heldWeapon,armsOf,reload} from './arms.js';
-import {CRAWLER,PLAYER_RADIUS,createCrawler,stepCrawler,struggle,hurtCrawler,scorchCrawler,shotEnd,createDodge,startDodge,stepDodge} from './crawler.js';
+import {CRAWLER,PLAYER_RADIUS,radiusOf,createCrawler,stepCrawler,struggle,hurtCrawler,scorchCrawler,shotEnd,createDodge,startDodge,stepDodge} from './crawler.js';
 
 /**
  * Crawlers in the caves, and the player's answer to them: the weapons (arms.js), the dodge roll and breaking free of
@@ -181,7 +181,7 @@ function stepFlame(hunt,state,cave,targets,dt,rng){
   if(c.state==='dead')continue;
   // The jet stops at rock, so whatever lies by its points (or right at the nozzle) is in the fire.
   const ox=c.x-p.x,oz=c.z-p.z,close=Math.hypot(ox,oz)<1.2&&ox*ax+oz*az>0;
-  if(!close&&!points.some(f=>Math.hypot(c.x-f.x,c.z-f.z)<CRAWLER.radius+.55))continue;
+  if(!close&&!points.some(f=>Math.hypot(c.x-f.x,c.z-f.z)<radiusOf(c)+.55))continue;
   const r=scorchCrawler(c,spec.damage*dt,rng);c.scorched=.4;
   if(r.killed)hunt.events.push({type:'killed',crawler:c,burnt:true});
  }
@@ -205,7 +205,7 @@ function stepArc(hunt,state,cave,targets,dt,rng){
  const live=targets.filter(c=>c.state!=='dead'),struck=[];
  let first=null,best=Infinity;
  for(const c of live){
-  const ox=c.x-p.x,oz=c.z-p.z,d=Math.hypot(ox,oz);if(d>spec.range+CRAWLER.radius||d>=best)continue;
+  const ox=c.x-p.x,oz=c.z-p.z,d=Math.hypot(ox,oz);if(d>spec.range+radiusOf(c)||d>=best)continue;
   if(Math.abs(Math.atan2(Math.sin(Math.atan2(ox,oz)-facing),Math.cos(Math.atan2(ox,oz)-facing)))>spec.cone&&d>1.2)continue;
   if(sees(p,c)){first=c;best=d;}
  }
@@ -283,7 +283,7 @@ function swing(hunt,state,r,rng){
  let hits=0;
  hunt.events.push({type:'swing',weapon:r.weapon,dir});
  for(const c of targets){
-  if(c.state==='dead'||!inArc(c.x,c.z,spec.range+CRAWLER.radius))continue;
+  if(c.state==='dead'||!inArc(c.x,c.z,spec.range+radiusOf(c)))continue;
   hits++;const h=hurtCrawler(c,spec.damage,rng),d=Math.hypot(c.x-p.x,c.z-p.z)||1;
   hunt.events.push({type:'impact',crawler:c,x:c.x,z:c.z,dir:{x:(c.x-p.x)/d,z:(c.z-p.z)/d},killed:h.killed,weapon:r.weapon,melee:true});
   if(h.killed)hunt.events.push({type:'killed',crawler:c});
@@ -319,7 +319,7 @@ function discharge(hunt,state,held,rng){
  hunt.events.push({type:'rail',x:end.x,z:end.z,dir,power,weapon:r.weapon});
  let hits=0;
  for(const c of targets){
-  if(c.state==='dead'||along(c.x,c.z,CRAWLER.radius+.25)==null)continue;
+  if(c.state==='dead'||along(c.x,c.z,radiusOf(c)+.25)==null)continue;
   hits++;const h=hurtCrawler(c,damage,rng);
   hunt.events.push({type:'impact',crawler:c,x:c.x,z:c.z,dir,killed:h.killed,weapon:r.weapon});
   if(h.killed)hunt.events.push({type:'killed',crawler:c});
