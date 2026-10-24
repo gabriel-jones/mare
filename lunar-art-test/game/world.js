@@ -89,22 +89,35 @@ export async function createWorld(canvas, initialState) {
   const productionView=createProductionView(scene,models,itemModels);
   const groundMarks=createGroundMarks(scene,{heightAt,dust:(x,y,z,dx,dz)=>productionView.regolith.spray(x,y,z,dx*.4,dz*.4,3,'regolith',y-.03,.5,.22)});
   const habitatView=createHabitatView(scene,models.get('habitat-kit'));
-  // A fixed set of lights follows the nearest machines and habitats; every machine carries a work light in its own colour. Adding a light per structure
-  // would change the scene's light count and force every material to recompile its shader.
-  const workHex=new THREE.Color(WORK_LIGHT).getHex();
-  const lightPool=Array.from({length:6},()=>{const l=new THREE.PointLight('#ffc777',0,13,2);scene.add(l);return l;});
+  // A fixed pool of lights, so the scene's light count (and every material's shader) never changes. Nearby
+  // machines and rooms are pooled into clusters, each lit by one broader light at its centre, so the whole
+  // colony glows at night instead of only the few structures nearest the player.
+  const workHex=new THREE.Color(WORK_LIGHT).getHex(),LIGHTS=12,CLUSTER=8;
+  const lightPool=Array.from({length:LIGHTS},()=>{const l=new THREE.PointLight('#ffc777',0,13,2);scene.add(l);return l;});
+  const mixColor=new THREE.Color(),addColor=new THREE.Color();
   function updateLights(daylight){
-    const candidates=[];
-    if(state.power.powered!==false){
+    const sources=[],dark=1-daylight;
+    if(state.power.powered!==false&&dark>0){
       for(const b of state.buildings){
         const p=b.built&&b.type!=='conveyor'&&!DEFS[b.type].layer&&structures.get(b.id)?.root.position;
-        if(p)candidates.push({x:p.x,y:p.y+2.6,z:p.z,intensity:(1-daylight)*11,distance:10,color:workHex});
+        if(p)sources.push({x:p.x,y:p.y+2.6,z:p.z,power:11,color:workHex});
       }
-      for(const l of habitatView.lights())candidates.push({...l,intensity:(1-daylight)*(l.greenhouse?10:15),distance:9,color:l.greenhouse?0xffb0dc:0xffcf8c});
+      for(const l of habitatView.lights())sources.push({x:l.x,y:l.y,z:l.z,power:l.greenhouse?10:15,color:l.greenhouse?0xffb0dc:0xffcf8c});
     }
-    for(const c of candidates)c.d=Math.hypot(c.x-follow.x,c.z-follow.z);
-    candidates.sort((a,b)=>a.d-b.d);
-    lightPool.forEach((l,i)=>{const c=candidates[i];if(!c||c.intensity<=0){l.intensity=0;return;}l.position.set(c.x,c.y,c.z);l.intensity=c.intensity;l.distance=c.distance;l.color.setHex(c.color);});
+    const clusters=[];
+    for(const s of sources){
+      let c=clusters.find(c=>Math.hypot(c.x/c.n-s.x,c.z/c.n-s.z)<CLUSTER);
+      if(!c){c={x:0,y:0,z:0,n:0,power:0,r:0,g:0,b:0,members:[]};clusters.push(c);}
+      c.x+=s.x;c.y=Math.max(c.y,s.y);c.z+=s.z;c.n++;c.power+=s.power;addColor.setHex(s.color);c.r+=addColor.r*s.power;c.g+=addColor.g*s.power;c.b+=addColor.b*s.power;c.members.push(s);
+    }
+    for(const c of clusters){
+      c.x/=c.n;c.z/=c.n;c.y+=.8;
+      const spread=Math.max(0,...c.members.map(m=>Math.hypot(m.x-c.x,m.z-c.z)));
+      c.distance=10+spread*1.4;c.intensity=dark*Math.min(c.power,11*(1+Math.sqrt(c.n-1)*.9))*(1+spread*.06);
+      c.d=Math.hypot(c.x-follow.x,c.z-follow.z);
+    }
+    clusters.sort((a,b)=>a.d-b.d);
+    lightPool.forEach((l,i)=>{const c=clusters[i];if(!c){l.intensity=0;return;}l.position.set(c.x,c.y,c.z);l.intensity=c.intensity;l.distance=c.distance;l.color.copy(mixColor.setRGB(c.r/c.power,c.g/c.power,c.b/c.power));});
   }
   let caveView=null,activeCave=null,smoothedGround=null,caveBlend=0;const caveViews=new Map();
   const vignette=document.createElement('div');vignette.className='cave-vignette';document.body.append(vignette);
