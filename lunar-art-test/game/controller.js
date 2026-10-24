@@ -45,8 +45,20 @@ export function movePlayer(state,dx,dz,dt,defs){
  // Resolve axes separately, clearing blocked velocity rather than accumulating it. Someone already standing on
  // ground too steep to walk ignores the ground until they're off it, so a cliff edge can never trap them.
  const ground=p.cave!=null||!terrainBlocked(state.seed,p.x,p.z,state.buildings,defs);
- if(!blocked(p.x+p.vx*step,p.z,ground))p.x+=p.vx*step;else p.vx=0;
- if(!blocked(p.x,p.z+p.vz*step,ground))p.z+=p.vz*step;else p.vz=0;
+ // Pushing straight into a corner or the rounded end of a wall eases round it instead of stopping dead:
+ // step sideways toward whichever side opens up ahead. A flat wall stays blocked on both sides.
+ const slide=(mx,mz)=>{
+  if(!len)return false;
+  const l=Math.abs(mx+mz),ax=mz?1:0,az=mx?1:0;
+  for(const s of [1,-1]){
+   if(blocked(p.x+mx+ax*s*.3,p.z+mz+az*s*.3,ground))continue;
+   const x=p.x+ax*s*l*.8,z=p.z+az*s*l*.8;
+   if(!blocked(x,z,ground)){p.x=x;p.z=z;return true;}
+  }
+  return false;
+ };
+ if(!blocked(p.x+p.vx*step,p.z,ground))p.x+=p.vx*step;else if(Math.abs(p.vz)>Math.abs(p.vx)*.5||!slide(p.vx*step,0))p.vx=0;
+ if(!blocked(p.x,p.z+p.vz*step,ground))p.z+=p.vz*step;else if(Math.abs(p.vx)>Math.abs(p.vz)*.5||!slide(0,p.vz*step))p.vz=0;
  p.speed=Math.hypot(p.vx,p.vz);
  if(!Number.isFinite(p.facing))p.facing=Math.PI;
  if(len&&p.speed>.02){

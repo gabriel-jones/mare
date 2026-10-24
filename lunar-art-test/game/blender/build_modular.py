@@ -140,25 +140,23 @@ def window():
     wall_base()
 
 def airlock():
-    """Two-metre airlock frame: 1.3 m clear opening between orange jambs."""
-    for x in [-.825, .825]:
-        box('Airlock jamb wall', (x, 0, 1.12), (.35, .23, 2.0), 'ivory')
-        box('Exterior base trim', (x, -.125, .27), (.35, .03, .3), 'dark')
-    box('Airlock lintel', (0, 0, 1.98), (1.3, .23, .28), 'ivory')
-    for x in [-.68, .68]:
-        box('Airlock jamb', (x, -.05, 1.0), (.1, .36, 1.76), 'orange', .01)
-        box('Interior jamb', (x, .13, 1.0), (.08, .04, 1.76), 'dark')
-    box('Airlock header', (0, -.17, 1.97), (1.6, .1, .24), 'orange', .01)
-    box('Airlock light', (0, -.225, 1.97), (.9, .02, .06), 'light')
-    box('Airlock threshold', (0, -.12, .125), (1.36, .64, .03), 'metal')
-    box('Airlock canopy', (0, -.32, 2.2), (1.8, .52, .08), 'dark', .01)
+    """Two-metre airlock frame open wall to wall: slim orange posts at the corners, lintel and canopy above."""
+    for x in [-.92, .92]:
+        box('Airlock jamb', (x, -.02, 1.0), (.16, .3, 1.76), 'orange', .01)
+        box('Interior jamb', (x, .14, 1.0), (.1, .04, 1.76), 'dark')
+    box('Airlock lintel', (0, 0, 1.98), (2.0, .23, .28), 'ivory')
+    box('Airlock header', (0, -.17, 1.97), (1.9, .1, .24), 'orange', .01)
+    box('Airlock light', (0, -.225, 1.97), (1.2, .02, .06), 'light')
+    box('Airlock threshold', (0, -.12, .125), (1.84, .64, .03), 'metal')
+    box('Airlock canopy', (0, -.32, 2.2), (2.1, .52, .08), 'dark', .01)
 
 def airlock_door():
-    """One sliding panel, origin at its bottom centre; the runtime mirrors it for the right leaf."""
-    box('Door panel', (0, 0, .98), (.66, .06, 1.72), 'metal', .008)
-    box('Door stripe', (0, -.035, .95), (.66, .01, .08), 'orange')
-    box('Door porthole', (-.04, -.035, 1.45), (.28, .01, .28), 'glass')
-    box('Door seal', (.31, 0, .98), (.04, .07, 1.72), 'dark')
+    """One telescoping leaf, origin at its bottom centre, closed half of the opening; the runtime mirrors it for
+    the right leaf and shrinks it toward its post to open."""
+    box('Door panel', (0, 0, .98), (.84, .06, 1.72), 'metal', .008)
+    box('Door stripe', (0, -.035, .95), (.84, .01, .08), 'orange')
+    box('Door porthole', (-.06, -.035, 1.45), (.28, .01, .28), 'glass')
+    box('Door seal', (.4, 0, .98), (.04, .07, 1.72), 'dark')
 
 def corner_post():
     box('Structural spine', (0, 0, 1.12), (.28, .28, 2.0), 'metal', .03)
@@ -348,7 +346,7 @@ for cx, cy in cells:
         elif not (d == 0 and cx in (1, 3) and cy == 0):
             for s in (-.5, .5): place('GlassWall' if (cx, cy) in greenhouse else 'Window' if d in (1, 3) else 'Wall', mx + px * s, my + py * s, rot)
 for door_x in (1, 5):
-    place('AirlockDoor', door_x - .33, -1); place('AirlockDoor', door_x + .33, -1, 0, True)
+    place('AirlockDoor', door_x - .42, -1); place('AirlockDoor', door_x + .42, -1, 0, True)
 for x, y in [(-1, -1), (7, -1), (7, 3), (3, 3), (3, 7), (-1, 7)]: place('Corner', x, y)
 # Glaze the greenhouse wing; the habitat stays open so its interior reads in the preview.
 for cx, cy in greenhouse:

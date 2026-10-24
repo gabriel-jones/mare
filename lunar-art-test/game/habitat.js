@@ -4,7 +4,6 @@ import { CELL_SIZE, DEFS, DIRS, footprint } from './defs.js';
  * grid lines in one-metre segments wherever a room square meets open ground; an airlock square has a
  * door on its outward (`rotation`) edge. Everything here is derived, never saved. */
 export const WALL_HALF = 0.12;
-export const DOOR_HALF = 0.65;
 const key = (x, z) => `${x},${z}`;
 export const isRoom = b => DEFS[b.type]?.layer === 'floor';
 
@@ -48,17 +47,12 @@ export function computeLayout(squares) {
     rooms.push(room);
   }
   for (const a of airlocks) a.room = roomOf.get(key(Math.round((a.x - DIRS[a.dir][0]) / CELL_SIZE), Math.round((a.z - DIRS[a.dir][1]) / CELL_SIZE)));
-  // Collision: every wall segment plus the jambs either side of each exterior door opening.
+  // Collision: every wall segment. An airlock's door edge is open wall to wall, so nobody snags on a jamb.
   const blockers = [];
   for (const s of segments) {
     if (s.kind === 'door') continue;
     const [px, pz] = DIRS[(s.dir + 1) % 4];
     blockers.push({ ax: s.x - px * .5, az: s.z - pz * .5, bx: s.x + px * .5, bz: s.z + pz * .5 });
-  }
-  for (const a of airlocks) {
-    if (!a.exterior) continue;
-    const [px, pz] = DIRS[(a.dir + 1) % 4];
-    for (const s of [-1, 1]) blockers.push({ ax: a.x + px * s * DOOR_HALF, az: a.z + pz * s * DOOR_HALF, bx: a.x + px * s, bz: a.z + pz * s });
   }
   const grid = new Map();
   for (const w of blockers) {

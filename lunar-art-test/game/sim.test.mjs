@@ -146,6 +146,11 @@ test('collision blocks solid structures and ship, but permits blueprints and hab
   for(let i=0;i<20;i++)movePlayer(s,1,-1,0.05,DEFS);assert.ok(s.player.z<2,'airlock admits the player');
   s.player={x:2,z:4.5,y:0,vx:0,vz:0};
   for(let i=0;i<20;i++)movePlayer(s,1,-1,0.05,DEFS);assert.ok(s.player.z>1,'the wall beside the airlock blocks');
+  // The door is open wall to wall, and walking straight at it from right beside a corner eases round the post.
+  for(const x of [-.8,-.5,.5,.8]){
+    s.player={x,z:4.5,y:0,vx:0,vz:0};
+    for(let i=0;i<30;i++)movePlayer(s,1,-1,0.05,DEFS);assert.ok(s.player.z<2,`airlock admits the player from x ${x}`);
+  }
   s.buildings=[];s.player={x:-1.92,z:-10,y:0};
   movePlayer(s,1,1,0.05,DEFS);assert.equal(s.player.x,-1.92);assert.equal(s.player.vx,0);
   s.player={x:125,z:0,y:0};movePlayer(s,1,1,0.05,DEFS);assert.equal(s.player.x,125);

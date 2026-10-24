@@ -4,7 +4,7 @@ import { CELL_SIZE, DIRS } from './defs.js';
 import { habitatLayout, isRoom, roomAt } from './habitat.js';
 import { surfaceHeightAt } from './terrain.js';
 
-const DOOR_TRAVEL = .62, DOOR_REACH = 2.4, FLOOR_TOP = .13;
+const DOOR_LEAF = .84, DOOR_SHUT = .42, DOOR_TUCK = .85, DOOR_REACH = 2.4, FLOOR_TOP = .13;
 const key = (x, z) => `${x},${z}`;
 
 /** Assembles connected rooms from the Blender kit, one painted square at a time. Rebuilds only when rooms change. */
@@ -122,7 +122,7 @@ export function createHabitatView(scene, kit) {
     const leaves = [-1, 1].map(side => {
       const a = assembler(); a.add('AirlockDoor', 0, 0, 0, 0, side > 0, 'door');
       const mesh = a.build('door', material); if (!mesh) return null;
-      mesh.position.x = side * .33; group.add(mesh); return { mesh, side };
+      mesh.position.x = side * DOOR_SHUT; group.add(mesh); return { mesh, side };
     }).filter(Boolean);
     return { lock, leaves, open: 0 };
   }
@@ -183,7 +183,9 @@ export function createHabitatView(scene, kit) {
         for (const d of r.doors) {
           const near = player && Math.hypot(player.x - d.lock.x, player.z - d.lock.z) < DOOR_REACH;
           d.open += ((near ? 1 : 0) - d.open) * Math.min(1, dt * 7);
-          for (const l of d.leaves) l.mesh.position.x = l.side * (.33 + d.open * DOOR_TRAVEL);
+          // Leaves telescope back to their posts, leaving the opening clear wall to wall.
+          const w = 1 - d.open * DOOR_TUCK;
+          for (const l of d.leaves) { l.mesh.scale.x = w; l.mesh.position.x = l.side * (DOOR_SHUT + DOOR_LEAF / 2 * (1 - w)); }
         }
       }
       for (const m of lightMaterials) m.emissiveIntensity = powered ? m.userData.base : 0;
