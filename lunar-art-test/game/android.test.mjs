@@ -100,9 +100,9 @@ test('an armed android on its pad leaves the charger to fight', () => {
   Object.assign(a, { weapon: 'rifle', mag: 10, ammo: 20, charge: .6 });
   run(s, 3);
   assert.equal(a.job?.type, 'charge');
-  const c = createCrawler(a.x + 7, a.z + 7, () => .5); c.hp = 30; s.brood = [c];
+  const c = createCrawler(a.x + 7, a.z + 7, () => .5); c.hp = 500; s.brood = [c];
   run(s, .5, 1 / 20, () => stepBrood(s, 1 / 20, [], () => .5));
-  assert.equal(a.job?.type, 'fight');
+  assert.equal(a.job?.type, 'fight'); assert.ok(a.shot > 0, 'opened fire');
 });
 
 test('a downed android is repaired by another from crate stock, or by the player with E', () => {
