@@ -16,7 +16,7 @@ items=[('metal','Metal'),('silicon','Silicon'),('regolith','Regolith'),('ice','I
        ('core','Processor core'),('frame','Satellite frame'),('wing','Solar wing'),
        ('chip','Compute chip'),('satellite','AI satellite'),('titanium','Titanium ore'),
        ('rareearth','Rare-earth crystal'),('artifact','Alien artifact'),
-       ('heart','Heart of the Deep'),('goo','Black goo'),('flare','Flare'),('rounds','Rounds'),('fuel','Fuel cell'),('pistol','Pistol'),('smg','Submachine gun'),('katana','Electric katana'),('rifle','Semi-auto rifle'),('flamethrower','Flamethrower')]
+       ('heart','Heart of the Deep'),('goo','Black goo'),('flare','Flare'),('rounds','Rounds'),('fuel','Fuel cell'),('charge','Power cell'),('pistol','Pistol'),('smg','Submachine gun'),('katana','Electric katana'),('rifle','Semi-auto rifle'),('flamethrower','Flamethrower'),('arc','Arc projector'),('railgun','Railgun')]
 COLS=10; CARD=130; ROWS=-(-len(items)//COLS)
 
 # Check coverage against the actual carried inventory, not the separate belt-item list.

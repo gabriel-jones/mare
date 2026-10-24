@@ -108,6 +108,8 @@ function evade(c,player,rng){
 export function stepCrawler(c,env,dt,rng=Math.random){
  const events=[],{player,cave}=env;c.t+=dt;
  if(c.state==='dead'){c.speed=0;return events;}
+ // Held in an arc's current it convulses on the spot; whatever it was doing waits.
+ if(c.shocked>0&&c.state!=='grab'&&c.state!=='emerge'){c.t-=dt;c.speed=0;c.anim='hit';return events;}
  const dx=player.x-c.x,dz=player.z-c.z,d=Math.hypot(dx,dz),toPlayer=Math.atan2(dx,dz);
  const lit=exposure(env,c.x,c.z),inFlare=(env.flares??[]).some(f=>Math.hypot(c.x-f.x,c.z-f.z)<f.r);
  const sees=lineVisible(cave,cellOf(c.x),cellOf(c.z),cellOf(player.x),cellOf(player.z));

@@ -21,7 +21,7 @@ const THROW=[
 
 /**
  * Blender-authored in-place animation; controller owns world motion and gravity.
- * `pose`: {animation, speed, weapon, backward, rate, twist}. `weapon` ('pistol', 'smg', 'rifle', 'flamethrower' or 'katana'; `gun: true` means the
+ * `pose`: {animation, speed, weapon, backward, rate, twist}. `weapon` ('pistol', 'smg', 'rifle', 'flamethrower', 'arc', 'railgun' or 'katana'; `gun: true` means the
  * pistol) shows that weapon and swaps in its own aim, walk, run and turn clips where it has them; `backward` plays a walk or run
  * in reverse for backpedalling; `rate` scales one-shots and loops such as the struggle; `twist` turns the torso about
  * the vertical (radians, positive to the left) so the upper body can aim ahead of the feet. `fire()` layers the recoil
@@ -38,7 +38,7 @@ export function createAstronaut(gltf) {
   const key=clip.name.toLowerCase().split('.')[0];
   if(actions.has(key)||recoils.has(key))continue;
   durations.set(key,clip.duration);
-  if(key==='fire'||key==='riflefire'||key==='smgfire'){
+  if(key==='fire'||key==='riflefire'||key==='smgfire'||key==='railfire'){
    const additive=THREE.AnimationUtils.makeClipAdditive(clip.clone()),recoil=mixer.clipAction(additive);
    recoil.setLoop(THREE.LoopOnce,1);recoil.clampWhenFinished=false;recoils.set(key,recoil);continue;
   }
@@ -48,10 +48,10 @@ export function createAstronaut(gltf) {
  }
  let current='',active=null;
  const spine=root.getObjectByName('Spine'),parentQ=new THREE.Quaternion(),twistQ=new THREE.Quaternion(),UP=new THREE.Vector3(0,1,0),untwisted=new THREE.Quaternion();let twisted=false;
- const tools=[],weapons={pistol:[],smg:[],rifle:[],flamethrower:[],katana:[]},MESH={Pistol:'pistol',Smg:'smg',Rifle:'rifle',Flamethrower:'flamethrower',Katana:'katana'};
+ const tools=[],weapons={pistol:[],smg:[],rifle:[],flamethrower:[],arc:[],railgun:[],katana:[]},MESH={Pistol:'pistol',Smg:'smg',Rifle:'rifle',Flamethrower:'flamethrower',ArcProjector:'arc',Railgun:'railgun',Katana:'katana'};
  root.traverse(o=>{if(o.name.startsWith('ConstructionTool'))tools.push(o);if(MESH[o.name])weapons[MESH[o.name]].push(o);});
  // Clip names carry the weapon: 'rifleaimidle', 'flameturnl'. The pistol uses the plain set.
- const PREFIX={smg:'smg',rifle:'rifle',flamethrower:'flame',katana:'katana'};let held=null;
+ const PREFIX={smg:'smg',rifle:'rifle',flamethrower:'flame',arc:'arc',railgun:'rail',katana:'katana'};let held=null;
  // GLTFLoader drops the dots from node names: Blender's 'Hand.L' arrives as 'HandL'.
  const arm={upper:root.getObjectByName('UpperArmL'),fore:root.getObjectByName('ForearmL'),hand:root.getObjectByName('HandL')};
  let throwT=-1;const restore=[],_a=new THREE.Vector3(),_b=new THREE.Vector3(),_d=new THREE.Vector3(),_q=new THREE.Quaternion(),_pq=new THREE.Quaternion();
@@ -104,9 +104,9 @@ export function createAstronaut(gltf) {
    aimBone(arm.fore,arm.hand,throwing.fore,side,throwing.w);
   }
  }
- function fire(){const recoil=recoils.get(held==='rifle'?'riflefire':held==='smg'?'smgfire':'fire');if(recoil)recoil.reset().setEffectiveWeight(1).play();}
+ function fire(){const recoil=recoils.get({rifle:'riflefire',smg:'smgfire',railgun:'railfire'}[held]??'fire');if(recoil)recoil.reset().setEffectiveWeight(1).play();}
  function restart(){if(active)active.reset().play();}
- const markers=new Map([['Hand.L',arm.hand],['Forearm.L',arm.fore]]);root.traverse(o=>{if(['Muzzle','MuzzleAhead','Port','PortOut','RifleMuzzle','RifleMuzzleAhead','RiflePort','RiflePortOut','SmgMuzzle','SmgMuzzleAhead','SmgPort','SmgPortOut','BladeBase','BladeTip','Nozzle','NozzleAhead','Pilot'].includes(o.name))markers.set(o.name,o);});
+ const markers=new Map([['Hand.L',arm.hand],['Forearm.L',arm.fore]]);root.traverse(o=>{if(['Muzzle','MuzzleAhead','Port','PortOut','RifleMuzzle','RifleMuzzleAhead','RiflePort','RiflePortOut','SmgMuzzle','SmgMuzzleAhead','SmgPort','SmgPortOut','BladeBase','BladeTip','RailMuzzle','RailMuzzleAhead','ArcEmitter','ArcEmitterAhead','Nozzle','NozzleAhead','Pilot'].includes(o.name))markers.set(o.name,o);});
  update({animation:'idle'},0);
  return {root,update,fire,restart,marker:name=>markers.get(name),duration:name=>durations.get(name)??0,clips:[...actions.keys()],
   /** Strikes and throws a flare with the free (left) hand over whatever is playing; `throwing` is the time into it. */

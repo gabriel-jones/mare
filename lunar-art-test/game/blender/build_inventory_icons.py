@@ -501,6 +501,47 @@ def katana(p):
     prism('Katana / edge',edge,.022,p['arc'])
 
 
+def railgun(p):
+    materials(p)
+    beam('Railgun / grip',(-.1,0,.42),(-.2,0,.06),.17,p['dark'])
+    box('Railgun / body',(-.05,0,.52),(.8,.2,.24),p['dark'],.03)
+    box('Railgun / stock',(-.62,0,.5),(.26,.18,.34),p['ivory'],.03)
+    box('Railgun / butt cap',(-.765,0,.5),(.03,.16,.3),p['orange'],.01)
+    box('Railgun / cell',(-.3,0,.3),(.2,.15,.22),p['orange'],.02)
+    box('Railgun / cell window',(-.3,-.077,.31),(.1,.01,.12),p['arc'],0)
+    for z in [.6,.44]: box('Railgun / rail',(.75,0,z),(1.0,.1,.05),p['silver'],.01)
+    for x in [.4,.58,.76,.94]: box('Railgun / coil',(x,0,.52),(.07,.22,.27),p['arc'],.01)
+    box('Railgun / capacitor',(-.1,0,.7),(.5,.16,.12),p['ivory'],.02)
+    box('Railgun / capacitor window',(-.1,-.082,.7),(.32,.01,.05),p['arc'],0)
+    beam('Railgun / fore-grip',(.28,0,.4),(.25,0,.16),.11,p['dark'])
+    box('Railgun / muzzle',(1.27,0,.52),(.06,.16,.22),p['dark'],.01)
+
+
+def arc(p):
+    materials(p)
+    beam('Arc projector / grip',(-.2,0,.42),(-.3,0,.04),.18,p['dark'])
+    along_x('Arc projector / body',-.45,.45,.55,.17,p['ivory'],20)
+    along_x('Arc projector / cap',-.55,-.43,.55,.19,p['dark'],20)
+    for x in [-.1,.08,.26]: along_x('Arc projector / coil',x,x+.05,.55,.19,p['arc'],20)
+    box('Arc projector / cell',(.02,0,.32),(.3,.18,.14),p['orange'],.02)
+    beam('Arc projector / handle',(.32,0,.42),(.28,0,.1),.13,p['dark'])
+    along_x('Arc projector / neck',.45,.62,.55,.09,p['dark'])
+    along_x('Arc projector / emitter',.62,.68,.55,.07,p['arc'])
+    for a in [0,2.094,4.189]:
+        y,z=math.sin(a)*.14,.55+math.cos(a)*.14
+        along_x('Arc projector / prong',.55,.82,z,.025,p['silver'],8).location.y=y
+        box('Arc projector / prong tip',(.83,y,z),(.04,.05,.05),p['arc'],0)
+
+
+def charge(p):
+    materials(p)
+    cylinder('Power cell / body',(0,0,.5),.27,.78,p['ivory'],24)
+    for z in [.08,.92]: cylinder('Power cell / cap',(0,0,z),.29,.12,p['dark'],24)
+    box('Power cell / window',(0,-.26,.5),(.16,.04,.44),p['arc'],.01)
+    for z in [.3,.7]: cylinder('Power cell / band',(0,0,z),.28,.04,p['orange'],24)
+    cylinder('Power cell / terminal',(0,0,1.02),.08,.08,p['silver'],12)
+
+
 def flamethrower(p):
     materials(p)
     along_x('Flamethrower / body',-.42,.55,.55,.17,p['dark'],20)
@@ -542,7 +583,7 @@ BUILDERS = [('metal',study['metal']),('silicon',silicon),('regolith',regolith),(
             ('flour',flour),('protein',protein),('meal',meal),('salad',salad),('bread',bread),('stew',stew),
             ('broth',broth),('algaecake',algaecake),('pizza',pizza),('medkit',medkit),('core',core),
             ('frame',frame),('wing',wing),('chip',study['chip']),('satellite',satellite),('titanium',titanium),
-            ('rareearth',rareearth),('artifact',study['artifact']),('heart',heart),('goo',goo),('flare',flare),('rounds',rounds),('fuel',fuel),('pistol',pistol),('smg',smg),('katana',katana),('rifle',rifle),('flamethrower',flamethrower)]
+            ('rareearth',rareearth),('artifact',study['artifact']),('heart',heart),('goo',goo),('flare',flare),('rounds',rounds),('fuel',fuel),('charge',charge),('pistol',pistol),('smg',smg),('katana',katana),('rifle',rifle),('flamethrower',flamethrower),('arc',arc),('railgun',railgun)]
 
 
 def build_inventory():

@@ -244,8 +244,12 @@ body[data-research=open] .game-ui, body[data-research=open] .building-status-lay
 .reticle .flame { stroke:#edbd79;stroke-width:2;stroke-dasharray:7 6.6;transition:stroke .12s; }
 .reticle.flamer .seg.on { stroke:#ff9a4a; }
 .reticle.spraying .flame { stroke:#ffb15a;stroke-width:2.6;stroke-dasharray:none;filter:drop-shadow(0 0 4px #ff7a2a) drop-shadow(0 0 9px #ff5a1a99); }
-.reticle.blade .flame { stroke:#8fe6ff;stroke-dasharray:3 4.2; }
-.reticle.blade .seg.on { stroke:#8fe6ffd9; }
+.reticle.energy .flame { stroke:#8fe6ff;stroke-dasharray:3 4.2; }
+.reticle.energy .seg.on { stroke:#8fe6ffd9; }
+.reticle.energy.spraying .flame { stroke:#bff3ff;stroke-dasharray:none;filter:drop-shadow(0 0 4px #4fd2ff) drop-shadow(0 0 9px #2aa8ff99); }
+.reticle.charging .reload { stroke:#8fe6ff; }
+.reticle.charging .ammo { opacity:1; }
+.reticle.charging.spraying .tick,.reticle.charging.spraying .reload { stroke:#d8f8ff;filter:drop-shadow(0 0 4px #4fd2ff); }
 .reticle.far { opacity:.42; }
 
 

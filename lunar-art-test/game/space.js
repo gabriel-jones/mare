@@ -11,7 +11,7 @@ export const ELECTROLYSIS = Object.freeze({ time: 2, power: 3, waterFloor: 20 })
 /** Research points each satellite earns once it is deployed in orbit. */
 export const SATELLITE_POINTS = 12;
 /** Research branches, in display order. */
-export const BRANCHES = Object.freeze({ farming: 'Farming', industry: 'Industry', deep: 'Deep', arms: 'Arms' });
+export const BRANCHES = Object.freeze({ farming: 'Farming', industry: 'Industry', deep: 'Deep', arms: 'Ballistics', energy: 'Energy' });
 /** The research tree. A tech is bought outright with points once everything it `requires` is done; `schematic` techs also need their find. */
 export const TECHS = Object.freeze({
   hydroponics: { name: 'Hydroponics', branch: 'farming', cost: 14, description: 'A hydroponic rack for greenhouses.' },
@@ -25,7 +25,9 @@ export const TECHS = Object.freeze({
   wheat: { name: 'Wheat', branch: 'farming', cost: 12, requires: ['vertical'], description: 'Wheat for the vertical farm, milled into flour.' },
   pistol: { name: 'Pistol', branch: 'arms', cost: 1, innate: true, description: 'The sidearm you landed with. An armory can make another.' },
   smg: { name: 'Submachine gun', branch: 'arms', cost: 12, requires: ['pistol'], description: 'Three-round bursts from a 24-round magazine. Lighter hits than the rifle. Crafted at an armory.' },
-  katana: { name: 'Electric katana', branch: 'arms', cost: 14, requires: ['pistol'], description: 'A charged blade that cuts everything in a wide arc in front of you. No ammo. Crafted at an armory.' },
+  katana: { name: 'Electric katana', branch: 'energy', cost: 14, description: 'A charged blade that cuts everything in a wide arc in front of you. No ammo. Crafted at an armory.' },
+  arc: { name: 'Arc projector', branch: 'energy', cost: 22, requires: ['katana'], description: 'Hold for a lightning beam that leaps between crawlers and stuns them. Runs on power cells, made at an armory.' },
+  railgun: { name: 'Railgun', branch: 'energy', cost: 30, requires: ['arc'], description: 'Hold to charge, let go to fire a slug through every crawler in line. One power cell a shot; needs rare earth to build.' },
   rifle: { name: 'Semi-auto rifle', branch: 'arms', cost: 18, requires: ['smg'], description: 'Twelve rounds, harder hits and a longer reach. Crafted at an armory.' },
   flamethrower: { name: 'Flamethrower', branch: 'arms', cost: 28, requires: ['rifle'], description: 'Burns crawlers, silk, nests and goo up close, on fuel refined from black goo. Lets you scrape nests (E).' },
   roverbay: { name: 'Robot bay', branch: 'industry', cost: 24, description: 'A bay that assembles haulers and rovers on its own.' },

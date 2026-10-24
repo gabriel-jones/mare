@@ -60,7 +60,8 @@ const arc = (a0, a1) => {
 /**
  * The weapon reticle, following the mouse. Guns: four ticks that kick open on every shot and settle back, the
  * magazine as segments round the rim, and a sweep while reloading. Flamethrower: a ring that flares while spraying,
- * with the tank as an arc. Katana: the same ring in cyan, its arc filling back up as the blade recovers from a swing.
+ * with the tank as an arc. Katana and arc projector: the same ring in cyan, the arc showing the blade's recovery or the
+ * cell's charge. A charging railgun sweeps its rim in cyan, and flares when fully charged.
  * It dims when the aim is past the weapon's reach.
  */
 export function createReticle(parent = document.body) {
@@ -75,7 +76,7 @@ export function createReticle(parent = document.body) {
 
   function build(w, magazine) {
     weapon = w; segments = []; tank = null; lastFuel = -1; ammo.textContent = '';
-    if (w === 'flamethrower' || w === 'katana') {
+    if (w === 'flamethrower' || w === 'katana' || w === 'arc') {
       ammo.innerHTML = `<path class="seg rim" d="${arc(0, Math.PI * 2 - .001)}"/><path class="seg on"/>`; tank = ammo.lastChild;
       return;
     }
@@ -87,16 +88,16 @@ export function createReticle(parent = document.body) {
     }
   }
   const move = (cx, cy) => { x = cx; y = cy; if (shown) el.style.transform = `translate(${x - 40}px,${y - 40}px)`; };
-  /** `s` is null to hide, or { weapon, magazine, loaded, reload (0..1, null when not reloading), far, spraying }. */
+  /** `s` is null to hide, or { weapon, magazine, loaded, reload (0..1, null when not reloading), far, spraying, charging }. */
   function update(s, dt) {
     el.classList.toggle('shown', !!s);
     if (!s) { shown = false; return; }
     if (!shown) { shown = true; move(x, y); }
     if (s.weapon !== weapon) { build(s.weapon, s.magazine); lastLoaded = s.loaded; kick = 0; }
-    const blade = s.weapon === 'katana', flame = s.weapon === 'flamethrower' || blade;
-    if (!flame && s.loaded < lastLoaded) kick = Math.min(1.6, kick + (s.weapon === 'rifle' ? .55 : s.weapon === 'smg' ? .45 : .9));
+    const blade = s.weapon === 'katana', energy = blade || s.weapon === 'arc', flame = s.weapon === 'flamethrower' || energy;
+    if (!flame && s.loaded < lastLoaded) kick = Math.min(1.6, kick + (s.weapon === 'rifle' ? .55 : s.weapon === 'smg' ? .45 : s.weapon === 'railgun' ? 1.6 : .9));
     lastLoaded = s.loaded; kick *= Math.exp(-dt * 7);
-    el.classList.toggle('flamer', flame); el.classList.toggle('blade', blade); el.classList.toggle('far', !!s.far); el.classList.toggle('spraying', !!s.spraying);
+    el.classList.toggle('flamer', flame); el.classList.toggle('energy', energy); el.classList.toggle('charging', !!s.charging); el.classList.toggle('far', !!s.far); el.classList.toggle('spraying', !!s.spraying);
     el.classList.toggle('reloading', s.reload != null); el.classList.toggle('empty', !blade && !s.loaded && s.reload == null);
     if (s.reload != null) reloadArc.style.strokeDasharray = `${s.reload.toFixed(3)} 1`;
     if (flame) {

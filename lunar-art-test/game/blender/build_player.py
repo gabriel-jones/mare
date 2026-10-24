@@ -253,6 +253,44 @@ gbox('Katana tip',(.003,0,.648),(.034,.0085,.034),blade_steel,'Hand.R',.0008,.7)
 gbox('Katana tip edge',(.016,0,.646),(.009,.005,.03),arc_edge,'Hand.R',0,.7)
 bladeparts=parts[bladeparts_before:]
 
+# Railgun: a long two-handed coil gun. Twin rails run out past a row of glowing coils; a power cell slots in behind the
+# trigger and a capacitor pack rides on top.
+coil=mat('Coil • charged cyan',(.3,.8,1.0),.3,0,2.5)
+railparts_before=len(parts)
+gbox('Rail grip',(-.012,0,-.005),(.05,.042,.13),rubber,'Hand.R',.008,.25)
+gbox('Rail trigger guard',(.03,0,.008),(.09,.03,.008),gunmetal,'Hand.R',.002)
+gbox('Rail trigger',(.03,0,.022),(.01,.012,.025),steel,'Hand.R',0)
+gbox('Rail body',(.04,0,.06),(.3,.062,.075),graphite,'Hand.R',.01)
+gbox('Rail stock',(-.16,0,.055),(.07,.054,.11),ivory,'Hand.R',.01)
+gbox('Rail butt cap',(-.2,0,.055),(.012,.05,.095),orange,'Hand.R',.003)
+gbox('Rail cell',(-.07,0,-.01),(.06,.044,.07),orange,'Hand.R',.006)
+gbox('Rail cell window',(-.07,.023,-.005),(.03,.004,.04),coil,'Hand.R',0)
+for z in [.083,.037]:gbox('Rail rail',(.38,0,z),(.44,.03,.014),steel,'Hand.R',.002)
+for x in [.22,.3,.38,.46]:gbox('Rail coil',(x,0,.06),(.022,.07,.082),coil,'Hand.R',.002)
+gbox('Rail capacitor',(.02,0,.115),(.16,.05,.04),ivory,'Hand.R',.006)
+gbox('Rail capacitor window',(.02,.026,.115),(.1,.004,.016),coil,'Hand.R',0)
+gbox('Rail fore-grip',(.2,0,.0),(.035,.035,.075),rubber,'Hand.R',.006,.12)
+gbox('Rail muzzle',(.6,0,.06),(.02,.05,.07),graphite,'Hand.R',.003)
+railparts=parts[railparts_before:]
+
+# Arc projector: a stubby ivory body ringed with coils, a cell housing under it and three prongs round a glowing emitter.
+arcparts_before=len(parts)
+gbox('Arc grip',(-.012,0,-.005),(.05,.042,.13),rubber,'Hand.R',.008,.25)
+gbox('Arc trigger',(.03,0,.022),(.01,.012,.025),steel,'Hand.R',0)
+gbox('Arc guard',(.035,0,.004),(.08,.03,.008),gunmetal,'Hand.R',.002)
+gcyl('Arc body',-.1,.2,.065,.046,ivory,'Hand.R')
+gcyl('Arc cap',-.13,-.09,.065,.05,graphite,'Hand.R')
+for x in [.02,.08,.14]:gcyl('Arc coil',x,x+.016,.065,.053,coil,'Hand.R')
+gbox('Arc cell',(.04,0,.005),(.09,.05,.04),orange,'Hand.R',.006)
+gbox('Arc handle',(.15,0,-.005),(.035,.035,.075),rubber,'Hand.R',.006,-.1)
+gcyl('Arc neck',.2,.25,.065,.026,graphite,'Hand.R')
+gcyl('Arc emitter',.25,.27,.065,.02,coil,'Hand.R')
+for a in [0,2.094,4.189]:
+ y,z=math.sin(a)*.04,.065+math.cos(a)*.04
+ gbox('Arc prong',(.25,y,z),(.08,.012,.012),steel,'Hand.R',.002)
+ gbox('Arc prong tip',(.29,y,z),(.012,.016,.016),coil,'Hand.R',0)
+arcparts=parts[arcparts_before:]
+
 # Armature: bone-local Y follows each limb; explicit X axis handles forward/back swing.
 arm=bpy.data.armatures.new('Frontier pressure suit skeleton');rig=bpy.data.objects.new('AstronautRig',arm);scene.collection.objects.link(rig)
 bpy.context.view_layer.objects.active=rig;rig.select_set(True);bpy.ops.object.mode_set(mode='EDIT')
@@ -276,7 +314,8 @@ for name,p,parent in [('Muzzle',(.215,0,.088),'Hand.R'),('MuzzleAhead',(.315,0,.
  ('RifleMuzzle',(.47,0,.06),'Hand.R'),('RifleMuzzleAhead',(.57,0,.06),'Hand.R'),('RiflePort',(-.04,.035,.07),'Bolt'),('RiflePortOut',(-.06,.11,.12),'Bolt'),
  ('Nozzle',(.41,0,.065),'Hand.R'),('NozzleAhead',(.51,0,.065),'Hand.R'),('Pilot',(.37,0,.036),'Hand.R'),
  ('SmgMuzzle',(.31,0,.075),'Hand.R'),('SmgMuzzleAhead',(.41,0,.075),'Hand.R'),('SmgPort',(.01,.033,.072),'Bolt'),('SmgPortOut',(-.01,.11,.12),'Bolt'),
- ('BladeBase',(.004,0,.1),'Hand.R'),('BladeTip',(.008,0,.66),'Hand.R')]:
+ ('BladeBase',(.004,0,.1),'Hand.R'),('BladeTip',(.008,0,.66),'Hand.R'),
+ ('RailMuzzle',(.62,0,.06),'Hand.R'),('RailMuzzleAhead',(.72,0,.06),'Hand.R'),('ArcEmitter',(.28,0,.065),'Hand.R'),('ArcEmitterAhead',(.38,0,.065),'Hand.R')]:
  head=gun_point(*p);bone(name,head,head+GUN_UP*.03,parent,False)
 bpy.ops.object.mode_set(mode='OBJECT')
 
@@ -288,7 +327,7 @@ def join_skin(objects,name):
  mod=o.modifiers.new('Skeleton deformation','ARMATURE');mod.object=rig;o.parent=rig
  return o
 body=join_skin(bodyparts,'FrontierSuit');tool=join_skin(toolparts,'ConstructionTool');pistol=join_skin(gunparts,'Pistol');rifle=join_skin(rifleparts,'Rifle');flamer=join_skin(flameparts,'Flamethrower')
-smg=join_skin(smgparts,'Smg');katana=join_skin(bladeparts,'Katana')
+smg=join_skin(smgparts,'Smg');katana=join_skin(bladeparts,'Katana');railgun=join_skin(railparts,'Railgun');arcgun=join_skin(arcparts,'ArcProjector')
 for p in rig.pose.bones:p.rotation_mode='XYZ'
 rig.animation_data_create()
 
@@ -451,6 +490,11 @@ def smg_fire(t):
  aim(AIM_W+Vector((0,.035,.02))*k,(AIM_A+Vector((0,0,.18*k))).normalized(),AIM_WL+Vector((0,.03,.015))*k,AIM_AL)
  rig.pose.bones['Bolt'].location.y=-.04*SLIDE[f]
 
+def rail_fire(t):
+ # The slug leaves hard: a heavy shove back into the shoulder and the muzzle thrown high.
+ f=round(t*8);k=KICK[f]*1.2;aim_body(.05-.08*k);rx('Head',.04-.06*k)
+ aim(AIM_W+Vector((0,.07,.05))*k,(AIM_A+Vector((0,0,.5*k))).normalized(),AIM_WL+Vector((0,.06,.04))*k,AIM_AL)
+
 def hand_point(p):
  """Where a gun-frame point on the posed right hand is, in armature space."""
  refresh();return rig.pose.bones['Hand.R'].matrix@(arm.bones['Hand.R'].matrix_local.inverted()@gun_point(*p))
@@ -518,6 +562,13 @@ CLIP_NAMES+=['RifleAimIdle','RifleAimWalk','RifleAimRun','RifleFire','RifleTurnL
 stance((.1,-.4,1.3),.19,(0,-.3,1),.18)
 clips+=[make_clip('SmgAimIdle',60,aim_idle),make_clip('SmgAimWalk',24,lambda t:aim_gait(t)),make_clip('SmgAimRun',20,lambda t:aim_gait(t,True)),make_clip('SmgFire',8,smg_fire),
  make_clip('SmgTurnL',24,lambda t:turn(t,1)),make_clip('SmgTurnR',24,lambda t:turn(t,-1))]
+stance((.1,-.36,1.34),.2,(0,-.3,1),.32)
+clips+=[make_clip('RailAimIdle',60,aim_idle),make_clip('RailAimWalk',24,lambda t:aim_gait(t)),make_clip('RailAimRun',20,lambda t:aim_gait(t,True)),make_clip('RailFire',8,rail_fire),
+ make_clip('RailTurnL',24,lambda t:turn(t,1)),make_clip('RailTurnR',24,lambda t:turn(t,-1))]
+stance((.14,-.34,1.2),.15,(0,-.25,1),.26)
+clips+=[make_clip('ArcAimIdle',60,aim_idle),make_clip('ArcAimWalk',24,lambda t:aim_gait(t)),make_clip('ArcAimRun',20,lambda t:aim_gait(t,True)),
+ make_clip('ArcTurnL',24,lambda t:turn(t,1)),make_clip('ArcTurnR',24,lambda t:turn(t,-1))]
+CLIP_NAMES+=['RailAimIdle','RailAimWalk','RailAimRun','RailFire','RailTurnL','RailTurnR','ArcAimIdle','ArcAimWalk','ArcAimRun','ArcTurnL','ArcTurnR']
 STANCE_TWIST=.2;UPPER=katana_ready
 clips+=[make_clip('KatanaAimIdle',60,aim_idle),make_clip('KatanaAimWalk',24,lambda t:aim_gait(t)),make_clip('KatanaAimRun',20,lambda t:aim_gait(t,True)),
  make_clip('KatanaTurnL',24,lambda t:turn(t,1)),make_clip('KatanaTurnR',24,lambda t:turn(t,-1)),make_clip('KatanaSlash',13,katana_slash)]
@@ -528,7 +579,7 @@ reset_pose();refresh()
 
 scene.render.fps=30;scene.frame_start=1;scene.frame_end=91
 bpy.ops.object.select_all(action='DESELECT')
-for o in [rig,body,tool,pistol,rifle,flamer,smg,katana]:o.select_set(True)
+for o in [rig,body,tool,pistol,rifle,flamer,smg,katana,railgun,arcgun]:o.select_set(True)
 bpy.context.view_layer.objects.active=rig
 for track in rig.animation_data.nla_tracks:track.mute=False
 with contextlib.redirect_stdout(io.StringIO()):
@@ -551,12 +602,12 @@ scene.render.resolution_x=900;scene.render.resolution_y=900;scene.render.image_s
 with contextlib.suppress(Exception):scene.eevee.taa_render_samples=32
 tool.hide_render=True
 PORTRAITS=[('AimIdle',1,'astronaut-v3-aim.png'),('Fire',2,'astronaut-v3-fire.png'),('Struggle',7,'astronaut-v3-struggle.png'),('Roll',7,'astronaut-v3-roll.png'),('TurnL',19,'astronaut-v3-turn.png'),
- ('SmgAimIdle',1,'astronaut-v3-smg.png'),('KatanaAimIdle',1,'astronaut-v3-katana.png'),('KatanaSlash',4,'astronaut-v3-slash-wind.png'),('KatanaSlash',7,'astronaut-v3-slash.png'),
+ ('RailAimIdle',1,'astronaut-v3-railgun.png'),('ArcAimIdle',1,'astronaut-v3-arc.png'),('SmgAimIdle',1,'astronaut-v3-smg.png'),('KatanaAimIdle',1,'astronaut-v3-katana.png'),('KatanaSlash',4,'astronaut-v3-slash-wind.png'),('KatanaSlash',7,'astronaut-v3-slash.png'),
  ('RifleAimIdle',1,'astronaut-v3-rifle.png'),('RifleFire',2,'astronaut-v3-rifle-fire.png'),('FlameAimIdle',1,'astronaut-v3-flame.png'),('FlameAimWalk',7,'astronaut-v3-flame-walk.png')]
 only=os.environ.get('LUNAR_PORTRAITS')
 for clip,frame,file in PORTRAITS:
  if only and clip not in only.split(','):continue
- held={'Rifle':rifle,'Flame':flamer,'Smg':smg,'Katana':katana}
+ held={'Rifle':rifle,'Flame':flamer,'Smg':smg,'Katana':katana,'Rail':railgun,'Arc':arcgun}
  for pre,o in held.items():o.hide_render=not clip.startswith(pre)
  pistol.hide_render=clip.startswith(tuple(held))
  rig.animation_data.action=clips[CLIP_NAMES.index(clip)];scene.frame_set(frame)

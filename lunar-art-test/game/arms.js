@@ -14,6 +14,12 @@ export const WEAPONS = Object.freeze({
   rifle: { ammo: 'rounds', magazine: 12, damage: 22, range: 26, cooldown: .13, reload: 2.1, tolerance: .16 },
   // The tank holds one fuel cell and burns `burn` a second. Flames reach `range` in a cone of half-angle `cone`.
   flamethrower: { ammo: 'fuel', magazine: 100, burn: 14, damage: 55, range: 5.5, cone: .38, reload: 1.8, stream: true },
+  // Energy weapons run on power cells. The railgun loads one cell per slug and charges while the trigger is held: let go
+  // and the slug pierces everything along its line, hitting harder the longer it charged (up to `charge` seconds).
+  railgun: { ammo: 'charge', magazine: 3, damage: 60, range: 34, cooldown: .5, reload: 2.6, charge: .8, minPower: .35, tolerance: .12 },
+  // The arc projector empties one cell like a tank: a held beam that jumps from the first crawler in its cone to up to
+  // `chain` more, each within `hop` of the last.
+  arc: { ammo: 'charge', magazine: 100, burn: 16, damage: 34, range: 8, cone: .5, chain: 3, hop: 4, reload: 1.6, stream: true },
   // No ammunition: a swing cuts everything within `range` and `arc` radians either side of the aim.
   katana: { magazine: 0, damage: 30, range: 2.4, arc: 1.05, cooldown: .55, melee: true },
 });
@@ -22,11 +28,14 @@ export const isWeapon = item => !!WEAPONS[item];
 export const ARMORY = Object.freeze({
   rounds: { input: { metal: 2 }, makes: 8 },
   fuel: { input: { goo: 1, metal: 1 }, makes: 3 },
+  charge: { input: { metal: 1, silicon: 2 }, makes: 4, tech: 'arc' },
   pistol: { input: { metal: 12, silicon: 4 }, makes: 1 },
   smg: { input: { metal: 20, silicon: 6 }, makes: 1, tech: 'smg' },
   katana: { input: { metal: 16, titanium: 4, silicon: 6 }, makes: 1, tech: 'katana' },
   rifle: { input: { metal: 28, silicon: 8, titanium: 6 }, makes: 1, tech: 'rifle' },
   flamethrower: { input: { metal: 26, titanium: 10, goo: 2 }, makes: 1, tech: 'flamethrower' },
+  arc: { input: { metal: 22, silicon: 12, titanium: 6 }, makes: 1, tech: 'arc' },
+  railgun: { input: { metal: 30, silicon: 10, titanium: 12, rareearth: 2 }, makes: 1, tech: 'railgun' },
 });
 export const armoryKnown = (state, id) => !ARMORY[id].tech || techDone(state, ARMORY[id].tech);
 /** Seconds the bench takes per recipe, how many it lines up, and how many finished items wait when the pack is full. */
@@ -55,14 +64,15 @@ export function holdWeapon(state, item) {
 }
 export const reserveOf = (state, weapon) => WEAPONS[weapon].ammo ? inv.count(state.inventory, WEAPONS[weapon].ammo) : 0;
 
+const NO_AMMO = { fuel: 'No fuel cells. Refine some from goo at an armory.', charge: 'No power cells. Make some at an armory.', rounds: 'No rounds left. Craft more at an armory.' };
 export function reload(state) {
   const w = heldWeapon(state); if (!w) return { ok: false, reason: 'No weapon. Craft one at an armory.' };
   const a = armsOf(state), spec = WEAPONS[w];
   if (spec.melee || a.reloading || a.loaded[w] >= spec.magazine) return { ok: false, reason: '' };
-  if (!reserveOf(state, w)) return { ok: false, reason: spec.ammo === 'fuel' ? 'No fuel cells. Refine some from goo at an armory.' : 'No rounds left. Craft more at an armory.' };
+  if (!reserveOf(state, w)) return { ok: false, reason: NO_AMMO[spec.ammo] };
   a.reloading = spec.reload; return { ok: true, reason: 'Reloading…' };
 }
-/** Cooldown and reloads. A finished reload fills the magazine from the pack, or the tank from one fuel cell. */
+/** Cooldown and reloads. A finished reload fills the magazine from the pack, or a tank from one cell. */
 export function stepArms(state, dt) {
   const a = armsOf(state), w = heldWeapon(state);
   a.cooldown = Math.max(0, a.cooldown - dt);
@@ -70,7 +80,7 @@ export function stepArms(state, dt) {
   if ((a.reloading -= dt) > 0) return;
   a.reloading = 0;
   const spec = WEAPONS[w];
-  if (spec.ammo === 'fuel') { if (inv.remove(state.inventory, 'fuel', 1)) a.loaded[w] = spec.magazine; return; }
+  if (spec.stream) { if (inv.remove(state.inventory, spec.ammo, 1)) a.loaded[w] = spec.magazine; return; }
   const n = Math.min(spec.magazine - a.loaded[w], reserveOf(state, w));
   if (n > 0) { inv.remove(state.inventory, spec.ammo, n); a.loaded[w] += n; }
 }
@@ -89,10 +99,10 @@ export function pullTrigger(state, chained = false) {
   if (!a.loaded[w]) reload(state);
   return { ok: true, weapon: w, spec };
 }
-/** Burn the flamethrower's tank for one step. True while it is spraying. */
+/** Burn the held stream weapon's tank for one step. True while it is spraying. */
 export function burnTank(state, dt) {
   const w = heldWeapon(state), a = armsOf(state);
-  if (w !== 'flamethrower' || a.reloading || a.cooldown > 0) return false;
+  if (!WEAPONS[w]?.stream || a.reloading || a.cooldown > 0) return false;
   if (a.loaded[w] <= 0) { reload(state); return false; }
   a.loaded[w] = Math.max(0, a.loaded[w] - WEAPONS[w].burn * dt);
   if (!a.loaded[w]) reload(state);

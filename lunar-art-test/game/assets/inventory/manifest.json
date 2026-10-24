@@ -36,10 +36,13 @@
     "flare": "Flare",
     "rounds": "Rounds",
     "fuel": "Fuel cell",
+    "charge": "Power cell",
     "pistol": "Pistol",
     "smg": "Submachine gun",
     "katana": "Electric katana",
     "rifle": "Semi-auto rifle",
-    "flamethrower": "Flamethrower"
+    "flamethrower": "Flamethrower",
+    "arc": "Arc projector",
+    "railgun": "Railgun"
   }
 }

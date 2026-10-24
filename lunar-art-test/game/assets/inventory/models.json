@@ -184,6 +184,21 @@
     "materialParts": 6,
     "originalTriangles": 1624
   },
+  "arc": {
+    "triangles": 1500,
+    "materialParts": 5,
+    "originalTriangles": 2576
+  },
+  "railgun": {
+    "triangles": 1500,
+    "materialParts": 5,
+    "originalTriangles": 1536
+  },
+  "charge": {
+    "triangles": 900,
+    "materialParts": 5,
+    "originalTriangles": 1668
+  },
   "regolith": {
     "triangles": 60,
     "materialParts": 1,

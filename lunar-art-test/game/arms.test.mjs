@@ -102,13 +102,53 @@ test('the electric katana cuts everything in its arc and needs no ammunition', (
   assert.equal(reload(s).ok, false); assert.equal(inv.count(s.inventory, 'rounds'), 0);
 });
 
-test('every weapon but the pistol is researched; the submachine gun leads to the rifle', async () => {
+test('every weapon but the pistol is researched, on a ballistics branch and an energy branch', async () => {
   const { TECHS } = await import('./space.js');
   for (const id of Object.keys(WEAPONS)) {
     if (id === 'pistol') { assert.equal(ARMORY.pistol.tech, undefined); continue; }
     assert.equal(ARMORY[id].tech, id); assert.ok(TECHS[id] && !TECHS[id].innate, `${id} is a tech`);
   }
-  assert.deepEqual(TECHS.rifle.requires, ['smg']); assert.deepEqual(TECHS.katana.requires, ['pistol']);
+  assert.deepEqual(['smg', 'rifle', 'flamethrower'].map(id => TECHS[id].branch), ['arms', 'arms', 'arms']);
+  assert.deepEqual(TECHS.rifle.requires, ['smg']);
+  assert.deepEqual(['katana', 'arc', 'railgun'].map(id => [TECHS[id].branch, TECHS[id].requires ?? []]), [['energy', []], ['energy', ['katana']], ['energy', ['arc']]]);
+});
+
+test('the railgun charges while held and its slug goes through every crawler in line', () => {
+  const s = createState(3), h = createHunt(), rng = seeded(), spec = WEAPONS.railgun;
+  s.player.facing = 0; stepHunt(h, s, 1 / 30, rng);
+  clear(s); give(s, { railgun: 1, charge: 2 }); armsOf(s).loaded.railgun = 0;
+  assert.match(fire(h, s, false, rng).reason, /Reloading/, 'empty, it loads cells first');
+  stepHunt(h, s, spec.reload + .01, rng);
+  assert.equal(armsOf(s).loaded.railgun, 2); assert.equal(inv.count(s.inventory, 'charge'), 0, 'one cell a slug');
+  const p = s.player, at = (dx, dz) => { const c = createCrawler(p.x + dx, p.z + dz, rng); c.state = 'stalk'; c.hp = 200; return c; };
+  s.brood = [at(0, 1.5), at(.2, 6), at(1.5, 2)];
+  assert.equal(fire(h, s, false, rng).ok, true); assert.equal(armsOf(s).loaded.railgun, 2, 'nothing spent until it fires');
+  for (let t = 0; t < spec.charge; t += 1 / 60) stepHunt(h, s, 1 / 60, rng);
+  const hp = s.brood.map(c => c.hp), r = release(h, s, rng);
+  assert.equal(r.ok, true); assert.ok(Math.abs(r.power - 1) < 1e-9); assert.equal(r.hits, 2);
+  assert.deepEqual(s.brood.map((c, i) => hp[i] - c.hp), [spec.damage, spec.damage, 0], 'pierces the line, misses the one off it');
+  assert.ok(h.events.some(e => e.type === 'rail'));
+  stepHunt(h, s, spec.cooldown + .01, rng);
+  fire(h, s, false, rng); const quick = release(h, s, rng);
+  assert.ok(Math.abs(quick.power - spec.minPower) < 1e-9, 'an uncharged shot is weaker');
+});
+
+test('the arc projector chains between crawlers, stuns them and drains its cell', () => {
+  const s = underground(0), h = createHunt(), rng = seeded(), spec = WEAPONS.arc;
+  stepHunt(h, s, 1 / 30, rng);
+  clear(s); give(s, { arc: 1, charge: 1 }); armsOf(s).loaded.arc = spec.magazine;
+  const p = s.player, at = (dx, dz) => { const c = createCrawler(p.x + dx, p.z + dz, rng); c.state = 'stalk'; c.hp = 500; return c; };
+  h.crawlers = [at(0, 2), at(1.5, 3.2), at(2.5, 5), at(0, -6)];
+  assert.equal(fire(h, s, false, rng).ok, true);
+  stepHunt(h, s, .5, rng);
+  assert.deepEqual(h.arc.struck.map(c => h.crawlers.indexOf(c)), [0, 1, 2], 'leaps on from the first, not to the one behind');
+  assert.ok(h.crawlers.slice(0, 3).every(c => c.hp < 500 && c.shocked > 0)); assert.equal(h.crawlers[3].hp, 500);
+  assert.ok(Math.abs(armsOf(s).loaded.arc - (spec.magazine - spec.burn * .5)) < 1e-9);
+  const x = h.crawlers[0].x; stepHunt(h, s, .1, rng); assert.equal(h.crawlers[0].x, x, 'stunned in the current');
+  release(h); stepHunt(h, s, .1, rng); assert.equal(h.arc, null);
+  armsOf(s).loaded.arc = 0; fire(h, s, false, rng); stepHunt(h, s, 1 / 30, rng);
+  assert.ok(armsOf(s).reloading > 0); release(h); stepHunt(h, s, spec.reload + .01, rng);
+  assert.equal(armsOf(s).loaded.arc, spec.magazine); assert.equal(inv.count(s.inventory, 'charge'), 0);
 });
 
 test('the flamethrower burns its tank while held, scorches crawlers and burns nests down as broods boil out', () => {

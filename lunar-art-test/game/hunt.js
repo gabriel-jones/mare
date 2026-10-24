@@ -2,7 +2,7 @@ import {caveLayout,cavePassable,caveKey,lineVisible,CAVE_CELL} from './caves.js'
 import {FLARE,flareNow} from './peril.js';
 import {burnNest,liveNests,nestMouth,silkBlocks,stepInfest} from './infest.js';
 import {burnGoo} from './goo.js';
-import {WEAPONS,stepArms,pullTrigger,burnTank,heldWeapon} from './arms.js';
+import {WEAPONS,stepArms,pullTrigger,burnTank,heldWeapon,armsOf,reload} from './arms.js';
 import {CRAWLER,PLAYER_RADIUS,createCrawler,stepCrawler,struggle,hurtCrawler,scorchCrawler,shotEnd,createDodge,startDodge,stepDodge} from './crawler.js';
 
 /**
@@ -87,10 +87,11 @@ function spawn(hunt,cave,state,rng,nests=[]){
 export function stepHunt(hunt,state,dt,rng=Math.random){
  const p=state.player;
  stepArms(state,dt);stepBurst(hunt,state,dt,rng);
+ if(hunt.charging!=null)hunt.charging=WEAPONS[heldWeapon(state)]?.charge?hunt.charging+dt:null;
  if(p.cave==null){
   if(hunt.key!==null)Object.assign(hunt,createHunt(),{events:hunt.events,trigger:hunt.trigger});
   const brood=state.brood??[];
-  hunt.clock+=dt;stepFlame(hunt,state,null,brood,dt,rng);land(hunt,state,null,brood,dt,rng);
+  hunt.clock+=dt;stepFlame(hunt,state,null,brood,dt,rng);stepArc(hunt,state,null,brood,dt,rng);land(hunt,state,null,brood,dt,rng);
   // On the surface the caller moves the player by `dash`, through the surface's own collision.
   const dash=stepDodge(hunt.dodge,dt);hunt.rolling=dash.rolling;hunt.dash=dash.rolling?dash:null;
   return;
@@ -102,7 +103,7 @@ export function stepHunt(hunt,state,dt,rng=Math.random){
  }
  hunt.clock+=dt;
  for(const w of Object.values(hunt.wounds))w.hit=Math.max(0,w.hit-dt);
- stepFlame(hunt,state,cave,hunt.crawlers,dt,rng);
+ stepFlame(hunt,state,cave,hunt.crawlers,dt,rng);stepArc(hunt,state,cave,hunt.crawlers,dt,rng);
  hunt.lampShort=Math.max(0,hunt.lampShort-dt);hunt.wrenching=Math.max(0,(hunt.wrenching??0)-dt);
  const dash=stepDodge(hunt.dodge,dt);
  if(dash.rolling){
@@ -171,7 +172,7 @@ export function flamePoints(cave,p){
  * without flinching; nests and silk catch underground, goo burns away on the surface.
  */
 function stepFlame(hunt,state,cave,targets,dt,rng){
- const p=state.player,on=!!hunt.trigger&&burnTank(state,dt);
+ const p=state.player,on=!!hunt.trigger&&heldWeapon(state)==='flamethrower'&&burnTank(state,dt);
  for(const c of targets)if(c.scorched)c.scorched=Math.max(0,c.scorched-dt);
  hunt.flame=on?{points:flamePoints(cave,p)}:null;
  if(!on)return;
@@ -189,6 +190,40 @@ function stepFlame(hunt,state,cave,targets,dt,rng){
   for(const n of liveNests(state,p.cave,p.zone??0)){const m=nestMouth(n);if(points.some(f=>Math.hypot(f.x-m.x,f.z-m.z)<NEST.mouth+.6))woundNest(hunt,state,cave,n.key,spec.damage*dt,rng);}
  }else burnGoo(state,points);
 }
+/**
+ * While the trigger is held on a charged arc projector: the beam leaps to the nearest crawler in its cone that it can
+ * see, then on to the nearest unstruck one within `hop`, up to `chain` more. Each takes steady damage and is held
+ * stunned. With nothing to strike the beam crackles out to its range or the rock. `hunt.arc` is the path, for the view.
+ */
+function stepArc(hunt,state,cave,targets,dt,rng){
+ const p=state.player,spec=WEAPONS.arc;
+ for(const c of targets)if(c.shocked)c.shocked=Math.max(0,c.shocked-dt);
+ hunt.arc=null;
+ if(!hunt.trigger||heldWeapon(state)!=='arc'||!burnTank(state,dt))return;
+ const facing=p.facing??0,from={x:p.x+Math.sin(facing)*.6,z:p.z+Math.cos(facing)*.6},cell=v=>Math.round(v/CAVE_CELL);
+ const sees=(a,b)=>!cave||lineVisible(cave,cell(a.x),cell(a.z),cell(b.x),cell(b.z));
+ const live=targets.filter(c=>c.state!=='dead'),struck=[];
+ let first=null,best=Infinity;
+ for(const c of live){
+  const ox=c.x-p.x,oz=c.z-p.z,d=Math.hypot(ox,oz);if(d>spec.range+CRAWLER.radius||d>=best)continue;
+  if(Math.abs(Math.atan2(Math.sin(Math.atan2(ox,oz)-facing),Math.cos(Math.atan2(ox,oz)-facing)))>spec.cone&&d>1.2)continue;
+  if(sees(p,c)){first=c;best=d;}
+ }
+ if(first){
+  struck.push(first);
+  while(struck.length<=spec.chain){
+   const last=struck.at(-1);let next=null,near=spec.hop;
+   for(const c of live){if(struck.includes(c))continue;const d=Math.hypot(c.x-last.x,c.z-last.z);if(d<near&&sees(last,c)){next=c;near=d;}}
+   if(!next)break;struck.push(next);
+  }
+ }
+ for(const c of struck){
+  const r=scorchCrawler(c,spec.damage*dt,rng);c.shocked=.25;
+  if(r.killed)hunt.events.push({type:'killed',crawler:c,shocked:true});
+ }
+ const end=first?null:shotEnd(cave,from,{x:Math.sin(facing),z:Math.cos(facing)},[],{range:spec.range*.7,tolerance:0});
+ hunt.arc={from,struck,end:end?{x:end.x,z:end.z}:null};
+}
 /** A nest scraped for goo: one more crawls out of it, cap or no, and the rest lose patience and close in. */
 export function rouse(hunt,state,nestKey,rng=Math.random){
  const p=state.player;if(p.cave==null||hunt.key==null)return;
@@ -202,6 +237,12 @@ export function rouse(hunt,state,nestKey,rng=Math.random){
  */
 export function fire(hunt,state,chained=false,rng=Math.random){
  const p=state.player,below=p.cave!=null;if(below&&hunt.key==null)return {ok:false};
+ const held=heldWeapon(state);
+ if(WEAPONS[held]?.charge){
+  const a=armsOf(state);if(a.reloading||a.cooldown>0||hunt.charging!=null)return {ok:false,weapon:held};
+  if(!a.loaded[held])return {ok:false,weapon:held,reason:reload(state).reason};
+  hunt.trigger=true;hunt.charging=0;hunt.events.push({type:'charge',weapon:held});return {ok:true,weapon:held};
+ }
  const r=pullTrigger(state,chained);
  if(r.weapon&&WEAPONS[r.weapon].stream){hunt.trigger=true;return {ok:true,weapon:r.weapon};}
  if(!r.ok)return r;
@@ -254,8 +295,42 @@ function swing(hunt,state,r,rng){
  }
  return {ok:true,weapon:r.weapon,hits};
 }
-/** Let go of the trigger: the flamethrower stops. */
-export function release(hunt){hunt.trigger=false;}
+/**
+ * Let go of the trigger: the stream weapons stop, and a charging railgun fires (given the state) or, without it, is
+ * stood down.
+ */
+export function release(hunt,state=null,rng=Math.random){
+ hunt.trigger=false;
+ const held=hunt.charging;hunt.charging=null;
+ if(held==null||!state)return {ok:false};
+ return discharge(hunt,state,held,rng);
+}
+/**
+ * The railgun's slug: it goes straight through every crawler and nest mouth along the line, out to its range or the
+ * first rock, striking each at once for the charge's share of its damage.
+ */
+function discharge(hunt,state,held,rng){
+ const p=state.player,below=p.cave!=null;if(below&&hunt.key==null)return {ok:false};
+ const r=pullTrigger(state);if(!r.ok||!r.spec.charge)return r;
+ const spec=r.spec,power=spec.minPower+(1-spec.minPower)*Math.min(1,held/spec.charge),damage=spec.damage*power;
+ const cave=below?caveLayout(state.seed,p.cave,p.zone??0):null,targets=below?hunt.crawlers:(state.brood??[]),dir={x:Math.sin(p.facing??0),z:Math.cos(p.facing??0)};
+ const from={x:p.x+dir.x*.5,z:p.z+dir.z*.5},end=shotEnd(cave,from,dir,[],spec),length=Math.hypot(end.x-from.x,end.z-from.z);
+ const along=(x,z,width)=>{const ox=x-from.x,oz=z-from.z,a=ox*dir.x+oz*dir.z;return a>0&&a<=length+width&&Math.abs(ox*dir.z-oz*dir.x)<=width?a:null;};
+ hunt.events.push({type:'rail',x:end.x,z:end.z,dir,power,weapon:r.weapon});
+ let hits=0;
+ for(const c of targets){
+  if(c.state==='dead'||along(c.x,c.z,CRAWLER.radius+.25)==null)continue;
+  hits++;const h=hurtCrawler(c,damage,rng);
+  hunt.events.push({type:'impact',crawler:c,x:c.x,z:c.z,dir,killed:h.killed,weapon:r.weapon});
+  if(h.killed)hunt.events.push({type:'killed',crawler:c});
+  if(h.released)hunt.events.push({type:'release',crawler:c});
+ }
+ if(cave)for(const n of liveNests(state,p.cave,p.zone??0)){
+  const m=nestMouth(n);if(along(m.x,m.z,NEST.mouth)==null)continue;
+  hits++;woundNest(hunt,state,cave,n.key,damage,rng);hunt.events.push({type:'impact',x:m.x,z:m.z,dir,nest:n.key,weapon:r.weapon});
+ }
+ return {ok:true,weapon:r.weapon,power,hits};
+}
 /** Roll toward (dx, dz) in cave space. Not while held. */
 export function roll(hunt,state,dx,dz){
  if(pinned(hunt))return false;

@@ -181,6 +181,7 @@ function cursorMode(){
 const showLogistics=()=>!!(selectedType&&selectedType!=='mine')||constructing||/crate range/.test(constructionReason);
 function reticleState(){
  const w=heldWeapon(state),a=armsOf(state),spec=WEAPONS[w],p=state.player,at=aimClient&&world.aim(aimClient.x,aimClient.y);
+ if(spec.charge&&hunt.charging!=null)return {weapon:w,magazine:spec.magazine,loaded:a.loaded[w],reload:Math.min(1,hunt.charging/spec.charge),far:!!at&&Math.hypot(at.x-p.x,at.z-p.z)>spec.range,spraying:hunt.charging>=spec.charge,charging:true};
  if(spec.melee)return {weapon:w,magazine:1,loaded:1-a.cooldown/spec.cooldown,reload:null,far:!!at&&Math.hypot(at.x-p.x,at.z-p.z)>spec.range+1.5,spraying:false};
  return {weapon:w,magazine:spec.magazine,loaded:a.loaded[w],reload:a.reloading>0?1-a.reloading/spec.reload:null,far:!!at&&Math.hypot(at.x-p.x,at.z-p.z)>spec.range,spraying:spec.stream&&hunt.trigger&&a.loaded[w]>0&&!a.reloading};
 }
@@ -405,7 +406,7 @@ async function start(){
   });
   canvas.addEventListener('pointerup',e=>{
    if(e.button!==0)return;
-   release(hunt);
+   const r=release(hunt,state);if(r.reason)notify(r.reason);
    if(beltPath&&selectedType==='conveyor'){point(e);placeBelts();}
    else if(paintPath&&DEFS[selectedType]?.paint){point(e);placePaint();}
    else if(erasing)finishErase();

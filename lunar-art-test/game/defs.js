@@ -46,11 +46,14 @@ export const ITEM_INFO = Object.freeze({
   flare: { name: 'Flare', stack: 12 },
   rounds: { name: 'Rounds', stack: 60 },
   fuel: { name: 'Fuel cell', stack: 10 },
+  charge: { name: 'Power cell', stack: 20 },
   pistol: { name: 'Pistol', stack: 1 },
   smg: { name: 'Submachine gun', stack: 1 },
   katana: { name: 'Electric katana', stack: 1 },
   rifle: { name: 'Semi-auto rifle', stack: 1 },
   flamethrower: { name: 'Flamethrower', stack: 1 },
+  arc: { name: 'Arc projector', stack: 1 },
+  railgun: { name: 'Railgun', stack: 1 },
 });
 const allSides = [0, 1, 2, 3].map(dir => ({ x: 0, z: 0, dir }));
 // `layer`: 'floor' squares form rooms, 'interior' objects stand on finished floor of the `needs` room type,

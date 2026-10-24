@@ -21,6 +21,7 @@ const UP=THREE.Object3D.DEFAULT_UP,TWIST=1,BULLET_SPEED=90,CASES=40,LAND=.3;
 // What each gun's shot looks like, and which marker bones it fires from.
 const GUNS={
  pistol:{muzzle:'Muzzle',ahead:'MuzzleAhead',port:'Port',out:'PortOut',flash:1,light:40,tracer:1,brass:1,shake:.07,sparks:4},
+ railgun:{muzzle:'RailMuzzle',ahead:'RailMuzzleAhead',flash:1.6,light:70,shake:.2,sparks:10},
  smg:{muzzle:'SmgMuzzle',ahead:'SmgMuzzleAhead',port:'SmgPort',out:'SmgPortOut',flash:.9,light:35,tracer:.85,brass:.85,shake:.05,sparks:3},
  rifle:{muzzle:'RifleMuzzle',ahead:'RifleMuzzleAhead',port:'RiflePort',out:'RiflePortOut',flash:1.5,light:60,tracer:1.7,brass:1.35,shake:.11,sparks:8},
 };
@@ -43,7 +44,7 @@ function particles(parent,count,{additive,color,size}){
  };
 }
 
-const LABEL={pistol:'PISTOL',smg:'SMG',rifle:'RIFLE',katana:'ELECTRIC KATANA'};
+const LABEL={pistol:'PISTOL',smg:'SMG',rifle:'RIFLE',railgun:'RAILGUN',arc:'ARC',katana:'ELECTRIC KATANA'};
 function createHud(){
  const root=document.createElement('div');root.className='hunt-hud';root.hidden=true;
  root.innerHTML=`<div class="hunt-hurt"></div><div class="hunt-prompt"><span>GRABBED — MASH E</span><i><b></b></i></div><div class="hunt-ammo"></div>`;
@@ -62,7 +63,8 @@ function createHud(){
    root.hidden=!on;if(!on)return;
    hurt.style.opacity=String(Math.min(.85,hurtFlash));
    prompt.style.display=grabbed?'block':'none';if(grabbed)meter.style.width=`${Math.min(1,escape)*100}%`;
-   const text=!weapon?'NO WEAPON':WEAPONS[weapon].melee?LABEL[weapon]:WEAPONS[weapon].ammo==='fuel'?`FUEL ${Math.ceil(loaded)}% · ${reserve} CELL${reserve===1?'':'S'}${reloading?' · REFUELLING':''}`:`${LABEL[weapon]} ${loaded}/${reserve}${reloading?' · RELOADING':''}`;
+   const spec=WEAPONS[weapon],cells=`${reserve} CELL${reserve===1?'':'S'}`;
+   const text=!weapon?'NO WEAPON':spec.melee?LABEL[weapon]:spec.ammo==='fuel'?`FUEL ${Math.ceil(loaded)}% · ${cells}${reloading?' · REFUELLING':''}`:spec.stream?`${LABEL[weapon]} ${Math.ceil(loaded)}% · ${cells}${reloading?' · RECHARGING':''}`:spec.ammo==='charge'?`${LABEL[weapon]} ${loaded}/${reserve} ${reserve===1?'CELL':'CELLS'}${reloading?' · RELOADING':''}`:`${LABEL[weapon]} ${loaded}/${reserve}${reloading?' · RELOADING':''}`;
    if(text!==lastAmmo){ammo.textContent=text;lastAmmo=text;}
   },
   dispose(){root.remove();},
@@ -99,6 +101,31 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
   fragmentShader:'varying float vAlpha;varying float vEdge;void main(){float e=vEdge*vEdge*vEdge;vec3 c=mix(vec3(.1,.55,1.),vec3(.8,1.,1.),e*e);gl_FragColor=vec4(c,vAlpha*e*.85);}'});
  const trailMesh=new THREE.Mesh(trailGeo,trailMat);trailMesh.frustumCulled=false;fx.add(trailMesh);
  const trail=[];let slashT=9,crackle=0;
+ // Lightning and the railgun's beam: camera-facing ribbons rebuilt every frame from a list of segments.
+ const BOLTS=240,boltPos=new Float32Array(BOLTS*12),boltAlpha=new Float32Array(BOLTS*4),boltEdge=new Float32Array(BOLTS*4),boltGeo=new THREE.BufferGeometry();
+ for(let i=0;i<BOLTS;i++)boltEdge.set([-1,1,-1,1],i*4);
+ boltGeo.setAttribute('position',new THREE.BufferAttribute(boltPos,3));boltGeo.setAttribute('aAlpha',new THREE.BufferAttribute(boltAlpha,1));boltGeo.setAttribute('aEdge',new THREE.BufferAttribute(boltEdge,1));
+ boltGeo.setIndex(Array.from({length:BOLTS},(_,i)=>[4*i,4*i+1,4*i+2,4*i+1,4*i+3,4*i+2]).flat());
+ const boltMat=new THREE.ShaderMaterial({transparent:true,depthWrite:false,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,
+  vertexShader:'attribute float aAlpha;attribute float aEdge;varying float vAlpha;varying float vEdge;void main(){vAlpha=aAlpha;vEdge=aEdge;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
+  fragmentShader:'varying float vAlpha;varying float vEdge;void main(){float e=1.-abs(vEdge);float core=smoothstep(.55,1.,e);vec3 c=mix(vec3(.15,.6,1.),vec3(.92,1.,1.),core);gl_FragColor=vec4(c,vAlpha*(e*e*.7+core*.6));}'});
+ const boltMesh=new THREE.Mesh(boltGeo,boltMat);boltMesh.frustumCulled=false;fx.add(boltMesh);
+ const energyLight=new THREE.PointLight('#8fe6ff',0,7,2);fx.add(energyLight);
+ let bolts=0,rails=[];const _side=new THREE.Vector3(),_seg=new THREE.Vector3();
+ function ribbon(a,b,width,alpha){
+  if(bolts>=BOLTS)return;_seg.subVectors(b,a);_side.crossVectors(_seg,viewDir.value).normalize().multiplyScalar(width);
+  boltPos.set([a.x-_side.x,a.y-_side.y,a.z-_side.z,a.x+_side.x,a.y+_side.y,a.z+_side.z,b.x-_side.x,b.y-_side.y,b.z-_side.z,b.x+_side.x,b.y+_side.y,b.z+_side.z],bolts*12);
+  boltAlpha.fill(alpha,bolts*4,bolts*4+4);bolts++;
+ }
+ /** A jagged bolt from a to b: kinks thrown sideways and up, most in the middle. */
+ function lightning(a,b,width,alpha,amp=.35,kinks=7){
+  let prev=a.clone();
+  for(let i=1;i<=kinks;i++){
+   const t=i/kinks,next=new THREE.Vector3().lerpVectors(a,b,t);
+   if(i<kinks){const k=Math.sin(Math.PI*t)*amp;next.x+=(Math.random()-.5)*2*k;next.y+=(Math.random()-.5)*1.2*k;next.z+=(Math.random()-.5)*2*k;}
+   ribbon(prev,next,width,alpha);prev=next;
+  }
+ }
  const aimMarker=new THREE.Mesh(new THREE.RingGeometry(.18,.24,24).rotateX(-Math.PI/2),new THREE.MeshBasicMaterial({color:'#ffcf9a',transparent:true,opacity:.6,depthWrite:false}));aimMarker.position.y=.05;aimMarker.visible=false;fx.add(aimMarker);
 
  const localOf=(o,v=new THREE.Vector3())=>caveView.root.worldToLocal(o.getWorldPosition(v));
@@ -107,7 +134,7 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
 
  function play(clip,rate=1){if(act?.clip===clip)actor.restart();act={clip,t:0,len:actor.duration(clip)/rate,rate};}
  function clearViews(){views.forEach(v=>v.view.dispose());views.clear();wisps.clear();burns.clear();}
- function clearEffects(){bullets.forEach(b=>{b.live=false;b.mesh.visible=false;});hideCases();ichor.clear();sparks.clear();dust.clear();smoke.clear();flares.clear();flash.material.opacity=0;impactFlash.material.opacity=0;muzzleLight.intensity=0;jet.clear();pending=[];zaps.clear();trail.length=0;slashT=9;}
+ function clearEffects(){bullets.forEach(b=>{b.live=false;b.mesh.visible=false;});hideCases();ichor.clear();sparks.clear();dust.clear();smoke.clear();flares.clear();flash.material.opacity=0;impactFlash.material.opacity=0;muzzleLight.intensity=0;jet.clear();pending=[];zaps.clear();trail.length=0;slashT=9;rails=[];bolts=0;boltAlpha.fill(0);boltGeo.attributes.aAlpha.needsUpdate=true;energyLight.intensity=0;}
 
  /** The cave the player is now in. Effects move into its space; crawlers of the last cave are dropped. */
  function enter(view,state){
@@ -140,7 +167,7 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
    else if(e.type==='throwoff')play('throwoff');
    else if(e.type==='shriek')flicker=Math.max(flicker,.9);
    else if(e.type==='swing'){play('katanaslash');trail.length=0;slashT=0;}
-   else if(e.type==='shot'||e.type==='impact')pending.push(e);
+   else if(e.type==='shot'||e.type==='impact'||e.type==='rail')pending.push(e);
   }
  }
 
@@ -201,6 +228,46 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
   c.q.setFromEuler(euler.set(Math.random()*6,Math.random()*6,0));c.lie.setFromEuler(euler.set(Math.PI/2,0,Math.random()*6.28,'YXZ'));euler.order='XYZ';
   c.spin.set((Math.random()-.5)*50,(Math.random()-.5)*20,(Math.random()-.5)*50);c.age=0;c.bounces=0;
  }
+ /** The railgun lets go: a kick, a flash and a beam out to where the slug left the cave or its range. */
+ function fireRail(e){
+  const g=GUNS.railgun;actor.fire();actor.root.updateMatrixWorld(true);
+  const muzzle=localOf(actor.marker(g.muzzle)),ahead=localOf(actor.marker(g.ahead)).sub(muzzle).normalize();
+  flash.position.copy(muzzle).addScaledVector(ahead,.15);flash.scale.setScalar(1.2+e.power);flash.material.rotation=Math.random()*6.28;flash.material.opacity=1;
+  rails.push({from:muzzle.clone(),to:new THREE.Vector3(e.x,muzzle.y,e.z),age:0,power:e.power});
+  for(let i=0;i<24;i++){const t=Math.random(),at=new THREE.Vector3().lerpVectors(muzzle,rails.at(-1).to,t);zaps.spawn(at.x,at.y,at.z,(Math.random()-.5)*2,Math.random()*1.5,(Math.random()-.5)*2,.2+Math.random()*.3);}
+  energyLight.position.copy(muzzle);energyLight.intensity=60*e.power;
+  flicker=Math.max(flicker,.1);shake=Math.max(shake,g.shake*(.5+e.power));
+ }
+ /** The arc projector's lightning, the railgun's charge gathering at its muzzle, and fading rail beams. */
+ function energy(state,hunt,dt){
+  bolts=0;const held=heldWeapon(state);let light=0;
+  if(hunt.arc&&held==='arc'){
+   const emitter=localOf(actor.marker('ArcEmitter')),points=[emitter];
+   for(const c of hunt.arc.struck){const v=viewFor(c);if(v)points.push(new THREE.Vector3(c.x,v.position.y,c.z));}
+   if(points.length===1&&hunt.arc.end)points.push(new THREE.Vector3(hunt.arc.end.x,emitter.y-.2,hunt.arc.end.z));
+   for(let i=1;i<points.length;i++){
+    const a=points[i-1],b=points[i],amp=Math.min(.6,a.distanceTo(b)*.08);
+    lightning(a,b,.05,1,amp);lightning(a,b,.025,.7,amp*1.6,9);
+    if(Math.random()<.6)for(let k=0;k<3;k++)zaps.spawn(b.x,b.y,b.z,(Math.random()-.5)*5,Math.random()*3,(Math.random()-.5)*5,.1+Math.random()*.15);
+   }
+   if(points.length===1)for(let k=0;k<3;k++){const a=Math.random()*6.28;lightning(emitter,emitter.clone().add(new THREE.Vector3(Math.cos(a)*.5,(Math.random()-.3)*.4,Math.sin(a)*.5)),.02,.8,.12,3);}
+   energyLight.position.copy(points.at(-1));light=18+Math.random()*14;shake=Math.max(shake,.03);flicker=Math.max(flicker,.03);
+  }
+  if(hunt.charging!=null&&held==='railgun'){
+   const spec=WEAPONS.railgun,k=Math.min(1,hunt.charging/spec.charge),muzzle=localOf(actor.marker('RailMuzzle'));
+   if(Math.random()<.3+k*.7){const a=Math.random()*6.28,r=.6-k*.3,from=new THREE.Vector3(muzzle.x+Math.cos(a)*r,muzzle.y+(Math.random()-.5)*r,muzzle.z+Math.sin(a)*r);lightning(from,muzzle,.015+.02*k,.5+.5*k,.08,3);}
+   if(k>=1&&Math.random()<.5)zaps.spawn(muzzle.x,muzzle.y,muzzle.z,(Math.random()-.5)*2,Math.random()*1.5,(Math.random()-.5)*2,.1);
+   energyLight.position.copy(muzzle);light=Math.max(light,4+k*16+(k>=1?Math.random()*6:0));
+  }
+  for(const r of rails){
+   r.age+=dt;const f=Math.max(0,1-r.age/.35);
+   if(f>0){ribbon(r.from,r.to,(.05+.12*r.power)*f+.02,f);lightning(r.from,r.to,.025,f*.8,.25*f,12);}
+  }
+  rails=rails.filter(r=>r.age<.35);
+  energyLight.intensity=Math.max(light,energyLight.intensity-dt*240);
+  for(let i=bolts;i<BOLTS;i++)boltAlpha.fill(0,i*4,i*4+4);
+  boltGeo.attributes.position.needsUpdate=true;boltGeo.attributes.aAlpha.needsUpdate=true;
+ }
  /** The katana's glow and crackle while held, and the ribbon its edge leaves through a swing. */
  function blade(state,dt){
   const held=heldWeapon(state)==='katana',base=held&&actor.marker('BladeBase'),tip=held&&actor.marker('BladeTip');
@@ -244,7 +311,7 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
 
  /** After the actor has been posed: gunfire from the real muzzle, everything in flight, the crawlers and their smoke. */
  function after(state,hunt,dt){
-  for(const e of pending)(e.type==='shot'?fireShot:impact)(e);pending=[];
+  for(const e of pending)(e.type==='shot'?fireShot:e.type==='rail'?fireRail:impact)(e);pending=[];
   for(const b of bullets){if(!b.live)continue;b.travelled+=BULLET_SPEED*dt;if(b.travelled>=b.length){b.live=false;b.mesh.visible=false;continue;}
    const streak=Math.min(1.1*(b.thick??1),b.travelled);b.mesh.scale.set(b.thick??1,b.thick??1,streak);b.mesh.position.copy(b.from).addScaledVector(b.dir,b.travelled-streak/2);b.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),b.dir);}
   for(let i=0;i<CASES;i++){const c=cases[i];if(c.age>9)continue;c.age+=dt;
@@ -259,7 +326,7 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
    caseMesh.setColorAt(i,caseColor.copy(brass).lerp(hotBrass,Math.max(0,1-c.age/1.4)));
   }
   caseMesh.instanceMatrix.needsUpdate=true;caseMesh.instanceColor.needsUpdate=true;
-  blade(state,dt);
+  blade(state,dt);energy(state,hunt,dt);
   sparks.update(dt,9,1);dust.update(dt,0,2);ichor.update(dt,9,.5);zaps.update(dt,4,3);
   flash.material.opacity=Math.max(0,flash.material.opacity-dt*16);impactFlash.material.opacity=Math.max(0,impactFlash.material.opacity-dt*10);muzzleLight.intensity=Math.max(0,muzzleLight.intensity-dt*800);
   const p=state.player;
@@ -342,6 +409,6 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
   setAim(point){aimMarker.visible=!!point&&!!caveView;if(point)aimMarker.position.set(point.x,.05,point.z);},
   get shake(){return shake*.5;},
   get active(){return !!caveView;},
-  dispose(){leave();hud.dispose();bulletGeo.dispose();bulletMat.dispose();caseMesh.geometry.dispose();caseMesh.material.dispose();caseMesh.dispose();flashTex.dispose();flash.material.dispose();impactFlash.material.dispose();ichor.dispose();sparks.dispose();dust.dispose();zaps.dispose();trailGeo.dispose();trailMat.dispose();smoke.dispose();flares.dispose();jet.dispose();aimMarker.geometry.dispose();aimMarker.material.dispose();},
+  dispose(){leave();hud.dispose();bulletGeo.dispose();bulletMat.dispose();caseMesh.geometry.dispose();caseMesh.material.dispose();caseMesh.dispose();flashTex.dispose();flash.material.dispose();impactFlash.material.dispose();ichor.dispose();sparks.dispose();dust.dispose();zaps.dispose();trailGeo.dispose();trailMat.dispose();boltGeo.dispose();boltMat.dispose();smoke.dispose();flares.dispose();jet.dispose();aimMarker.geometry.dispose();aimMarker.material.dispose();},
  };
 }

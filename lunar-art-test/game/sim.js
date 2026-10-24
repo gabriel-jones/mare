@@ -26,7 +26,7 @@ const key = (x, z) => `${x},${z}`;
 
 export function createState(seed = 1847) {
   if (!Number.isSafeInteger(seed)) throw new Error('Seed must be an integer.');
-  return { version: SAVE_VERSION, seed, time: 0, inventory: inv.createInventory({ metal: 240, silicon: 100, meal: STARTING.meals, pistol: 1, rounds: 24 }), reserves: { oxygen: STARTING.oxygen, water: STARTING.water }, player: { x: 0, z: 8, y: 0, satiety: 100, arms: { held: 'pistol', loaded: { pistol: 6, smg: 0, rifle: 0, flamethrower: 0, katana: 0 }, cooldown: 0, reloading: 0 } }, buildings: [], nextId: 1, robots: [createRover()], miningAreas: [], nextAreaId: 1, mined: {}, mission: createMission(), ship: createShip(), satellites: 0, research: createResearch(), power: { generation: 0, demand: 0, stored: 0, capacity: 0, supplied: 0, powered: true } };
+  return { version: SAVE_VERSION, seed, time: 0, inventory: inv.createInventory({ metal: 240, silicon: 100, meal: STARTING.meals, pistol: 1, rounds: 24 }), reserves: { oxygen: STARTING.oxygen, water: STARTING.water }, player: { x: 0, z: 8, y: 0, satiety: 100, arms: { held: 'pistol', loaded: { pistol: 6, smg: 0, rifle: 0, flamethrower: 0, railgun: 0, arc: 0, katana: 0 }, cooldown: 0, reloading: 0 } }, buildings: [], nextId: 1, robots: [createRover()], miningAreas: [], nextAreaId: 1, mined: {}, mission: createMission(), ship: createShip(), satellites: 0, research: createResearch(), power: { generation: 0, demand: 0, stored: 0, capacity: 0, supplied: 0, powered: true } };
 }
 const validRotation = r => Number.isInteger(r) && r >= 0 && r <= 3;
 const finite = n => typeof n === 'number' && Number.isFinite(n);
