@@ -4,7 +4,7 @@ import * as inv from './inventory.js';
 import { missing, pay } from './storage.js';
 import { gooOn } from './goo.js';
 import { ARMORY, BENCH, armoryKnown } from './arms.js';
-import { ROBOT_COST, ROBOT_NAME, robotRoom, spawnRobot, bayExit } from './space.js';
+import { ANDROID_COST, ROBOT_COST, ROBOT_NAME, robotRoom, spawnRobot, bayExit } from './space.js';
 import { CROPS, GALLEY, MILL, RECIPES, BUFFS, isGrower, cropsFor, defaultCrop, recipeKnown, obtainable, addBuffs, buffed, stepBuffs } from './farm.js';
 
 // Provisional tuning.
@@ -58,8 +58,13 @@ export const STATIONS = Object.freeze({
   // The robot bay's product rolls out beside it rather than into the pack.
   roverbay: { verb: 'Assembling', time: 20, queue: 2, ready: 0, power: 1, air: false, robots: true, recipes: Object.keys(ROBOT_COST), known: () => true, input: id => ROBOT_COST[id], makes: () => 1, job: id => id, product: job => job },
   armory: { verb: 'Crafting', time: BENCH.time, queue: BENCH.queue, ready: BENCH.ready, power: 0, air: false, recipes: Object.keys(ARMORY), known: armoryKnown, input: id => ARMORY[id].input, makes: id => ARMORY[id].makes, job: id => id, product: job => job },
+  foundry: { verb: 'Assembling', time: 30, queue: 2, ready: 0, power: 2, air: false, robots: true, recipes: ['android'], known: () => true, input: () => ANDROID_COST, makes: () => 1, job: id => id, product: job => job },
 });
 export const isStation = b => !!STATIONS[b?.type];
+/** Androids queue work marked with '@': what it makes waits in the station for them to carry to a crate, not in the pack. */
+export const ordered = job => job.startsWith('@');
+export const plainJob = job => ordered(job) ? job.slice(1) : job;
+export const jobProduct = (b, job) => STATIONS[b.type].product(plainJob(job));
 const working = (b, status) => b.built && b.queue?.length > 0 && (STATIONS[b.type].robots || readyCount(b) < STATIONS[b.type].ready) && (!STATIONS[b.type].air || pressurisedAt(status, b));
 function stepStation(state, b, dt) {
   const s = STATIONS[b.type];
@@ -67,7 +72,7 @@ function stepStation(state, b, dt) {
   if (b.work < 1) return;
   b.work = 0;
   if (s.robots) { const exit = bayExit(b); spawnRobot(state, b.queue.shift(), exit.x, exit.z); return; }
-  const item = s.product(b.queue.shift()), n = s.makes(item), k = Math.min(n, inv.room(state.inventory, item));
+  const job = b.queue.shift(), item = jobProduct(b, job), n = s.makes(item), k = ordered(job) ? 0 : Math.min(n, inv.room(state.inventory, item));
   inv.add(state.inventory, item, k);
   if (n > k) b.ready[item] = (b.ready[item] ?? 0) + n - k;
 }
@@ -170,7 +175,7 @@ export function startCraft(state, b, id) {
   return { ok: true, reason: `${s.verb} ${name(id)}.` };
 }
 /** What each queued job at a station will make, in order. */
-export const stationJobs = b => (b.queue ?? []).map(job => STATIONS[b.type].product(job));
+export const stationJobs = b => (b.queue ?? []).map(job => jobProduct(b, job));
 
 /** What pressing E on an interior object would do, or null. */
 export function lifeAction(state, b) {

@@ -125,6 +125,7 @@ export function ledger(state) {
     for (const it of b.items ?? []) if (ITEM_INFO[it.type]) row(it.type).belts += 1;
   }
   for (const r of state.robots ?? []) {
+    if (r.kind === 'android') { if (r.carry) row(r.carry.item).robots.push({ id: r.id, kind: r.kind, n: r.carry.n, to: null }); continue; }
     const n = Math.floor(r.cargo ?? 0), item = r.kind === 'hauler' ? r.load : r.load ?? 'regolith';
     if (n < 1 || !item) continue;
     const to = r.job?.to === 'ship' ? 'Starship' : state.buildings.find(b => b.id === (r.job?.to ?? r.target?.id));

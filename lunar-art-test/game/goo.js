@@ -156,17 +156,24 @@ export function stepBrood(state, dt, fires = [], rng = Math.random) {
   if (!state.brood?.length) return events;
   if (p.cave != null) return events;
   const cave = surfaceGrid(state);
+  const androids = (state.robots ?? []).filter(r => r.kind === 'android' && !r.down);
   for (const c of state.brood) {
     if (c.state !== 'dead' && fires.some(f => Math.hypot(c.x - f.x, c.z - f.z) < f.r * .6)) {
       const r = hurtCrawler(c, GOO.burnDamage * dt, rng);
       if (r.killed) events.push({ type: 'killed', crawler: c });
     }
-    const env = { cave, player: { x: p.x, z: p.z, facing: p.facing ?? 0, lamp: true, invulnerable: (p.y ?? 0) > .6 }, flares: fires };
+    // Each hatchling goes for whoever is nearest: the player or a standing android. A target is kept through a lunge.
+    const near = o => Math.hypot(o.x - c.x, o.z - c.z);
+    let prey = androids.find(r => r.id === c.prey && ['shriek', 'lunge', 'slash'].includes(c.state)) ?? [p, ...androids].sort((a, b) => near(a) - near(b))[0];
+    c.prey = prey === p ? null : prey.id;
+    const env = { cave, player: prey === p ? { x: p.x, z: p.z, facing: p.facing ?? 0, lamp: true, invulnerable: (p.y ?? 0) > .6 } : { x: prey.x, z: prey.z, facing: prey.facing, lamp: true, invulnerable: false }, flares: fires };
     for (const e of stepCrawler(c, env, dt, rng)) {
       if (e.type === 'grab' || e.type === 'slash') {
-        p.health = Math.max(0, (p.health ?? 100) - (e.type === 'grab' ? GOO.biteDamage : e.damage * .6)); p.calm = 0;
+        const damage = e.type === 'grab' ? GOO.biteDamage : e.damage * .6;
+        if (prey === p) { p.health = Math.max(0, (p.health ?? 100) - damage); p.calm = 0; }
+        else if ((prey.hp = Math.max(0, prey.hp - damage)) <= 0) Object.assign(prey, { down: true, task: 'down', job: null, next: null });
         if (e.type === 'grab') { c.state = 'flee'; c.t = 0; c.goal = null; }
-        events.push({ type: 'bite', crawler: c });
+        events.push({ type: 'bite', crawler: c, android: prey === p ? null : prey.id });
       } else if (e.type !== 'drag' && e.type !== 'hurt') events.push({ ...e, crawler: c });
     }
   }

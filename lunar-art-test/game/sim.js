@@ -4,7 +4,8 @@ import { surfaceHeightAt, terrainReason } from './terrain.js';
 import { CELL_SIZE, DEFS, DIRS, ITEMS, ITEM_INFO, dims, footprint } from './defs.js';
 import { airlockApron, habitatLayout, isRoom, trapsPlayer } from './habitat.js';
 import * as inv from './inventory.js';
-import { LIFE, STARTING, ensureLifeState, hunger, lifeDemand, roomStatus, stepLife, useLife, STATIONS, isStation } from './life.js';
+import { LIFE, STARTING, ensureLifeState, hunger, jobProduct, lifeDemand, roomStatus, stepLife, useLife, STATIONS, isStation } from './life.js';
+import { STOCK_TARGET_MAX, androidDemand, restoreAndroid, stepAndroids } from './android.js';
 import { CROPS, RECIPES as DISHES, isGrower, restoreBuffs } from './farm.js';
 import { createRover, ensureBuildingState, productionDemand, stepProduction, MINING_RADIUS, MAX_MINING_AREAS, REGOLITH_PER_CELL, ROVER, PROCESSOR_INPUT_CAP, PROCESSOR_OUTPUT_CAP, BELT_SPACING, MELT, FAB, ASSEMBLY, RECIPES, KIT, cycleRecipe, robotTopology } from './production.js';
 import { createResearch, createShip, robotRoom, spawnRobot, ROBOT_LIMIT, ROBOT_NAME, lockedReason, restoreResearch, restoreShip, spaceDemand, stepSpace, studyFinds, touchesPad, REACTOR_POWER } from './space.js';
@@ -154,16 +155,22 @@ export function construct(state, id, dt) {
     for (const [item, d] of Object.entries(due)) b.paid[item] = (b.paid[item] ?? 0) + d;
   }
   b.progress = next;
-  b.built = b.progress >= 1;
-  if (b.built) delete b.paid;
-  if (b.built && DEFS[b.type].robot) {
+  if (b.progress < 1) return { ok: true, reason: 'Constructing…' };
+  return { ok: true, reason: completeBuilding(state, b) };
+}
+/** Finishes a building whose progress has reached 1: a robot pad rolls its robot out and is gone. Returns the message. */
+function completeBuilding(state, b) {
+  b.progress = 1; b.built = true; delete b.paid;
+  if (DEFS[b.type].robot) {
+    const cells = footprint(b.type, b.x, b.z, b.rotation);
     state.buildings.splice(state.buildings.indexOf(b), 1);
-    const robot = spawnRobot(state, DEFS[b.type].robot, cx, cz);
-    return { ok: true, reason: `${ROBOT_NAME[robot.kind]} ${robot.id} is ready.` };
+    const robot = spawnRobot(state, DEFS[b.type].robot, cells[0].x * CELL_SIZE, cells[0].z * CELL_SIZE);
+    return `${ROBOT_NAME[robot.kind]} ${robot.id} is ready.`;
   }
   ensureState(b);
-  return { ok: true, reason: b.built ? 'Construction complete.' : 'Constructing…' };
+  return `${DEFS[b.type].name} complete.`;
 }
+const androidHooks = state => ({ complete: b => completeBuilding(state, b), obstructed: b => playerObstructs(state, b) });
 /** Pays whatever `b` still owes in one go, as if every remaining slice of construction were paid now. */
 export function payInFull(state, b) {
   if (!b.paid) return true;
@@ -227,7 +234,7 @@ export function deconstruct(state, id) {
   for (const item of b.items ?? []) if (['metal', 'silicon', 'frame', 'wing', 'chip', 'satellite'].includes(item.type)) give(item.type, 1);
   // Farm machines hand back what they hold: finished goods, and the ingredients of anything not yet made.
   for (const [item, n] of Object.entries(b.ready ?? {})) give(item, n);
-  if (isStation(b)) { const st = STATIONS[b.type]; for (const q of b.queue ?? []) for (const [item, n] of Object.entries(st.input(st.product(q)))) give(item, n); }
+  if (isStation(b)) { const st = STATIONS[b.type]; for (const q of b.queue ?? []) for (const [item, n] of Object.entries(st.input(jobProduct(b, q)))) give(item, n); }
   if (isGrower(b) && b.grow >= 1) give(b.crop, CROPS[b.crop].yield);
   if (b.type === 'goovat') give('goo', Math.floor(b.stock ?? 0) + (b.seeded ? 1 : 0));
   if (b.type === 'bioreactor') give('goo', Math.floor(b.stock ?? 0));
@@ -302,16 +309,31 @@ export function assignRover(state, robotId, areaId) {
   if (r.task === 'toMine' || r.task === 'mining') { r.task = 'idle'; r.target = null; }
   return { ok: true, reason: areaId == null ? 'Rover set to Auto.' : `Rover assigned to zone ${areaId}.` };
 }
+/** Hands the colony its test android once: a charging pad on the nearest clear square to the player's start, and the
+ * android standing on it. Returns the android, or null when already given (or nowhere is clear). */
+export function grantStarterAndroid(state) {
+  if (state.starter) return null;
+  state.starter = true;
+  for (let ring = 0; ring < 12; ring++) for (let dx = -ring; dx <= ring; dx++) for (let dz = -ring; dz <= ring; dz++) {
+    if (Math.max(Math.abs(dx), Math.abs(dz)) !== ring) continue;
+    const x = 3 + dx, z = 3 + dz;
+    if (geometryReason(state, 'chargepad', x, z, 0) || terrainReason(state.seed, footprint('chargepad', x, z, 0)) || roomReason(state, 'chargepad', x, z, 0)) continue;
+    const pad = { id: state.nextId++, type: 'chargepad', x, z, rotation: 0, progress: 1, built: true, serial: nextSerial(state.buildings, 'chargepad') };
+    state.buildings.push(pad);
+    return spawnRobot(state, 'android', x * CELL_SIZE, z * CELL_SIZE);
+  }
+  return null;
+}
 export function daylightAt(time) { return Math.max(0, Math.sin(time / DAY_DURATION * Math.PI * 2 + Math.PI / 3)); }
 export function tick(state, dt) {
   if (!finite(dt) || dt < 0) throw new Error('Simulation time must be nonnegative and finite.');
   state.time += dt;
   // Machines run on the previous tick's supply state, so derived power always matches the saved state.
   const powered = state.power.powered !== false;
-  if (dt > 0) { stepProduction(state, dt, powered); stepHaulers(state, dt, powered, robotTopology(state)); stepSpace(state, dt, powered); stepLife(state, dt, powered); stepGoo(state, dt, powered); }
+  if (dt > 0) { stepProduction(state, dt, powered); stepHaulers(state, dt, powered, robotTopology(state)); stepAndroids(state, dt, powered, androidHooks(state)); stepSpace(state, dt, powered); stepLife(state, dt, powered); stepGoo(state, dt, powered); }
   stepMission(state);
   const daylight = daylightAt(state.time);
-  let generation = steadyGeneration(state), demand = productionDemand(state) + spaceDemand(state) + haulerDemand(state) + lifeDemand(state, roomStatus(state)) + gooDemand(state), capacity = thermalCapacity(state);
+  let generation = steadyGeneration(state), demand = productionDemand(state) + spaceDemand(state) + haulerDemand(state) + androidDemand(state) + lifeDemand(state, roomStatus(state)) + gooDemand(state), capacity = thermalCapacity(state);
   for (const b of state.buildings) {
     if (!b.built) continue;
     if (b.type === 'solar') generation += 8 * daylight;
@@ -371,8 +393,10 @@ function restoreBuilding(raw) {
   if (isRoom(b)) check('air', v => typeof v === 'boolean');
   if (isGrower(b)) { check('crop', v => CROPS[v]?.grower === b.type); check('grow', v => count(v, 1)); check('watered', v => typeof v === 'boolean'); }
   if (isStation(b)) {
-    const st = STATIONS[b.type], ok = q => st.recipes.includes(st.product(q));
+    const st = STATIONS[b.type], ok = q => st.recipes.includes(jobProduct(b, q));
     check('queue', v => Array.isArray(v) && v.length <= st.queue && v.every(q => typeof q === 'string' && ok(q)));
+    check('targets', v => v && typeof v === 'object' && !Array.isArray(v) && Object.entries(v).every(([item, n]) => st.recipes.includes(item) && wholeCount(n, STOCK_TARGET_MAX)));
+    if (b.targets) b.targets = { ...b.targets };
     check('work', v => count(v, 1));
     check('ready', v => v && typeof v === 'object' && !Array.isArray(v) && Object.entries(v).every(([item, n]) => ITEM_INFO[item] && wholeCount(n, st.ready)));
     if (b.type === 'galley') {
@@ -403,6 +427,7 @@ function restoreBuilding(raw) {
 }
 function restoreRobot(raw, index) {
   if (raw?.kind === 'hauler') return restoreHauler(raw);
+  if (raw?.kind === 'android') return restoreAndroid(raw);
   const tasks = ['idle', 'toMine', 'mining', 'toHopper', 'docked', 'blocked'];
   if (!raw || raw.kind !== 'miner' || !Number.isSafeInteger(raw.id) || !finite(raw.x) || !finite(raw.z) || Math.abs(raw.x) > 125 || Math.abs(raw.z) > 125 || !tasks.includes(raw.task) || !count(raw.cargo, ROVER.capacity) || !count(raw.charge, 1) || !finite(raw.facing)) throw new Error('Invalid robot.');
   const r = { ...createRover(raw.id), x: raw.x, z: raw.z, facing: raw.facing, task: raw.task, cargo: raw.cargo, charge: raw.charge, target: null };
@@ -519,6 +544,7 @@ export function deserialize(text) {
   restoreBuffs(state, raw);
   restoreInfest(state, raw);
   restoreGoo(state, raw);
+  if (raw.starter === true) state.starter = true;
   if (new Set(state.robots.map(r => r.id)).size !== state.robots.length) throw new Error('Invalid robots.');
   tick(state, 0);
   return state;

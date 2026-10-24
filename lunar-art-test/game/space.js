@@ -31,6 +31,7 @@ export const TECHS = Object.freeze({
   rifle: { name: 'Semi-auto rifle', branch: 'arms', cost: 18, requires: ['smg'], description: 'Twelve rounds, harder hits and a longer reach. Crafted at an armory.' },
   flamethrower: { name: 'Flamethrower', branch: 'arms', cost: 28, requires: ['rifle'], description: 'Burns crawlers, silk, nests and goo up close, on fuel refined from black goo. Lets you scrape nests (E).' },
   roverbay: { name: 'Robot bay', branch: 'industry', cost: 24, description: 'A bay that assembles haulers and rovers on its own.' },
+  androids: { name: 'Androids', branch: 'industry', cost: 36, requires: ['roverbay'], description: 'An android foundry and charging pads. Androids build, carry, harvest, keep stations stocked and take up arms when the brood comes.' },
   reactor: { name: 'Resonance reactor', branch: 'deep', cost: 40, schematic: true, hint: 'Needs a schematic from deep in the caves', description: 'Steady power from a rare-earth lattice, day and night.' },
   containment: { name: 'Goo containment', branch: 'deep', cost: 30, schematic: true, hint: 'Study the Heart of the Deep at a xeno lab', description: 'A sealed vat that cultures black goo. Scrape a sample from a live nest (E).' },
 });
@@ -41,8 +42,9 @@ export const STUDY = Object.freeze({ artifact: 12, heart: 60 });
 export const REACTOR_POWER = 10;
 export const ROBOT_COST = Object.freeze({ hauler: DEFS.hauler.cost, miner: DEFS.rover.cost });
 /** The build-menu type that puts each kind of robot together. */
-export const ROBOT_TYPE = Object.freeze({ hauler: 'hauler', miner: 'rover' });
+export const ROBOT_TYPE = Object.freeze({ hauler: 'hauler', miner: 'rover', android: 'android' });
 export const ROBOT_LIMIT = Object.freeze({ hauler: 3, miner: 4 });
+export const ANDROID_COST = Object.freeze({ metal: 45, silicon: 20, chip: 2 });
 
 export const createShip = () => ({ status: 'pad', t: 0, fuel: 0, payload: 0, hold: 0 });
 export const createResearch = () => ({ bank: 0, done: [] });
@@ -139,19 +141,26 @@ export function recallShip(state) {
   return { ok: true, reason: 'Starship returning to the pad.' };
 }
 
-export const ROBOT_NAME = Object.freeze({ hauler: 'Hauler', miner: 'Mining rover' });
+export const ROBOT_NAME = Object.freeze({ hauler: 'Hauler', miner: 'Mining rover', android: 'Android' });
+/** How many robots of `kind` the colony can run: a fixed fleet for haulers and rovers, one android per finished charging pad. */
+export const robotCap = (state, kind) => kind === 'android' ? state.buildings.filter(b => b.type === 'chargepad' && b.built).length : ROBOT_LIMIT[kind];
 /** How many more robots of `kind` the colony may start: running ones, those on the pad and those queued at bays all count. */
 export function robotRoom(state, kind) {
   const pads = state.buildings.filter(b => DEFS[b.type].robot === kind).length;
-  const queued = state.buildings.reduce((n, b) => n + (b.type === 'roverbay' ? (b.queue ?? []).filter(q => q === kind).length : 0), 0);
-  return ROBOT_LIMIT[kind] - state.robots.filter(r => r.kind === kind).length - pads - queued;
+  const queued = state.buildings.reduce((n, b) => n + (b.type === 'roverbay' || b.type === 'foundry' ? (b.queue ?? []).filter(q => q === kind).length : 0), 0);
+  return robotCap(state, kind) - state.robots.filter(r => r.kind === kind).length - pads - queued;
 }
-/** A finished robot rolls out at world position (x, z). Haulers call the nearest dock home. */
+/** A charging pad no android calls home yet, nearest to (x, z). */
+export function freePad(state, x, z) {
+  const taken = new Set(state.robots.filter(r => r.kind === 'android').map(r => r.home));
+  return state.buildings.filter(b => b.type === 'chargepad' && b.built && !taken.has(b.id)).sort((a, b) => Math.hypot(a.x * CELL_SIZE - x, a.z * CELL_SIZE - z) - Math.hypot(b.x * CELL_SIZE - x, b.z * CELL_SIZE - z))[0] ?? null;
+}
+/** A finished robot rolls out at world position (x, z). Haulers call the nearest dock home, androids a free charging pad. */
 export function spawnRobot(state, kind, x, z) {
   const id = 1 + Math.max(0, ...state.robots.map(r => r.id));
   const docks = state.buildings.filter(b => b.type === 'dock' && b.built);
   const dock = docks.sort((a, b) => Math.hypot(a.x * CELL_SIZE - x, a.z * CELL_SIZE - z) - Math.hypot(b.x * CELL_SIZE - x, b.z * CELL_SIZE - z))[0];
-  const robot = kind === 'hauler' ? createHauler(id, dock?.id ?? 0) : createRover(id);
+  const robot = kind === 'hauler' ? createHauler(id, dock?.id ?? 0) : kind === 'android' ? createAndroid(id, freePad(state, x, z)?.id ?? 0) : createRover(id);
   Object.assign(robot, { x, z });
   state.robots.push(robot);
   return robot;
@@ -183,6 +192,10 @@ export function studyFinds(state, id) {
 }
 export function createHauler(id, home) {
   return { id, kind: 'hauler', home, x: 0, z: 0, facing: 0, task: 'idle', charge: 1, cargo: 0, load: null, target: null, job: null };
+}
+/** `carry` is the one stack in its hands; `weapon`, `mag` and `ammo` what it took up from the armory; `kit` a repair kit. */
+export function createAndroid(id, home) {
+  return { id, kind: 'android', home, x: 0, z: 0, facing: 0, task: 'idle', charge: 1, hp: 60, down: false, carry: null, weapon: null, mag: 0, ammo: 0, kit: false, job: null };
 }
 
 const finite = n => typeof n === 'number' && Number.isFinite(n);
