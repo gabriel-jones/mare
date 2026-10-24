@@ -8,10 +8,11 @@ export const SHIP_PAD = Object.freeze({ x: 0, z: -10, reach: 6.5 });
 export const LAUNCH = Object.freeze({ fuel: 80, payload: 3, hold: 2, ascent: 9, descent: 10, pump: 4 });
 // One water makes one unit of hydrolox; a drinking reserve is always left for the colony.
 export const ELECTROLYSIS = Object.freeze({ time: 2, power: 3, waterFloor: 20 });
-export const RESEARCH_PER_SATELLITE = 4; // points per minute
+/** Research points each satellite earns once it is deployed in orbit. */
+export const SATELLITE_POINTS = 12;
 /** Research branches, in display order. */
 export const BRANCHES = Object.freeze({ farming: 'Farming', industry: 'Industry', deep: 'Deep', arms: 'Arms' });
-/** The research tree. `requires` must all be done before a tech can be chosen; `schematic` techs also need their find. */
+/** The research tree. A tech is bought outright with points once everything it `requires` is done; `schematic` techs also need their find. */
 export const TECHS = Object.freeze({
   hydroponics: { name: 'Hydroponics', branch: 'farming', cost: 14, description: 'A hydroponic rack for greenhouses.' },
   soy: { name: 'Soybeans', branch: 'farming', cost: 10, requires: ['hydroponics'], description: 'Slow, filling beans for the rack.' },
@@ -40,7 +41,7 @@ export const ROBOT_TYPE = Object.freeze({ hauler: 'hauler', miner: 'rover' });
 export const ROBOT_LIMIT = Object.freeze({ hauler: 3, miner: 4 });
 
 export const createShip = () => ({ status: 'pad', t: 0, fuel: 0, payload: 0, hold: 0 });
-export const createResearch = () => ({ bank: 0, selected: 'roverbay', progress: {}, done: [] });
+export const createResearch = () => ({ bank: 0, done: [] });
 export const techDone = (state, id) => !!TECHS[id]?.innate || state.research.done.includes(id);
 export const hasSchematic = (state, id) => !TECHS[id]?.schematic || (state.blueprints ?? []).includes(id);
 /** Why a research-gated building can't be placed yet, or null. */
@@ -80,29 +81,28 @@ export function stepSpace(state, dt, powered) {
     }
   } else if (ship.status === 'ascent' && (ship.t += dt) >= LAUNCH.ascent) {
     state.satellites += ship.payload;
+    state.research.bank += ship.payload * SATELLITE_POINTS;
     Object.assign(ship, { status: 'orbit', t: 0, payload: 0, fuel: 0 });
   } else if (ship.status === 'descent' && (ship.t += dt) >= LAUNCH.descent) Object.assign(ship, { status: 'pad', t: 0 });
-  stepResearch(state, dt);
-}
-function stepResearch(state, dt) {
-  const r = state.research;
-  r.bank += state.satellites * RESEARCH_PER_SATELLITE * dt / 60;
-  const id = r.selected;
-  if (!id || r.done.includes(id)) return;
-  const need = TECHS[id].cost - (r.progress[id] ?? 0), spend = Math.min(need, r.bank);
-  r.progress[id] = (r.progress[id] ?? 0) + spend; r.bank -= spend;
-  if (r.progress[id] >= TECHS[id].cost - 1e-9) { r.done.push(id); r.selected = null; }
 }
 const dist = (b, o) => Math.hypot(b.x - o.x, b.z - o.z);
 
-export function selectResearch(state, id) {
-  if (id != null && !TECHS[id]) return { ok: false, reason: 'Unknown technology.' };
-  if (id != null && techDone(state, id)) return { ok: false, reason: `${TECHS[id].name} is already researched.` };
-  if (id != null && !hasSchematic(state, id)) return { ok: false, reason: `Find the ${TECHS[id].name.toLowerCase()} schematic in the caves first.` };
-  const missing = id != null ? missingFor(state, id) : [];
-  if (missing.length) return { ok: false, reason: `Research ${missing.map(m => TECHS[m].name).join(' and ')} first.` };
-  state.research.selected = id;
-  return { ok: true, reason: id ? `Researching ${TECHS[id].name}.` : 'Research paused.' };
+/** Why a tech can't be unlocked right now, or null. */
+export function researchBlock(state, id) {
+  if (!TECHS[id]) return 'Unknown technology.';
+  if (techDone(state, id)) return `${TECHS[id].name} is already researched.`;
+  if (!hasSchematic(state, id)) return `Find the ${TECHS[id].name.toLowerCase()} schematic in the caves first.`;
+  const missing = missingFor(state, id);
+  if (missing.length) return `Research ${missing.map(m => TECHS[m].name).join(' and ')} first.`;
+  const short = TECHS[id].cost - state.research.bank;
+  return short > 0 ? `Needs ${Math.ceil(short)} more research points.` : null;
+}
+/** Spends points to unlock a tech at once. */
+export function unlockResearch(state, id) {
+  const reason = researchBlock(state, id);
+  if (reason) return { ok: false, reason };
+  state.research.bank -= TECHS[id].cost; state.research.done.push(id);
+  return { ok: true, reason: `${TECHS[id].name} unlocked.` };
 }
 
 const nearShip = state => state.player.cave == null && Math.hypot(state.player.x - SHIP_PAD.x, state.player.z - SHIP_PAD.z) < SHIP_PAD.reach;
@@ -192,7 +192,10 @@ export function restoreShip(raw) {
 export function restoreResearch(raw) {
   const r = createResearch();
   if (raw == null) return r;
-  if (!(finite(raw.bank) && raw.bank >= 0 && raw.bank < 1e9) || (raw.selected != null && !TECHS[raw.selected]) || !Array.isArray(raw.done) || raw.done.some(id => !TECHS[id]) || !raw.progress || typeof raw.progress !== 'object') throw new Error('Invalid research.');
-  for (const [id, n] of Object.entries(raw.progress)) { if (!TECHS[id] || !(finite(n) && n >= 0 && n <= TECHS[id].cost)) throw new Error('Invalid research.'); r.progress[id] = n; }
-  return Object.assign(r, { bank: raw.bank, selected: raw.selected ?? null, done: [...new Set(raw.done)] });
+  if (!(finite(raw.bank) && raw.bank >= 0 && raw.bank < 1e9) || (raw.selected != null && !TECHS[raw.selected]) || !Array.isArray(raw.done) || raw.done.some(id => !TECHS[id]) || (raw.progress != null && typeof raw.progress !== 'object')) throw new Error('Invalid research.');
+  const done = [...new Set(raw.done)];
+  // Older saves researched gradually: points already put into an unfinished tech go back to the bank.
+  let refund = 0;
+  for (const [id, n] of Object.entries(raw.progress ?? {})) { if (!TECHS[id] || !(finite(n) && n >= 0 && n <= TECHS[id].cost)) throw new Error('Invalid research.'); if (!done.includes(id)) refund += n; }
+  return Object.assign(r, { bank: raw.bank + refund, done });
 }

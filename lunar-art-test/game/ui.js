@@ -77,7 +77,7 @@ export function createUI(root, callbacks = {}) {
       <button type="button" class="build-toggle" data-action="build" aria-label="Build" title="Build (B)" aria-expanded="false" aria-controls="build-menu">${pic('icons/build', 'key-art')}<kbd>B</kbd></button>
       <button type="button" class="build-toggle robots-toggle" data-action="robots" aria-expanded="false" aria-label="Robots" title="Robots (G)">${pic('icons/robots', 'key-art')}<kbd>G</kbd></button>
       <button type="button" class="build-toggle robots-toggle stock-toggle" data-action="stock" aria-expanded="false" aria-label="Base stock" title="Base stock (I)">${pic('icons/stock', 'key-art')}<kbd>I</kbd></button>
-      <button type="button" class="build-toggle robots-toggle orbit-toggle" data-action="orbit" aria-label="Orbit" title="Orbit (O)">${pic('icons/orbit', 'key-art')}<kbd>O</kbd><b class="orbit-badge" hidden></b></button>
+      <button type="button" class="build-toggle robots-toggle orbit-toggle" data-action="orbit" aria-label="Orbit" title="Orbit (O)">${pic('icons/orbit', 'key-art')}<kbd>O</kbd></button>
       <button type="button" class="build-toggle robots-toggle research-toggle" data-action="research" aria-label="Research" title="Research (T)">${pic('icons/research', 'key-art')}<kbd>T</kbd><b class="research-badge" hidden></b></button>
       <div class="selection-tools" hidden>
         <span class="selected-name"></span>
@@ -336,11 +336,9 @@ export function createUI(root, callbacks = {}) {
       const now = performance.now();
       if (!robotsPanel.hidden && now - robotsAt > 250) { robotsAt = now; renderRobots(state); }
       if (storeOpen) renderStore(state);
-      const badge = root.querySelector('.orbit-badge'), sats = state.satellites ?? 0;
-      if (badge.textContent !== String(sats)) { badge.textContent = String(sats); badge.hidden = !sats; }
-      // Points waiting with nothing being researched.
-      const idle = !state.research?.selected && (state.research?.bank ?? 0) >= 1;
-      root.querySelector('.research-badge').hidden = !idle;
+      // Unspent research points ride on the research button.
+      const badge = root.querySelector('.research-badge'), points = Math.floor(state.research?.bank ?? 0);
+      if (badge.textContent !== String(points)) { badge.textContent = String(points); badge.hidden = !points; }
       fields.oxygen.textContent = number(state.reserves?.oxygen);
       fields.water.textContent = number(state.reserves?.water);
       fields.power.textContent = `${number(state.power.generation)} / ${number(state.power.demand)}`;

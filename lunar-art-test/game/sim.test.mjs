@@ -378,7 +378,7 @@ test('retired work lights vanish from old saves instead of breaking them',()=>{
 });
 
 test('caves give titanium, rare earth, artifacts and the reactor schematic, each taken once',async()=>{
- const {caveLayout}=await import('./caves.js'),{lootAction,takeLoot}=await import('./delve.js'),{selectResearch,lockedReason}=await import('./space.js');
+ const {caveLayout}=await import('./caves.js'),{lootAction,takeLoot}=await import('./delve.js'),{unlockResearch,researchBlock,lockedReason}=await import('./space.js');
  const s=createState();s.inventory=createInventory({metal:200,silicon:100});
  const stand=(l,zone)=>{s.player={x:l.x*2,z:l.z*2,y:0,satiety:100,cave:0};if(zone)s.player.zone=zone;};
  const top=caveLayout(s.seed,0,0),hollows=caveLayout(s.seed,0,1),deep=caveLayout(s.seed,0,2);
@@ -388,9 +388,9 @@ test('caves give titanium, rare earth, artifacts and the reactor schematic, each
  assert.notEqual(lootAction(s)?.loot.key,ore.key,'a seam is only chipped once');
  assert.ok([0,1,2].every(z=>!caveLayout(s.seed,0,z).loot.some(l=>l.kind==='tablet')),'no glyph tablets: the old builders left machinery, not writing');
  // The reactor stays locked until its schematic is found, then needs research.
- assert.match(lockedReason(s,'reactor'),/schematic/);assert.equal(selectResearch(s,'reactor').ok,false);
+ assert.match(lockedReason(s,'reactor'),/schematic/);assert.equal(unlockResearch(s,'reactor').ok,false);
  stand(hollows.loot.find(l=>l.kind==='blueprint'),1);assert.equal(takeLoot(s).ok,true);assert.deepEqual(s.blueprints,['reactor']);
- assert.match(lockedReason(s,'reactor'),/research/);assert.equal(selectResearch(s,'reactor').ok,true);
+ assert.match(lockedReason(s,'reactor'),/research/);assert.match(researchBlock(s,'reactor'),/research points/);
  const crystal=hollows.loot.find(l=>l.kind==='crystal');stand(crystal,1);
  assert.equal(takeLoot(s).ok,true);assert.equal(count(s.inventory,'rareearth'),2);
  const heart=deep.loot.find(l=>l.kind==='heart');stand(heart,2);

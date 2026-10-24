@@ -13,7 +13,7 @@ import {createWorld} from './world.js';
 import {createUI} from './ui.js';
 import {objective,missionAction,salvage,installCore,processorUnlocked} from './mission.js';
 import {createEncounter,stepEncounter,ENCOUNTER_SAY} from './encounter.js';
-import {shipAction,holdLaunch,releaseLaunch,loadSatellite,recallShip,selectResearch,machineAction,lockedReason} from './space.js';
+import {shipAction,holdLaunch,releaseLaunch,loadSatellite,recallShip,unlockResearch,machineAction,lockedReason,SATELLITE_POINTS} from './space.js';
 import {createOrbitView} from './orbit-view.js';
 import {createResearchView} from './research-view.js';
 import {createHunt,stepHunt,fire,release,roll,wrench,pinned,grabbedBy,rouse} from './hunt.js';
@@ -30,7 +30,7 @@ const SHORTCUTS={...Object.fromEntries(Object.entries(DEFS).filter(([,def])=>def
 const canvas=document.querySelector('#game'),boot=document.querySelector('#boot');
 let state=createState(),selectedType=null,rotation=0,world,ui,selectedSlot=0;
 let placeOk=true,placeFar=null,pointerIn=false,placementReason='',constructionReason='',hover=null,targetId=null,constructing=false,speed=1,saveStatus='Not saved',beltPath=null,paintPath=null,erasing=null;
-let orbit=null,research=null,shipStatus='pad',stationId=null;
+let orbit=null,research=null,shipStatus='pad',shipCargo=0,stationId=null;
 let jumpVelocity=0,accumulator=0,last=performance.now(),uiClock=0,autoClock=0,salvageReason='';
 const encounter=createEncounter();
 const keys=new Set();
@@ -374,7 +374,7 @@ async function start(){
   installCursors();const reticle=createReticle();
   if(window.debugGame)window.game={world,get state(){return state;}};
   orbit=createOrbitView({onReturn:()=>{notify(recallShip(state).reason);orbit.close();},onClose:()=>{keys.clear();canvas.focus({preventScroll:true});}});
-  research=createResearchView({onResearch:id=>notify(selectResearch(state,id).reason),onClose:()=>{keys.clear();canvas.focus({preventScroll:true});}});
+  research=createResearchView({onResearch:id=>notify(unlockResearch(state,id).reason),onClose:()=>{keys.clear();canvas.focus({preventScroll:true});}});
   canvas.addEventListener('pointermove',e=>{pointerIn=true;aimClient={x:e.clientX,y:e.clientY};reticle.move(e.clientX,e.clientY);ui.moveTip(e.clientX,e.clientY);point(e);});
   canvas.addEventListener('pointerenter',()=>{pointerIn=true;});
   canvas.addEventListener('pointerleave',()=>{pointerIn=false;if(beltPath||paintPath||erasing)return;hover=null;world.clearGhost();});
@@ -446,7 +446,8 @@ async function start(){
    world.update(state,dt,interpolatePose(previousPose,state.player,accumulator/(1/30)),encounter,hunt);uiClock+=dt;autoClock+=dt;
    const cursor=cursorMode();if(canvas.dataset.cursor!==cursor)canvas.dataset.cursor=cursor;world.setLogistics(showLogistics());world.setZones(selectedType==='mine'||!!ui?.robotsOpen?.());world.setPorts(selectedType==='conveyor');
    reticle.update(cursor==='none'&&pointerIn?reticleState():null,dt);
-   if(state.ship.status!==shipStatus){if(state.ship.status==='orbit'&&shipStatus==='ascent'){notify(`Satellites deployed. ${state.satellites} in orbit.`);orbit.show();}if(state.ship.status==='pad'&&shipStatus==='descent')notify('The Starship is back on the pad.');shipStatus=state.ship.status;}
+   if(state.ship.status==='ascent')shipCargo=state.ship.payload;
+   if(state.ship.status!==shipStatus){if(state.ship.status==='orbit'&&shipStatus==='ascent'){notify(`Satellite${shipCargo>1?'s':''} deployed · +${shipCargo*SATELLITE_POINTS} research points (T).`);orbit.show();}if(state.ship.status==='pad'&&shipStatus==='descent')notify('The Starship is back on the pad.');shipStatus=state.ship.status;}
    if((state.goo?.breaches??0)>breaches){breaches=state.goo.breaches;notify('Containment breach! The goo vat lost power.');ui.say('The vat has breached. Goo is spreading through the base and something hatched. Flares burn both: press X for flares, then click with them in hand to throw.');}
    orbit.update(state,dt);research.update(state);
    if(ui.crateId!=null){const b=state.buildings.find(o=>o.id===ui.crateId);if(!b||state.player.cave!=null||crateDistance(state,b)>3.6)ui.closeStore();}

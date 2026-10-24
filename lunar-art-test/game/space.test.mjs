@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { payInFull, createState, placeBlueprint, tick, serialize, deserialize, interact, validatePlacement, construct } from './sim.js';
 import { ensureLifeState, startCraft, STATIONS } from './life.js';
 import { ensureBuildingState, FAB, KIT } from './production.js';
-import { LAUNCH, TECHS, holdLaunch, loadSatellite, recallShip, selectResearch, shipAction } from './space.js';
+import { LAUNCH, SATELLITE_POINTS, TECHS, holdLaunch, loadSatellite, recallShip, restoreResearch, shipAction, unlockResearch } from './space.js';
 import { count, createInventory } from './inventory.js';
 
 function build(state, type, x, z, rotation = 0) {
@@ -83,12 +83,16 @@ test('electrolysers fuel the ship through a pad-side tank, then it launches, orb
   assert.equal(s.ship.status, 'pad');
 });
 
-test('satellites earn research that unlocks the robot bay, which assembles robots by itself', () => {
+test('each deployed satellite earns points once, spent to unlock the robot bay, which assembles robots by itself', () => {
   const s = colony();
-  s.satellites = 2;
-  run(s, TECHS.roverbay.cost / 8 * 60 + 2, 1 / 4);
-  assert.deepEqual(s.research.done, ['roverbay']);
-  assert.equal(selectResearch(s, 'roverbay').ok, false);
+  Object.assign(s.ship, { status: 'ascent', t: 0, payload: 2, fuel: 0 });
+  run(s, LAUNCH.ascent + 1, 1 / 4);
+  assert.equal(s.satellites, 2); assert.equal(s.research.bank, 2 * SATELLITE_POINTS);
+  run(s, 60, 1 / 4);
+  assert.equal(s.research.bank, 2 * SATELLITE_POINTS, 'satellites in orbit earn nothing more');
+  assert.equal(unlockResearch(s, 'roverbay').ok, true);
+  assert.deepEqual(s.research.done, ['roverbay']); assert.equal(s.research.bank, 2 * SATELLITE_POINTS - TECHS.roverbay.cost);
+  assert.equal(unlockResearch(s, 'roverbay').ok, false);
   const bay = build(s, 'roverbay', -4, 1); ensureLifeState(bay);
   assert.equal(startCraft(s, bay, 'miner').ok, true);
   assert.equal(s.robots.filter(r => r.kind === 'miner').length, 1, 'assembled over time');
@@ -104,4 +108,9 @@ test('robots are built from the menu within the colony limit; haulers need a doc
   assert.match(validatePlacement(s, 'hauler', 3, 5).reason, /robot dock first/);
   for (let i = 0; i < 3; i++) assert.equal(placeBlueprint(s, 'rover', 3 + i, 5).ok, true);
   assert.match(validatePlacement(s, 'rover', 7, 5).reason, /can run 4 mining rovers/, 'pads count toward the limit');
+});
+
+test('older saves that researched gradually get their unfinished progress back as points', () => {
+  const r = restoreResearch({ bank: 3, selected: 'soy', progress: { hydroponics: 14, soy: 6 }, done: ['hydroponics'] });
+  assert.deepEqual(r, { bank: 9, done: ['hydroponics'] });
 });

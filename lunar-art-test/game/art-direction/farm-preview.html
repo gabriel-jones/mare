@@ -6,7 +6,7 @@ import{createUI}from'../ui.js';import{createResearchView}from'../research-view.j
 const params=new URLSearchParams(location.search),state=createState();
 state.time=25;state.player.facing=Math.PI;state.player.animation='idle';
 state.research.done.push('hydroponics','soy','tomato','mycology','processing','vertical','wheat','medicine');
-state.research.selected='algae';state.research.progress={algae:4};state.research.bank=3;
+state.research.bank=9;
 const layout=[];
 for(let x=-7;x<=-5;x++)for(const z of [1,2])layout.push(['habitat',x,z,0]);
 for(let x=-4;x<=-1;x++)for(const z of [1,2,3])layout.push(['greenhouse',x,z,0]);

@@ -6,7 +6,7 @@ import { count, createInventory, add, remove, room as space } from './inventory.
 import { ensureBuildingState } from './production.js';
 import { LIFE, ensureLifeState, eat, hunger, lifeAction, roomStatus, setCrop, startCraft, growBeds, bedOf } from './life.js';
 import { BUFFS, CROPS, GALLEY, MILL, RECIPES as DISHES, recipeKnown } from './farm.js';
-import { TECHS, selectResearch } from './space.js';
+import { TECHS, unlockResearch } from './space.js';
 import { buildingStatus } from './building-status.js';
 
 function build(state, type, x, z, rotation = 0) {
@@ -68,10 +68,12 @@ test('a grow bed uses water and power to ripen potatoes that the player harvests
 
 test('research is a tree; farm machines and crops wait for theirs', () => {
   const s = base();
-  assert.match(selectResearch(s, 'soy').reason, /Hydroponics first/);
+  assert.match(unlockResearch(s, 'soy').reason, /Hydroponics first/);
   assert.match(placeBlueprint(s, 'hydrorack', 2, 0).reason, /research Hydroponics/);
   s.research.done.push('hydroponics');
-  assert.equal(selectResearch(s, 'soy').ok, true);
+  assert.match(unlockResearch(s, 'soy').reason, /Needs 10 more research points/);
+  s.research.bank = TECHS.soy.cost;
+  assert.equal(unlockResearch(s, 'soy').ok, true); assert.equal(s.research.bank, 0);
   const rack = build(s, 'hydrorack', 2, 0);
   assert.equal(rack.crop, 'soy', 'a rack defaults to its first crop');
   assert.equal(lifeAction(s, rack), null, 'with none researched it has nothing to switch to');
