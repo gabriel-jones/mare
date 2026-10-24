@@ -12,6 +12,7 @@ import { restoreDelve } from './delve.js';
 import { restorePeril } from './peril.js';
 import { restoreInfest } from './infest.js';
 import { GOO, ensureVat, gooDemand, restoreGoo, stepGoo, useVat } from './goo.js';
+import { BIO, THERMAL, ensurePower, steadyGeneration, stepFuelCells, thermalCapacity } from './power.js';
 import { haulerDemand, restoreHauler, stepHaulers } from './hauler.js';
 import { createMission, processorUnlocked, restoreMission, stepMission } from './mission.js';
 import { available, baseCount, BASE_REACH, canReceive, crates, emptyCrate, inReach, pay, receive, stash, takeSlot } from './storage.js';
@@ -29,7 +30,7 @@ export function createState(seed = 1847) {
 }
 const validRotation = r => Number.isInteger(r) && r >= 0 && r <= 3;
 const finite = n => typeof n === 'number' && Number.isFinite(n);
-const ensureState = b => ensureVat(ensureLifeState(ensureBuildingState(b)));
+const ensureState = b => ensurePower(ensureVat(ensureLifeState(ensureBuildingState(b))));
 /** Floor squares and everything standing on or beside them, by cell. */
 function occupancy(buildings) {
   const floor = new Map(), top = new Map();
@@ -221,6 +222,7 @@ export function deconstruct(state, id) {
   for (const q of b.queue ?? []) if (b.type === 'galley') for (const [item, n] of Object.entries(DISHES[q].input)) give(item, n); else give(q, 1);
   if (isGrower(b) && b.grow >= 1) give(b.crop, CROPS[b.crop].yield);
   if (b.type === 'goovat') give('goo', Math.floor(b.stock ?? 0) + (b.seeded ? 1 : 0));
+  if (b.type === 'bioreactor') give('goo', Math.floor(b.stock ?? 0));
   const lost = receive(state, contents, b);
   state.buildings.splice(index, 1);
   return { ok: true, reason: `${DEFS[b.type].name} dismantled; materials returned${lost ? `, but ${lost} item${lost > 1 ? 's' : ''} didn't fit and were lost` : ''}.` };
@@ -251,7 +253,7 @@ export function interact(state, id) {
   }
   if (b.type === 'dock' || b.type === 'roverbay') return buildRobot(state, id);
   if (b.type === 'xenolab') return studyFinds(state, id);
-  if (b.type === 'goovat') return useVat(state, b);
+  if (b.type === 'goovat' || b.type === 'bioreactor') return useVat(state, b);
   return useLife(state, b);
 }
 /** Turns an existing belt (blueprint or finished) to face `rotation`; items on it are kept. */
@@ -302,7 +304,7 @@ export function tick(state, dt) {
   if (dt > 0) { stepProduction(state, dt, powered); stepHaulers(state, dt, powered, robotTopology(state)); stepSpace(state, dt, powered); stepLife(state, dt, powered); stepGoo(state, dt, powered); }
   stepMission(state);
   const daylight = daylightAt(state.time);
-  let generation = 0, demand = productionDemand(state) + spaceDemand(state) + haulerDemand(state) + lifeDemand(state, roomStatus(state)) + gooDemand(state), capacity = 0;
+  let generation = steadyGeneration(state), demand = productionDemand(state) + spaceDemand(state) + haulerDemand(state) + lifeDemand(state, roomStatus(state)) + gooDemand(state), capacity = thermalCapacity(state);
   for (const b of state.buildings) {
     if (!b.built) continue;
     if (b.type === 'solar') generation += 8 * daylight;
@@ -310,10 +312,12 @@ export function tick(state, dt) {
     if (b.type === 'battery') capacity += 180;
   }
   const previous = Math.min(capacity, Math.max(0, state.power.stored));
+  const fuel = stepFuelCells(state, dt, { generation, demand, stored: previous, capacity });
+  generation += fuel;
   const net = generation - demand;
   const stored = Math.min(capacity, Math.max(0, previous + net * dt));
   const supplied = generation >= demand ? demand : Math.min(demand, generation + (dt > 0 ? previous / dt : (previous > 0 ? demand : 0)));
-  state.power = { generation, demand, stored, capacity, supplied, powered: supplied + 1e-8 >= demand };
+  state.power = { generation, demand, stored, capacity, supplied, ...(fuel ? { fuel } : {}), powered: supplied + 1e-8 >= demand };
 }
 export function serialize(state) { return JSON.stringify(state); }
 
@@ -340,7 +344,7 @@ function restoreBuilding(raw) {
       return { type: item.type, p: item.p };
     });
   }
-  const limits = { hopper: [DEFS.hopper.capacity, ['regolith', 'ice']], processor: [PROCESSOR_INPUT_CAP, ['regolith']], melter: [MELT.cap, ['ice']] }[b.type];
+  const limits = { hopper: [DEFS.hopper.capacity, ['regolith', 'ice']], processor: [PROCESSOR_INPUT_CAP, ['regolith']], melter: [MELT.cap, ['ice']], thermal: [THERMAL.cap, ['regolith']] }[b.type];
   if (limits && raw.inv != null) {
     b.inv = {};
     // Ice arrived with save version 4 and satellite parts with 6; older stores simply hold none.
@@ -374,6 +378,8 @@ function restoreBuilding(raw) {
   }
   if (b.type === 'recycler') check('work', v => count(v, 1));
   if (b.type === 'goovat') { check('seeded', v => typeof v === 'boolean'); check('stock', v => count(v, GOO.cap)); check('work', v => count(v, 1)); check('dark', v => count(v, GOO.breachAfter)); }
+  if (b.type === 'fuelcell') check('on', v => typeof v === 'boolean');
+  if (b.type === 'bioreactor') { check('fed', v => typeof v === 'boolean'); check('stock', v => wholeCount(v, BIO.cap)); check('burn', v => count(v, 1)); check('starve', v => count(v, BIO.starveAfter)); }
   if (b.type === 'fabricator' || b.type === 'assembler') {
     const [stock, out] = b.type === 'fabricator' ? [{ metal: FAB.stock, silicon: FAB.stock }, { frame: FAB.out, wing: FAB.out, chip: FAB.out }] : [ASSEMBLY.stock, { satellite: ASSEMBLY.out }];
     for (const [field, caps] of [['inv', stock], ['out', out]]) {

@@ -1,3 +1,4 @@
+import { fuelBurning } from './power.js';
 import { CELL_SIZE, DEFS, PARTS, footprint } from './defs.js';
 import { RECIPES, createRover } from './production.js';
 import * as inv from './inventory.js';
@@ -54,7 +55,8 @@ export const touchesPad = b => footprint(b.type, b.x, b.z, b.rotation).some(padR
 export const shipOnPad = state => state.ship.status === 'pad';
 export const launchReady = state => shipOnPad(state) && state.ship.payload >= 1 && state.ship.fuel >= LAUNCH.fuel;
 const tanks = state => state.buildings.filter(b => b.type === 'tank' && b.built);
-export const electrolyserReady = (state, b) => b.built && state.reserves.water > ELECTROLYSIS.waterFloor && tanks(state).some(t => t.fuel < DEFS.tank.capacity);
+// Electrolysers stand down while fuel cells burn, or the two would trade propellant back and forth at a loss.
+export const electrolyserReady = (state, b) => b.built && !fuelBurning(state) && state.reserves.water > ELECTROLYSIS.waterFloor && tanks(state).some(t => t.fuel < DEFS.tank.capacity);
 
 export function spaceDemand(state) {
   return state.buildings.filter(b => b.type === 'electrolyser' && electrolyserReady(state, b)).length * ELECTROLYSIS.power;

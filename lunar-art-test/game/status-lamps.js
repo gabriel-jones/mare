@@ -12,11 +12,11 @@ export const WORK_LIGHTS = Object.freeze({
   habitat: '#ffb45c', airlock: '#ffb45c', galley: '#ff9440', armory: '#ff6a4a',
   greenhouse: '#ff4fb8', growbed: '#ff4fb8', hydrorack: '#e04dff', verticalfarm: '#ff4fb8', mushroomtray: '#8f6bff',
   goovat: '#b45cff', xenolab: '#9a5cff', reactor: '#21e6ff', electrolyser: '#38c6ff', melter: '#3fa8ff', recycler: '#4fd0e8',
-  tank: '#6fb8ff', solar: '#4b74ff', battery: '#5d63ff',
+  tank: '#6fb8ff', solar: '#4b74ff', battery: '#5d63ff', fuelcell: '#7ff0ff', rtg: '#c8ff4a', thermal: '#ff6a2a', bioreactor: '#c04dff',
   mill: '#ff8a1e', processor: '#ff7a1a', hopper: '#ff9a3a', roverbay: '#ff8c3a',
   fabricator: '#ffc04a', assembler: '#ffd66a', storage: '#d9a45a', dock: '#ff5a3a',
 });
-const FLUIDS = { water: '#7fd6ff', regolith: '#d0a466', fuel: '#c9f2ff' };
+const FLUIDS = { water: '#7fd6ff', regolith: '#d0a466', fuel: '#c9f2ff', goo: '#7b3cff' };
 const base = name => name.replace(/\.?\d{3}$/, '');
 
 /** Brightness 0–1 of a lamp level at time `t`: steady, slow pulse, hard blink or dark. */

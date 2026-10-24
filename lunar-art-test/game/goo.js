@@ -4,6 +4,7 @@ import * as inv from './inventory.js';
 import { CRAWLER, createCrawler, stepCrawler, hurtCrawler } from './crawler.js';
 import { INFEST, liveNests, nestMouth } from './infest.js';
 import { techDone } from './space.js';
+import { BIO } from './power.js';
 
 /**
  * The crawlers' black goo, brought home. A sample scraped from a live nest (which wakes the brood) seeds a goo vat
@@ -34,14 +35,22 @@ export function ensureVat(b) {
 }
 export const gooDemand = state => state.buildings.filter(b => b.type === 'goovat' && b.built && b.seeded).length * GOO.power;
 
-/** What E at a vat would do, or null. */
+/** What E at a vat or bioreactor would do, or null. */
 export function vatAction(state, b) {
+  if (b.type === 'bioreactor' && b.built) return b.stock < BIO.cap && inv.count(state.inventory, 'goo') ? { verb: b.fed ? 'Feed the bioreactor black goo' : 'Seed the bioreactor with black goo' } : null;
   if (b.type !== 'goovat' || !b.built) return null;
   if (b.stock >= 1) return { verb: `Take ${Math.floor(b.stock)} black goo` };
   if (!b.seeded && inv.count(state.inventory, 'goo')) return { verb: 'Seed the vat with black goo' };
   return null;
 }
 export function useVat(state, b) {
+  if (b.type === 'bioreactor') {
+    const n = Math.min(BIO.cap - b.stock, inv.count(state.inventory, 'goo'));
+    if (n < 1) return { ok: false, reason: b.stock >= BIO.cap ? 'The bioreactor is full.' : 'Bring black goo: culture it in a vat.' };
+    inv.remove(state.inventory, 'goo', n);
+    Object.assign(b, { fed: true, stock: b.stock + n, starve: 0 });
+    return { ok: true, reason: `Fed ${n} black goo. Keep it fed: a starving culture breaches.` };
+  }
   if (b.stock >= 1) {
     const n = Math.min(Math.floor(b.stock), inv.room(state.inventory, 'goo'));
     if (!n) return { ok: false, reason: 'No room in your inventory.' };
@@ -76,7 +85,7 @@ export function takeSample(state) {
 }
 
 function breach(state, b, rng) {
-  Object.assign(b, { seeded: false, stock: 0, work: 0, dark: 0 });
+  Object.assign(b, b.type === 'bioreactor' ? { fed: false, stock: 0, burn: 0, starve: 0 } : { seeded: false, stock: 0, work: 0, dark: 0 });
   state.goo ??= { cells: [], clock: GOO.spreadEvery, breaches: 0 };
   state.goo.breaches++;
   for (const c of footprint(b.type, b.x, b.z, b.rotation)) if (!gooAt(state, c.x, c.z)) state.goo.cells.push([c.x, c.z]);
@@ -95,9 +104,14 @@ function spread(state, rng) {
   if (options.length) cells.push(options[Math.floor(rng() * options.length)]);
 }
 
-/** Vats culture or breach; goo spreads; scraped nests heal. Runs inside the sim tick. */
+/** Vats culture or breach; bioreactors digest or starve; goo spreads; scraped nests heal. Runs inside the sim tick. */
 export function stepGoo(state, dt, powered, rng = Math.random) {
   for (const b of state.buildings) {
+    if (b.type === 'bioreactor' && b.built && b.fed) {
+      if (b.stock > 0) { b.starve = 0; if ((b.burn += dt / BIO.burn) >= 1) { b.burn = 0; b.stock -= 1; } }
+      else if ((b.starve += dt) >= BIO.starveAfter) breach(state, b, rng);
+      continue;
+    }
     if (b.type !== 'goovat' || !b.built || !b.seeded) continue;
     if (powered) {
       b.dark = 0;

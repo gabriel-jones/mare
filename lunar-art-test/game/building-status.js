@@ -6,6 +6,7 @@ import { processorReady, melterReady, fabricatorReady, assemblerReady, currentPa
 import { LIFE, roomStatus, readyCount } from './life.js';
 import { CROPS, MILL, isGrower } from './farm.js';
 import { GOO, gooOn } from './goo.js';
+import { BIO, FUELCELL, RTG_POWER, THERMAL } from './power.js';
 
 const roomCache={state:null,time:-1,result:null};
 function roomsOf(state){
@@ -28,6 +29,24 @@ export function buildingStatus(building,state){
   return {text:`Charge ${Math.round(charge*100)}%`,read:`${Math.round(state.power.stored)} / ${Math.round(state.power.capacity)} KJ`,tone:charge<=.15?'low':'charge',fill:charge,...(state.power.generation>state.power.demand&&charge<1?{glyph:'charging'}:{})};
  }
  if(building.type==='reactor')return {text:`${REACTOR_POWER} kW`,read:`RESONANCE STABLE · ${REACTOR_POWER} KW`,tone:'charge',fill:1};
+ if(building.type==='rtg')return {text:`${RTG_POWER} kW`,read:`ISOTOPE DECAY · ${RTG_POWER} KW`,tone:'charge',fill:1};
+ if(building.type==='fuelcell'){
+  const tanks=state.buildings.filter(b=>b.built&&b.type==='tank'),fuel=tanks.reduce((s,t)=>s+(t.fuel??0),0),fill=tanks.length?fuel/(tanks.length*DEFS.tank.capacity):0;
+  if(!tanks.length)return {text:'Needs a tank',read:'BUILD A PROPELLANT TANK',tone:'warning'};
+  if(fuel<.5)return {text:'No propellant',read:'RUN AN ELECTROLYSER BY DAY',tone:'warning',glyph:'power'};
+  if(building.on)return {text:`${(state.power.fuel??0).toFixed(1)} kW`,read:`BURNING PROPELLANT · ${Math.floor(fuel)} LEFT`,tone:'charge',fill};
+  return {text:'Standby',read:`PROPELLANT ${Math.floor(fuel)} · STARTS AT ${Math.round(FUELCELL.reserve*100)}% BATTERY`,tone:'inactive',fill};
+ }
+ if(building.type==='thermal'){
+  const r=Math.floor(building.inv?.regolith??0);
+  if(!r)return {text:'Needs regolith',read:'ROVERS OR A BELT FILL IT',tone:'inactive'};
+  return {text:`${r*THERMAL.perLoad} kJ`,read:`REGOLITH ${r} / ${THERMAL.cap} · HOLDS ${r*THERMAL.perLoad} KJ`,tone:'charge',fill:r/THERMAL.cap};
+ }
+ if(building.type==='bioreactor'){
+  if(!building.fed)return {text:'Unfed',read:'PRESS E WITH BLACK GOO',tone:'inactive'};
+  if(building.stock<1)return {text:`Breach in ${Math.ceil(BIO.starveAfter-building.starve)}s`,read:'CULTURE STARVING · FEED IT GOO',tone:'warning'};
+  return {text:`${BIO.power} kW`,read:`DIGESTING · GOO ${building.stock} / ${BIO.cap}${building.stock<=1?' · FEED SOON':''}`,tone:building.stock<=1?'low':'charge',fill:building.stock/BIO.cap};
+ }
  if(building.type==='xenolab')return {text:'Studying',read:`RESEARCH BANK ${Math.floor(state.research.bank)} PTS`,tone:'inactive'};
  if(building.type==='hopper'){
   const ice=Math.floor(building.inv?.ice??0),regolith=Math.floor(building.inv?.regolith??0),amount=total(building.inv),cap=DEFS.hopper.capacity;

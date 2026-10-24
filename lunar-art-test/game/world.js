@@ -26,6 +26,7 @@ import { createFlareView } from './flare-view.js';
 import { createGooView } from './goo-view.js';
 import { FLARE } from './peril.js';
 import { GOO } from './goo.js';
+import { BIO, THERMAL } from './power.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createLightBudget, createAdaptiveResolution, trimShadows } from './render-budget.js';
 import { createConstructionFx } from './construction-fx.js';
@@ -52,7 +53,7 @@ export async function createWorld(canvas, initialState) {
   renderer.toneMapping=THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure=1.12;
   const loader=new GLTFLoader();
-  const assetNames=['starship','launchpad','solar','battery','hopper','habitat-kit','conveyor','conveyor-corner','processor','storage','growbed','hydrorack','verticalfarm','mushroomtray','mill','goovat','armory','galley','recycler','melter','fabricator','assembler','electrolyser','tank','dock','roverbay','xenolab','reactor','lander','rover','hauler','rock-a','rock-b','rock-c','cave-mouth'];
+  const assetNames=['starship','launchpad','solar','battery','hopper','habitat-kit','conveyor','conveyor-corner','processor','storage','growbed','hydrorack','verticalfarm','mushroomtray','mill','goovat','armory','galley','recycler','melter','fabricator','assembler','electrolyser','tank','dock','roverbay','xenolab','reactor','fuelcell','thermal','rtg','bioreactor','lander','rover','hauler','rock-a','rock-b','rock-c','cave-mouth'];
   const [loaded,itemModels]=await Promise.all([
     Promise.all(assetNames.map(name=>loader.loadAsync(`./assets/${name}.glb`).then(g=>[name,g.scene]).catch(e=>{console.error('Asset failed:',name,e);return [name,null];}))),
     loadItemLibrary(loader),
@@ -130,6 +131,9 @@ export async function createWorld(canvas, initialState) {
     if(b.type==='battery')o.lamp.cells(b.built?status?.fill??0:0,level);
     if(b.type==='melter')o.lamp.fill(b.built?(b.inv?.ice??0)/MELT.cap:0,'water');
     if(b.type==='tank')o.lamp.fill(b.built?(b.fuel??0)/DEFS.tank.capacity:0,'fuel');
+    if(b.type==='fuelcell')o.lamp.fill(b.built?state.buildings.reduce((s,t)=>s+(t.built&&t.type==='tank'?t.fuel??0:0),0)/Math.max(1,state.buildings.filter(t=>t.built&&t.type==='tank').length*DEFS.tank.capacity):0,'fuel');
+    if(b.type==='thermal')o.lamp.fill(b.built?(b.inv?.regolith??0)/THERMAL.cap:0,'regolith');
+    if(b.type==='bioreactor')o.lamp.fill(b.built?(b.stock-(b.stock>0?b.burn:0))/BIO.cap:0,'goo');
     if(b.type==='hopper')o.lamp.fill(b.built?total(b.inv)/DEFS.hopper.capacity:0,(b.inv?.ice??0)>(b.inv?.regolith??0)?'water':'regolith');
   }
   const GLYPHS={

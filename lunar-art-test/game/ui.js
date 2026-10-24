@@ -22,7 +22,7 @@ const TOOLS = {
   dismantle: { name: 'Dismantle', key: 'z', description: 'Click or drag over structures and blueprints to take them down. Materials are returned.' },
 };
 // Palette sections, in menu order.
-const GROUPS = [['Power & industry', ['solar', 'battery', 'hopper', 'conveyor', 'processor', 'melter', 'storage']], ['Rooms', ['habitat', 'greenhouse', 'airlock']], ['Fittings', ['growbed', 'hydrorack', 'verticalfarm', 'mushroomtray', 'galley', 'mill', 'armory', 'recycler']], ['Space', ['fabricator', 'assembler', 'electrolyser', 'tank', 'dock', 'roverbay']], ['Deep', ['xenolab', 'reactor', 'goovat']], ['Tools', ['mine', 'dismantle']]];
+const GROUPS = [['Power & industry', ['solar', 'battery', 'rtg', 'fuelcell', 'thermal', 'hopper', 'conveyor', 'processor', 'melter', 'storage']], ['Rooms', ['habitat', 'greenhouse', 'airlock']], ['Fittings', ['growbed', 'hydrorack', 'verticalfarm', 'mushroomtray', 'galley', 'mill', 'armory', 'recycler']], ['Space', ['fabricator', 'assembler', 'electrolyser', 'tank', 'dock', 'roverbay']], ['Deep', ['xenolab', 'reactor', 'goovat', 'bioreactor']], ['Tools', ['mine', 'dismantle']]];
 const svg = (paths, width = 1.5) => `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
 const number = (value) => Math.round(Number(value) || 0).toLocaleString();
 const costText = def => def.cost ? Object.entries(def.cost).map(([item, n]) => `${n} ${ITEM_INFO[item]?.name.toLowerCase() ?? item}`).join(', ') : 'Free';

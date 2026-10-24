@@ -1,3 +1,4 @@
+import { THERMAL } from './power.js';
 import { CELL_SIZE, DEFS, DIRS, PARTS, footprint, ports } from './defs.js';
 import { findPath, robotBlockedCells, cellPassable } from './paths.js';
 import * as inv from './inventory.js';
@@ -101,6 +102,7 @@ function machineAccept(b, item) {
   if (b.type === 'storage') return inv.add(b.slots, item, 1) === 0;
   if (b.type === 'processor' && item === 'regolith' && b.inv.regolith < PROCESSOR_INPUT_CAP) { b.inv.regolith += 1; return true; }
   if (b.type === 'melter' && item === 'ice' && b.inv.ice < MELT.cap) { b.inv.ice += 1; return true; }
+  if (b.type === 'thermal' && item === 'regolith' && b.inv.regolith < THERMAL.cap) { b.inv.regolith += 1; return true; }
   if ((b.type === 'fabricator' || b.type === 'assembler') && machineRoom(b, item) >= 1) { b.inv[item] += 1; return true; }
   return false;
 }
@@ -237,6 +239,7 @@ export function dockingCells(state, hopper, occupied, blocked) {
 }
 /** Room left in `dock` for the rover's load: regolith goes to hoppers, ice straight into melters. */
 export function dockSpace(dock, load = 'regolith') {
+  if (dock.type === 'thermal') return load === 'ice' ? 0 : THERMAL.cap - (dock.inv?.regolith ?? 0);
   if (dock.type === 'melter') return load === 'ice' ? MELT.cap - (dock.inv?.ice ?? 0) : 0;
   return load === 'ice' ? 0 : DEFS.hopper.capacity - total(dock.inv);
 }
@@ -288,10 +291,11 @@ const full = r => r.cargo > ROVER.capacity - 1;
 function chooseTask(state, r) {
   // A load nothing standing can take (regolith with no hopper left, say) is tipped out, or the rover
   // would sit on it forever, unable to start on a zone of the other material.
-  const takes = (r.load ?? 'regolith') === 'ice' ? 'melter' : 'hopper';
-  if (r.cargo > 0 && !state.buildings.some(b => b.built && b.type === takes)) { r.cargo = 0; r.load = null; }
-  const work = nearestMiningCell(state, r), loaded = r.cargo >= 1;
-  const hopper = nearestDock(state, r, loaded ? [r.load === 'ice' ? 'melter' : 'hopper'] : ['hopper', 'melter']);
+  const takes = (r.load ?? 'regolith') === 'ice' ? ['melter'] : ['hopper', 'thermal'];
+  if (r.cargo > 0 && !state.buildings.some(b => b.built && takes.includes(b.type))) { r.cargo = 0; r.load = null; }
+  const work = nearestMiningCell(state, r), loaded = r.cargo >= 1, types = loaded ? takes : ['hopper', 'melter', 'thermal'];
+  // A loaded rover heads for the nearest dock with room, and only queues at a full one when none has any.
+  const hopper = (loaded && nearestDock(state, r, b => types.includes(b.type) && dockSpace(b, r.load ?? 'regolith') >= 1)) || nearestDock(state, r, types);
   if (hopper && (full(r) || r.charge < ROVER.low || (r.cargo > 0 && !work) || (!work && r.charge < 1))) {
     r.task = 'toHopper'; r.target = { id: hopper.hopper.id, x: hopper.cell.x, z: hopper.cell.z };
   } else if (work && !full(r)) {
