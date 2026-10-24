@@ -55,10 +55,14 @@ export function terrainReason(seed,cells){
  }
  if(Math.max(...heights)-Math.min(...heights)>.38)return 'Ground is too uneven for this foundation.';return null;
 }
+// Walking is judged on the faceted ground you can see: crater walls and hill ramps are fine, only real cliffs stop you.
+// The field must agree, since the coarse facets can't follow the flattened approaches carved to cave mouths.
+const CLIFF=1.2;
+export function surfaceSlopeAt(seed,x,z,e=.35){return Math.hypot(surfaceHeightAt(seed,x+e,z)-surfaceHeightAt(seed,x-e,z),surfaceHeightAt(seed,x,z+e)-surfaceHeightAt(seed,x,z-e))/(2*e);}
 export function terrainBlocked(seed,x,z,buildings=[],defs={}){
  if(buildings.some(b=>{const d=defs[b.type];if(!d)return false;return x>=b.x*2-2&&x<=(b.x+(b.rotation%2?d.d:d.w))*2&&z>=b.z*2-2&&z<=(b.z+(b.rotation%2?d.w:d.d))*2;}))return false;
  const lander=missionSite().lander;
- return slopeAt(seed,x,z)>.65||Math.hypot(x-lander.x,z-lander.z)<lander.radius||terrainData(seed).boulders.some(b=>Math.hypot(x-b.x,z-b.z)<b.radius+.3);
+ return (surfaceSlopeAt(seed,x,z)>CLIFF&&slopeAt(seed,x,z)>.65)||Math.hypot(x-lander.x,z-lander.z)<lander.radius||terrainData(seed).boulders.some(b=>Math.hypot(x-b.x,z-b.z)<b.radius+.3);
 }
 
 // The visible ground is a faceted triangle lattice sampled from the continuous field above; placement checks keep

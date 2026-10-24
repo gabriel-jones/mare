@@ -29,10 +29,10 @@ export function movePlayer(state,dx,dz,dt,defs){
  const vx=p.vx??0,vz=p.vz??0,dvx=targetX-vx,dvz=targetZ-vz;
  const change=Math.hypot(dvx,dvz),limit=(len?45:54)*step,blend=change?Math.min(1,limit/change):1;
  p.vx=vx+dvx*blend;p.vz=vz+dvz*blend;
- const blocked=(x,z)=>{
+ const blocked=(x,z,ground=true)=>{
   if(p.cave!=null)return !caveWalkable(state.seed,p.cave,x,z,.3,p.zone??0)||silkBlocks(state,x,z,.3);
   if(Math.abs(x)>125||Math.abs(z)>125)return true;
-  if(terrainBlocked(state.seed,x,z,state.buildings,defs))return true;
+  if(ground&&terrainBlocked(state.seed,x,z,state.buildings,defs))return true;
   // Landing ship itself is solid; the rest of the pad is walkable.
   if(Math.hypot(x,z+10)<1.9)return true;
   if(wallBlocks(habitatLayout(state.buildings),x,z,PLAYER_RADIUS))return true;
@@ -42,9 +42,11 @@ export function movePlayer(state,dx,dz,dt,defs){
    if(x>b.x*2-1-r&&x<(b.x+w-1)*2+1+r&&z>b.z*2-1-r&&z<(b.z+h-1)*2+1+r)return true;
   }return false;
  };
- // Resolve axes separately, clearing blocked velocity rather than accumulating it.
- if(!blocked(p.x+p.vx*step,p.z))p.x+=p.vx*step;else p.vx=0;
- if(!blocked(p.x,p.z+p.vz*step))p.z+=p.vz*step;else p.vz=0;
+ // Resolve axes separately, clearing blocked velocity rather than accumulating it. Someone already standing on
+ // ground too steep to walk ignores the ground until they're off it, so a cliff edge can never trap them.
+ const ground=p.cave!=null||!terrainBlocked(state.seed,p.x,p.z,state.buildings,defs);
+ if(!blocked(p.x+p.vx*step,p.z,ground))p.x+=p.vx*step;else p.vx=0;
+ if(!blocked(p.x,p.z+p.vz*step,ground))p.z+=p.vz*step;else p.vz=0;
  p.speed=Math.hypot(p.vx,p.vz);
  if(!Number.isFinite(p.facing))p.facing=Math.PI;
  if(len&&p.speed>.02){

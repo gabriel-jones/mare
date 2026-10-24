@@ -479,7 +479,7 @@ export async function createWorld(canvas, initialState) {
     expedition.update(state,dt);updateEncounter(dt,underground);
     lampClock+=dt;lamps.update(lampClock,daylight);
     updateLights(daylight);
-    productionView.update(state,dt,daylight);for(const [id,view] of productionView.rovers)if(view.display)groundMarks.drive(state.seed,id,view.display.x,view.display.z,.73);buildFx.update(dt);portLinks.update(state,structures,dt,state.time);groundPads.update(state,b=>{const def=DEFS[b.type],w=b.rotation%2?def.d:def.w,d=b.rotation%2?def.w:def.d;return heightAt(state.seed,(b.x+(w-1)/2)*2,(b.z+(d-1)/2)*2);});
+    productionView.update(state,dt,daylight);for(const [id,view] of productionView.rovers)if(view.display)groundMarks.drive(state.seed,id,view.display.x,view.display.z,.73);groundMarks.update();buildFx.update(dt);portLinks.update(state,structures,dt,state.time);groundPads.update(state,b=>{const def=DEFS[b.type],w=b.rotation%2?def.d:def.w,d=b.rotation%2?def.w:def.d;return heightAt(state.seed,(b.x+(w-1)/2)*2,(b.z+(d-1)/2)*2);});
     updateShip(dt);
     follow.set(player.position.x,player.position.y+1.05,player.position.z);
     if(hunting&&combat.shake){follow.x+=(Math.random()-.5)*combat.shake;follow.z+=(Math.random()-.5)*combat.shake;}
