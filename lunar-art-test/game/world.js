@@ -28,6 +28,7 @@ import { FLARE } from './peril.js';
 import { GOO } from './goo.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createLightBudget, createAdaptiveResolution, trimShadows } from './render-budget.js';
+import { createConstructionFx } from './construction-fx.js';
 
 // Presentation only: the simulation owns all positions, resources, and time.
 /** Where each grower shows its ripe crop: [x, y, z, size] in the model's space. */
@@ -40,7 +41,7 @@ const RIPE_SPOTS={
 export async function createWorld(canvas, initialState) {
   const renderer = new THREE.WebGLRenderer({canvas,antialias:true,alpha:false});
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
-  renderer.shadowMap.enabled=true;
+  renderer.shadowMap.enabled=true;renderer.localClippingEnabled=true;
   renderer.shadowMap.type=THREE.PCFSoftShadowMap;
   renderer.toneMapping=THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure=1.12;
@@ -304,6 +305,7 @@ export async function createWorld(canvas, initialState) {
     } else box(root,ivory,0,.75,0,w-.4,1.3,d-.4);
     return {root,roof,emits};
   }
+  const buildFx=createConstructionFx(scene,{make:o=>buildModel(o.type,o.turn).root});let booted=false;
   const blueprintColor=[new THREE.Color('#79d5ed'),new THREE.Color('#ff715d')],blueprintEmissive=[new THREE.Color('#2c8ca9'),new THREE.Color('#a3301f')];
   const ghost=new THREE.Group();scene.add(ghost);let ghostKey='';
   const ghostGood=new THREE.MeshBasicMaterial({color:'#8cddb9',transparent:true,opacity:.3,depthWrite:false}),ghostBad=new THREE.MeshBasicMaterial({color:'#ff715d',transparent:true,opacity:.35,depthWrite:false});materials.add(ghostGood);materials.add(ghostBad);
@@ -410,12 +412,12 @@ export async function createWorld(canvas, initialState) {
     actor?.update(hunting?combat.pose(state,renderPose,hunt,dt):renderPose,dt);
     if(hunting)combat.after(state,hunt,dt);
     if(canvas.dataset.animation!==renderPose.animation)canvas.dataset.animation=renderPose.animation||'idle';
-    const ids=new Set(state.buildings.map(b=>b.id));for(const [id,o] of structures)if(!ids.has(id)){scene.remove(o.root,o.ports);o.ownedMaterials?.forEach(m=>m.dispose());structures.delete(id);}
+    const ids=new Set(state.buildings.map(b=>b.id));for(const [id,o] of structures)if(!ids.has(id)){buildFx.clear(o);scene.remove(o.root,o.ports);o.ownedMaterials?.forEach(m=>m.dispose());structures.delete(id);}
     const turns=beltTurns(state),obstructs=b=>Math.hypot(b.x*2-state.player.x,b.z*2-state.player.z)<8&&playerObstructs(state,b);
     habitatView.update(state,dt,{player:renderPose,powered:state.power.powered!==false,obstructs});
     for(const b of state.buildings){
       let o=structures.get(b.id);const turn=b.type==='conveyor'?turns.get(b.id)??0:0;
-      if(o&&(o.type!==b.type||o.rotation!==b.rotation||o.turn!==turn)){scene.remove(o.root,o.ports);o.ownedMaterials.forEach(m=>m.dispose());structures.delete(b.id);o=null;}
+      if(o&&(o.type!==b.type||o.rotation!==b.rotation||o.turn!==turn)){buildFx.clear(o);scene.remove(o.root,o.ports);o.ownedMaterials.forEach(m=>m.dispose());structures.delete(b.id);o=null;}
       if(!o){o=buildModel(b.type,turn);o.type=b.type;o.rotation=b.rotation;o.turn=turn;o.ports=new THREE.Group();portArrows(o.ports,b);scene.add(o.ports);o.ownedMaterials=[];const clones=new Map();o.root.traverse(n=>{if(n.isMesh){n.castShadow=true;n.receiveShadow=true;const copy=m=>{if(!clones.has(m.uuid)){const c=m.clone();c.userData.baseEmission=c.emissiveIntensity;c.userData.baseColor=c.color.clone();c.userData.baseEmissive=c.emissive.clone();clones.set(m.uuid,c);o.ownedMaterials.push(c);}return clones.get(m.uuid);};n.material=Array.isArray(n.material)?n.material.map(copy):copy(n.material);}});o.statusHeight??=new THREE.Box3().setFromObject(o.root).max.y;o.lamp=lamps.attach(o.root);structures.set(b.id,o);scene.add(o.root);}
       o.root.visible=true;
       const def=DEFS[b.type],w=b.rotation%2?def.d:def.w,d=b.rotation%2?def.w:def.d;
@@ -434,9 +436,8 @@ export async function createWorld(canvas, initialState) {
       if(o.level&&b.type==='goovat')o.level.scale.y=Math.max(.02,b.seeded||b.stock?(Math.max(b.stock,.6)+b.work)/(GOO.cap+1):.02);
       // Blueprints turn red while the player stands where the finished structure would trap them.
       const blocked=!b.built&&!isRoom(b)&&obstructs(b);
-      if(o.built!==b.built||o.blocked!==blocked){o.ownedMaterials.forEach(m=>{m.transparent=!b.built;m.opacity=b.built?1:blocked?.6:.5;m.depthWrite=b.built;m.color.copy(b.built?m.userData.baseColor:blueprintColor[blocked?1:0]);m.emissive.copy(b.built?m.userData.baseEmissive:blueprintEmissive[blocked?1:0]);m.emissiveIntensity=b.built?m.userData.baseEmission:.85;});o.root.traverse(n=>{if(n.isMesh)n.castShadow=b.built;});o.built=b.built;o.blocked=blocked;}
-      if(!b.built)o.root.scale.y=.35+.65*(b.progress||0);
-      else o.root.scale.y=1;
+      if(o.built!==b.built||o.blocked!==blocked){o.ownedMaterials.forEach(m=>{m.transparent=!b.built;m.opacity=b.built?1:blocked?.6:.5;m.depthWrite=b.built;m.color.copy(b.built?m.userData.baseColor:blueprintColor[blocked?1:0]);m.emissive.copy(b.built?m.userData.baseEmissive:blueprintEmissive[blocked?1:0]);m.emissiveIntensity=b.built?m.userData.baseEmission:.85;});o.root.traverse(n=>{if(n.isMesh)n.castShadow=b.built;});if(b.built&&o.built===false)buildFx.finish(o);o.built=b.built;o.blocked=blocked;}
+      buildFx.track(o,b,dt,booted&&!o.seen);o.seen=true;
       // Screens, windows and work lamps on every finished structure run off the grid and go dark with it.
       const lit=state.power.powered!==false;
       if(b.built&&o.lit!==lit){o.ownedMaterials.forEach(m=>{m.emissiveIntensity=(m.userData.baseEmission||0)*(lit?1:0);});o.lit=lit;}
@@ -446,7 +447,7 @@ export async function createWorld(canvas, initialState) {
     expedition.update(state,dt);updateEncounter(dt,underground);
     lampClock+=dt;lamps.update(lampClock,daylight);
     updateLights(daylight);
-    productionView.update(state,dt,daylight);
+    productionView.update(state,dt,daylight);buildFx.update(dt);
     updateShip(dt);
     follow.set(player.position.x,player.position.y+1.05,player.position.z);
     if(hunting&&combat.shake){follow.x+=(Math.random()-.5)*combat.shake;follow.z+=(Math.random()-.5)*combat.shake;}
@@ -457,7 +458,7 @@ export async function createWorld(canvas, initialState) {
     headlamp.update();
     if((shadowClock+=dt)>.5){shadowClock=0;trimShadows(scene);}
     lightBudget.update(follow);resolution.update(dt);
-    renderer.render(scene,camera);canvas.dataset.pixelRatio=String(resolution.ratio);canvas.dataset.lights=String(lightBudget.lit);canvas.dataset.drawCalls=String(renderer.info.render.calls);canvas.dataset.triangles=String(renderer.info.render.triangles);
+    renderer.render(scene,camera);booted=true;canvas.dataset.pixelRatio=String(resolution.ratio);canvas.dataset.lights=String(lightBudget.lit);canvas.dataset.drawCalls=String(renderer.info.render.calls);canvas.dataset.triangles=String(renderer.info.render.triangles);
   }
   function caveViewFor(id,zone){
     const key=`${id}:${zone}`;let view=caveViews.get(key);if(view)return view;
@@ -467,7 +468,7 @@ export async function createWorld(canvas, initialState) {
     renderer.compileAsync(view.root,camera,scene).catch(()=>{});view.root.visible=false;
     caveViews.set(key,view);return view;
   }
-  function dispose(){disposed=true;headlamp.dispose();meetView?.dispose();gooView.dispose();broodViews.forEach(v=>v.dispose());surfaceFx.removeFromParent();lamps.dispose();caveViews.forEach(v=>v.dispose());vignette.remove();expedition.dispose();productionView.dispose();habitatView.dispose();statusLayer.remove();terrainView.dispose();grid.geometry.dispose();grid.material.dispose();combat?.dispose();actor?.dispose();reflection.dispose();canvas.removeEventListener('wheel',zoom);for(const o of structures.values()){o.ownedMaterials?.forEach(m=>m.dispose());scene.remove(o.ports);}geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());itemModels?.dispose();renderer.dispose();}
+  function dispose(){disposed=true;buildFx.dispose();headlamp.dispose();meetView?.dispose();gooView.dispose();broodViews.forEach(v=>v.dispose());surfaceFx.removeFromParent();lamps.dispose();caveViews.forEach(v=>v.dispose());vignette.remove();expedition.dispose();productionView.dispose();habitatView.dispose();statusLayer.remove();terrainView.dispose();grid.geometry.dispose();grid.material.dispose();combat?.dispose();actor?.dispose();reflection.dispose();canvas.removeEventListener('wheel',zoom);for(const o of structures.values()){o.ownedMaterials?.forEach(m=>m.dispose());scene.remove(o.ports);}geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());itemModels?.dispose();renderer.dispose();}
   resize();update(initialState,1);
   return {renderer,scene,camera,actor,update,pick,aim,setGhost,clearGhost,resize,dispose};
 }
