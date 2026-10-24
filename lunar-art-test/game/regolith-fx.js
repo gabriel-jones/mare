@@ -27,10 +27,10 @@ export function createRegolithFx(parent, max = 900) {
   }
 
   /** A fan of fine grains thrown up and outward around `dir` (x, z), landing on `floor`. */
-  function spray(x, y, z, dirX, dirZ, count, kind, floor, speed = 2.2) {
+  function spray(x, y, z, dirX, dirZ, count, kind, floor, speed = 2.2, lift = 1) {
     for (let i = 0; i < count; i++) {
       const a = Math.atan2(dirZ, dirX) + (Math.random() - .5) * 1.6, v = speed * (.5 + Math.random() * .7);
-      spawn(x + (Math.random() - .5) * .2, y, z + (Math.random() - .5) * .2, Math.cos(a) * v, 1.2 + Math.random() * 2.2, Math.sin(a) * v, .025 + Math.random() * .045, kind, { floor, life: 2.5 });
+      spawn(x + (Math.random() - .5) * .2, y, z + (Math.random() - .5) * .2, Math.cos(a) * v, (1.2 + Math.random() * 2.2) * lift, Math.sin(a) * v, .025 + Math.random() * .045, kind, { floor, life: 2.5 });
     }
   }
 

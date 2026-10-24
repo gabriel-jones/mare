@@ -252,6 +252,7 @@ export function createProductionView(scene, models, itemModels = null) {
   let time = 0;
   return {
     rovers,
+    regolith,
     update(state, dt, daylight) { time += dt; updateItems(state, time); updateRovers(state, dt, daylight); updateMining(state); regolith.update(dt); },
     dispose() { regolith.dispose(); scene.remove(root); Object.values(batches).forEach(b => b.dispose()); dashes.dispose(); digMesh?.geometry.dispose(); for (const p of plates.values()) { p.material.map.dispose(); p.material.dispose(); } geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); },
   };

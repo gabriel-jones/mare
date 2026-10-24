@@ -61,6 +61,24 @@ export function terrainBlocked(seed,x,z,buildings=[],defs={}){
  return slopeAt(seed,x,z)>.65||Math.hypot(x-lander.x,z-lander.z)<lander.radius||terrainData(seed).boulders.some(b=>Math.hypot(x-b.x,z-b.z)<b.radius+.3);
 }
 
-// Visual voxel shelves use broad four-metre cells. Physics retains the continuous
-// field above for stable slope checks; character grounding uses the shelf height.
-export function surfaceHeightAt(seed,x,z){const cx=Math.floor(x/4)*4+2,cz=Math.floor(z/4)*4+2,h=heightAt(seed,cx,cz),step=h>2?.75:.25;return Math.round(h/step)*step;}
+// The visible ground is a faceted triangle lattice sampled from the continuous field above; placement checks keep
+// using the field, while everything that stands on the ground uses the lattice so it sits exactly on the facets.
+// The spacing deliberately misses the 2 m build grid so facets never line up into squares.
+export const FACET=2.4;
+const lattices=new Map();
+const latticeHash=(seed,i,j)=>{let n=Math.imul(i,73856093)^Math.imul(j,19349663)^Math.imul(seed,83492791);n=Math.imul(n^(n>>>13),1274126177);return ((n^(n>>>16))>>>0)/4294967296;};
+/** Height of lattice vertex (i, j): the field plus a little deterministic jitter, none in the level starting clearing. */
+export function latticeHeight(seed,i,j){
+ let grid=lattices.get(seed);if(!grid)lattices.set(seed,grid=new Map());
+ const k=i*100003+j;let h=grid.get(k);
+ if(h===undefined){const x=i*FACET,z=j*FACET,calm=smooth(17,25,Math.hypot(x,z))*smooth(9,14,Math.hypot(x,z+10));h=heightAt(seed,x,z)+(latticeHash(seed,i,j)-.5)*.16*calm;grid.set(k,h);}
+ return h;
+}
+/** Which diagonal splits lattice square (i, j): alternating at random so the facets don't read as a grid. */
+export const facetFlip=(seed,i,j)=>latticeHash(seed+911,i,j)<.5;
+export function surfaceHeightAt(seed,x,z){
+ const fx=x/FACET,fz=z/FACET,i=Math.floor(fx),j=Math.floor(fz),u=fx-i,v=fz-j;
+ const h00=latticeHeight(seed,i,j),h10=latticeHeight(seed,i+1,j),h01=latticeHeight(seed,i,j+1),h11=latticeHeight(seed,i+1,j+1);
+ if(!facetFlip(seed,i,j))return u>=v?h00+u*(h10-h00)+v*(h11-h10):h00+v*(h01-h00)+u*(h11-h01);
+ return u+v<=1?h00+u*(h10-h00)+v*(h01-h00):h11+(1-u)*(h01-h11)+(1-v)*(h10-h11);
+}

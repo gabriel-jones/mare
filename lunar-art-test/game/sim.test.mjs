@@ -354,12 +354,15 @@ test('the reported trapped surface position becomes walkable without resetting a
  assert.ok(s.player.x>-46&&s.player.z>-36,'character moves away from the cliff');
 });
 
-test('voxel surface has stable broad shelves and preserves a level starting clearing',async()=>{
- const {surfaceHeightAt}=await import('./terrain.js');
- assert.equal(surfaceHeightAt(1847,0,8),0);
- for(const [x,z] of [[30,22],[-50,54],[70,-66]]){
-  assert.equal(surfaceHeightAt(1847,x-.5,z-.5),surfaceHeightAt(1847,x+.5,z+.5));
-  assert.ok(Number.isFinite(surfaceHeightAt(1847,x,z)));
+test('faceted surface is continuous, passes through its lattice, follows the field and keeps the starting clearing level',async()=>{
+ const {surfaceHeightAt,latticeHeight,heightAt,FACET}=await import('./terrain.js');
+ assert.ok(Math.abs(surfaceHeightAt(1847,0,8))<1e-9);
+ for(const [i,j] of [[12,9],[-20,22],[29,-27]])assert.equal(surfaceHeightAt(1847,i*FACET,j*FACET),latticeHeight(1847,i,j));
+ for(const [x,z] of [[30,22],[-50,54],[70,-66],[-3.7,41.1]]){
+  const h=surfaceHeightAt(1847,x,z);
+  assert.ok(Number.isFinite(h));
+  assert.ok(Math.abs(surfaceHeightAt(1847,x+.01,z+.01)-h)<.05,'no steps between neighbouring points');
+  assert.ok(Math.abs(h-heightAt(1847,x,z))<.6,'facets stay close to the field');
  }
 });
 
