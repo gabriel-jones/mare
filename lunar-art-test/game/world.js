@@ -5,7 +5,7 @@ import { buildingStatus, robotStatus, shipStatus, lampLevel } from './building-s
 import { LAUNCH } from './space.js';
 import { DIRS, ITEM_INFO, ports as machinePorts } from './defs.js';
 import { MINING_RADIUS, beltTurns, total, MELT, BELT_SPEED } from './production.js';
-import { createStatusLamps, WORK_LIGHTS } from './status-lamps.js';
+import { createStatusLamps, WORK_LIGHT } from './status-lamps.js';
 import { createProductionView } from './production-view.js';
 import { loadItemLibrary, BELT_ITEM_SIZES } from './item-models.js';
 import { createHabitatView } from './habitat-view.js';
@@ -91,14 +91,14 @@ export async function createWorld(canvas, initialState) {
   const habitatView=createHabitatView(scene,models.get('habitat-kit'));
   // A fixed set of lights follows the nearest machines and habitats; every machine carries a work light in its own colour. Adding a light per structure
   // would change the scene's light count and force every material to recompile its shader.
-  const workHex=Object.fromEntries(Object.entries(WORK_LIGHTS).map(([type,color])=>[type,new THREE.Color('#ffd6a0').lerp(new THREE.Color(color),.55).getHex()]));
+  const workHex=new THREE.Color(WORK_LIGHT).getHex();
   const lightPool=Array.from({length:6},()=>{const l=new THREE.PointLight('#ffc777',0,13,2);scene.add(l);return l;});
   function updateLights(daylight){
     const candidates=[];
     if(state.power.powered!==false){
       for(const b of state.buildings){
         const p=b.built&&b.type!=='conveyor'&&!DEFS[b.type].layer&&structures.get(b.id)?.root.position;
-        if(p)candidates.push({x:p.x,y:p.y+2.6,z:p.z,intensity:(1-daylight)*11,distance:10,color:workHex[b.type]??0xffb866});
+        if(p)candidates.push({x:p.x,y:p.y+2.6,z:p.z,intensity:(1-daylight)*11,distance:10,color:workHex});
       }
       for(const l of habitatView.lights())candidates.push({...l,intensity:(1-daylight)*(l.greenhouse?10:15),distance:9,color:l.greenhouse?0xffb0dc:0xffcf8c});
     }

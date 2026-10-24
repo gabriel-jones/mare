@@ -1,21 +1,12 @@
 import * as THREE from 'three';
 
 // Machine status hardware authored in Blender: a `Lamp` bulb (material "Lunar • status lamp"),
-// battery `Cell1`..`Cell5` and a `Level` sight glass. Lamps sharing a state and tint share one material,
+// battery `Cell1`..`Cell5` and a `Level` sight glass. Lamps sharing a state share one material,
 // so blinking costs nothing per machine and changing state never compiles a shader.
-// A working machine shows its own work light rather than a status colour, and spills it on the ground
-// around it after dark; only trouble (low, fault) switches the bulb to a warning colour.
+// A working machine shows the colony's one warm work light rather than a status colour, and spills it on the
+// ground around it after dark; only trouble (low, fault) switches the bulb to a warning colour.
 export const LAMP_COLORS = Object.freeze({ low: '#f2b45a', fault: '#ff6a32', idle: '#56616a', off: '#1a1f22' });
-// Saturated on purpose: added onto pale regolith, anything softer washes out to the same white.
-const WORK = '#ffb866';
-export const WORK_LIGHTS = Object.freeze({
-  habitat: '#ffb45c', airlock: '#ffb45c', galley: '#ff9440', armory: '#ff6a4a',
-  greenhouse: '#ff4fb8', growbed: '#ff4fb8', hydrorack: '#e04dff', verticalfarm: '#ff4fb8', mushroomtray: '#8f6bff',
-  goovat: '#b45cff', xenolab: '#9a5cff', reactor: '#21e6ff', electrolyser: '#38c6ff', melter: '#3fa8ff', recycler: '#4fd0e8',
-  tank: '#6fb8ff', solar: '#4b74ff', battery: '#5d63ff', fuelcell: '#7ff0ff', rtg: '#c8ff4a', thermal: '#ff6a2a', bioreactor: '#c04dff',
-  mill: '#ff8a1e', processor: '#ff7a1a', hopper: '#ff9a3a', roverbay: '#ff8c3a',
-  fabricator: '#ffc04a', assembler: '#ffd66a', storage: '#d9a45a', dock: '#ff5a3a',
-});
+export const WORK_LIGHT = '#ffd08f';
 const FLUIDS = { water: '#7fd6ff', regolith: '#d0a466', fuel: '#c9f2ff', goo: '#7b3cff' };
 const base = name => name.replace(/\.?\d{3}$/, '');
 
@@ -75,7 +66,7 @@ export function createStatusLamps() {
    * machine its work light and a pool of it on the ground. */
   function attach(root, type = null) {
     const lamp = [], cells = [];let level = null;
-    const tint = (type && WORK_LIGHTS[type]) || WORK;
+    const tint = WORK_LIGHT;
     root.traverse(n => {
       const name = base(n.name);
       if (/^Cell\d$/.test(name)) n.traverse(m => { if (m.isMesh) cells[Number(name[4]) - 1] = m; });
