@@ -33,6 +33,8 @@ import { createTreadTexture, applyTread, ownTread } from './conveyor-tread.js';
 import { createPortLinks } from './port-links.js';
 import { createGroundPads } from './ground-pads.js';
 import { createGroundMarks } from './ground-marks.js';
+import { createLogisticsView } from './logistics-view.js';
+import { BASE_REACH, crates as storageCrates, crateCentre } from './storage.js';
 
 // Presentation only: the simulation owns all positions, resources, and time.
 /** Where each grower shows its ripe crop: [x, y, z, size] in the model's space. */
@@ -313,7 +315,8 @@ export async function createWorld(canvas, initialState) {
     return {root,roof,emits};
   }
   const sunDir=new THREE.Vector3(0,1,0);
-  const buildFx=createConstructionFx(scene,{make:o=>buildModel(o.type,o.turn).root}),portLinks=createPortLinks(scene,{heightAt}),groundPads=createGroundPads(scene,{skip:b=>b.type==='conveyor'||b.type==='launchpad'||!!DEFS[b.type].layer});let booted=false;
+  const buildFx=createConstructionFx(scene,{make:o=>buildModel(o.type,o.turn).root}),portLinks=createPortLinks(scene,{heightAt}),groundPads=createGroundPads(scene,{skip:b=>b.type==='conveyor'||b.type==='launchpad'||!!DEFS[b.type].layer});
+  const logistics=createLogisticsView(scene,{heightAt:(x,z)=>heightAt(state.seed,x,z),radius:BASE_REACH});let logisticsShown=false;let booted=false;
   const blueprintColor=[new THREE.Color('#79d5ed'),new THREE.Color('#ff715d')],blueprintEmissive=[new THREE.Color('#2c8ca9'),new THREE.Color('#a3301f')];
   const ghost=new THREE.Group();scene.add(ghost);let ghostKey='';
   const ghostGood=new THREE.MeshBasicMaterial({color:'#8cddb9',transparent:true,opacity:.3,depthWrite:false}),ghostBad=new THREE.MeshBasicMaterial({color:'#ff715d',transparent:true,opacity:.35,depthWrite:false});materials.add(ghostGood);materials.add(ghostBad);
@@ -480,7 +483,7 @@ export async function createWorld(canvas, initialState) {
     expedition.update(state,dt);updateEncounter(dt,underground);
     lampClock+=dt;lamps.update(lampClock,daylight);
     updateLights(daylight);
-    productionView.update(state,dt,daylight);for(const [id,view] of productionView.rovers)if(view.display)groundMarks.drive(state.seed,id,view.display.x,view.display.z,.73);groundMarks.update();buildFx.update(dt);portLinks.update(state,structures,dt,state.time);groundPads.update(state,b=>{const def=DEFS[b.type],w=b.rotation%2?def.d:def.w,d=b.rotation%2?def.w:def.d;return heightAt(state.seed,(b.x+(w-1)/2)*2,(b.z+(d-1)/2)*2);});
+    productionView.update(state,dt,daylight);for(const [id,view] of productionView.rovers)if(view.display)groundMarks.drive(state.seed,id,view.display.x,view.display.z,.73);groundMarks.update();logistics.update(state.player.cave==null?storageCrates(state).map(crateCentre):[],logisticsShown,dt);buildFx.update(dt);portLinks.update(state,structures,dt,state.time);groundPads.update(state,b=>{const def=DEFS[b.type],w=b.rotation%2?def.d:def.w,d=b.rotation%2?def.w:def.d;return heightAt(state.seed,(b.x+(w-1)/2)*2,(b.z+(d-1)/2)*2);});
     updateShip(dt);
     follow.set(player.position.x,player.position.y+1.05,player.position.z);
     if(hunting&&combat.shake){follow.x+=(Math.random()-.5)*combat.shake;follow.z+=(Math.random()-.5)*combat.shake;}
@@ -501,7 +504,7 @@ export async function createWorld(canvas, initialState) {
     renderer.compileAsync(view.root,camera,scene).catch(()=>{});view.root.visible=false;
     caveViews.set(key,view);return view;
   }
-  function dispose(){disposed=true;buildFx.dispose();portLinks.dispose();groundPads.dispose();groundMarks.dispose();headlamp.dispose();meetView?.dispose();gooView.dispose();broodViews.forEach(v=>v.dispose());surfaceFx.removeFromParent();lamps.dispose();caveViews.forEach(v=>v.dispose());vignette.remove();expedition.dispose();productionView.dispose();habitatView.dispose();statusLayer.remove();terrainView.dispose();grid.geometry.dispose();grid.material.dispose();combat?.dispose();actor?.dispose();reflection.dispose();canvas.removeEventListener('wheel',zoom);for(const o of structures.values()){o.ownedMaterials?.forEach(m=>m.dispose());scene.remove(o.ports);}geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());itemModels?.dispose();renderer.dispose();}
+  function dispose(){disposed=true;logistics.dispose();buildFx.dispose();portLinks.dispose();groundPads.dispose();groundMarks.dispose();headlamp.dispose();meetView?.dispose();gooView.dispose();broodViews.forEach(v=>v.dispose());surfaceFx.removeFromParent();lamps.dispose();caveViews.forEach(v=>v.dispose());vignette.remove();expedition.dispose();productionView.dispose();habitatView.dispose();statusLayer.remove();terrainView.dispose();grid.geometry.dispose();grid.material.dispose();combat?.dispose();actor?.dispose();reflection.dispose();canvas.removeEventListener('wheel',zoom);for(const o of structures.values()){o.ownedMaterials?.forEach(m=>m.dispose());scene.remove(o.ports);}geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());itemModels?.dispose();renderer.dispose();}
   resize();update(initialState,1);
-  return {renderer,scene,camera,actor,update,pick,aim,setGhost,clearGhost,resize,dispose};
+  return {renderer,scene,camera,actor,update,pick,aim,setGhost,clearGhost,setLogistics:shown=>{logisticsShown=shown;},resize,dispose};
 }

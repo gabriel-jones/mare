@@ -45,7 +45,7 @@ button:focus-visible { outline:2px solid #edbd79;outline-offset:4px; }
 @keyframes glyph-float { 50% { translate:0 -3px; } }
 @keyframes glyph-pulse { 50% { opacity:.45; } }
 .game-ui .build-item { padding:10px 12px; }
-.selected-reason { max-width:220px;color:#ef9a7e;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.selected-reason { max-width:340px;color:#ef9a7e;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
 .context-hint { position:fixed;left:50%;bottom:28px;transform:translateX(-50%);display:flex;align-items:center;gap:9px;padding:9px 14px;border:1px solid var(--line);border-radius:4px;background:var(--panel);font-size:12px;color:#e3dccd;white-space:nowrap; }
 .context-hint kbd { display:inline-grid;place-items:center;min-width:22px;height:22px;padding:0 5px;border:1px solid #edbd7980;border-radius:3px;color:var(--amber);font:600 11px Inter,ui-sans-serif,sans-serif; }
 .context-hint { bottom:96px;gap:7px; }

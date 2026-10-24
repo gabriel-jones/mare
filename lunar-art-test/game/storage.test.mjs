@@ -66,7 +66,7 @@ test('building and crafting draw on pockets first, then the base stock while at 
   const far = placeBlueprint(s, 'solar', spot.x, spot.z);
   assert.equal(far.ok, true, far.reason);
   s.player.x = spot.x * 2 + 4; s.player.z = spot.z * 2 + 1;
-  assert.match(construct(s, far.id, 1).reason, /Need more metal/);
+  assert.match(construct(s, far.id, 1).reason, /Out of crate range: the crates holding metal/);
 });
 
 test('refunds overflow into storage, and dismantling a crate moves its goods into the others', () => {

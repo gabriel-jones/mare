@@ -14,7 +14,7 @@ import { restoreInfest } from './infest.js';
 import { GOO, ensureVat, gooDemand, restoreGoo, stepGoo, useVat } from './goo.js';
 import { haulerDemand, restoreHauler, stepHaulers } from './hauler.js';
 import { createMission, processorUnlocked, restoreMission, stepMission } from './mission.js';
-import { available, canReceive, crates, emptyCrate, pay, receive, stash, takeSlot } from './storage.js';
+import { available, baseCount, BASE_REACH, canReceive, crates, emptyCrate, inReach, pay, receive, stash, takeSlot } from './storage.js';
 export { CELL_SIZE, DEFS, footprint } from './defs.js';
 /** Pure, serializable simulation. Positions use 2m cells; building anchors are minimum cells. */
 export const DAY_DURATION = 240;
@@ -140,6 +140,8 @@ export function construct(state, id, dt) {
     for (const [item, n] of Object.entries(cost)) next = Math.min(next, ((b.paid[item] ?? 0) + available(state, item)) / n);
     if (next <= b.progress) {
       const short = Object.keys(cost).find(item => (b.paid[item] ?? 0) < cost[item] && available(state, item) < 1);
+      const name = ITEM_INFO[short]?.name.toLowerCase() ?? short;
+      if (!inReach(state) && baseCount(state, short) > 0) return { ok: false, reason: `Out of crate range: the crates holding ${name} are over ${BASE_REACH} m away. Carry it here, or build inside a crate's ring.` };
       return { ok: false, reason: `Need more ${ITEM_INFO[short]?.name.toLowerCase() ?? short}${crates(state).length ? ' in your pockets or base storage' : ''} to keep building.` };
     }
     const due = {};

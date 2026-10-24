@@ -9,8 +9,8 @@ export const BASE_REACH = 30;
 
 export const crates = state => state.buildings.filter(b => b.type === 'storage' && b.built && b.slots);
 export const emptyCrate = () => Array(CRATE_SLOTS).fill(null);
-const centre = b => { const { w, d } = dims(b.type, b.rotation); return { x: (b.x + (w - 1) / 2) * CELL_SIZE, z: (b.z + (d - 1) / 2) * CELL_SIZE }; };
-export const crateDistance = (state, b) => { const c = centre(b); return Math.hypot(c.x - state.player.x, c.z - state.player.z); };
+export const crateCentre = b => { const { w, d } = dims(b.type, b.rotation); return { x: (b.x + (w - 1) / 2) * CELL_SIZE, z: (b.z + (d - 1) / 2) * CELL_SIZE }; };
+export const crateDistance = (state, b) => { const c = crateCentre(b); return Math.hypot(c.x - state.player.x, c.z - state.player.z); };
 /** Whether the player stands close enough to the base for its stock to count. */
 export const inReach = state => state.player.cave == null && crates(state).some(b => crateDistance(state, b) <= BASE_REACH);
 

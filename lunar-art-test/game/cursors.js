@@ -16,6 +16,10 @@ export const CURSOR_ART = {
   // A blueprint landing on a cell: corner brackets and a centre pin.
   build: { at: [16, 16], fallback: 'crosshair', svg: lined(brackets, AMBER) + filled('<circle cx="16" cy="16" r="1.7"/>', AMBER, 2.4) },
   blocked: { at: [16, 16], fallback: 'not-allowed', svg: lined(brackets, RED) + lined('<path d="M13 13l6 6M19 13l-6 6"/>', RED, 2.2) },
+  // Allowed, but past every crate's logistics area: the brackets broken open, a crate struck through inside.
+  far: { at: [16, 16], fallback: 'crosshair', svg: lined('<path d="M7 11V7h4M21 7h4v4M25 21v4h-4M11 25H7v-4"/>', AMBER) + lined('<rect x="12" y="12.5" width="8" height="7" rx="1"/><path d="M12 15.5h8"/>', SUIT, 1.6) + lined('<path d="M10.5 22 21.5 10"/>', RED, 1.8) },
+  // Over a blueprint, or while building one: a mallet, struck at the head.
+  construct: { at: [21, 8], fallback: 'pointer', svg: lined('<path d="M18.5 12.5 6 25"/>', SUIT, 3.2) + filled('<rect x="14" y="4.5" width="14" height="6.5" rx="1.4" transform="rotate(45 21 7.75)"/>', AMBER, 2.6) },
   // A pry bar, claw first.
   dismantle: { at: [4, 4], fallback: 'crosshair', svg: lined('<path d="M7 7 23.5 23.5q2.4 2.6-.2 4.6"/>', RED, 3) + lined('<path d="M8.5 8.5 3.5 6.5M8.5 8.5 6.5 3.5"/>', RED, 2.2) },
   // Staking a claim: the flag's foot is the point.
@@ -32,7 +36,7 @@ export const cursorCSS = name => { const c = CURSOR_ART[name]; return `${url(c.s
 export function installCursors() {
   if (document.getElementById('game-cursors')) return;
   const style = document.createElement('style'); style.id = 'game-cursors';
-  style.textContent = ['explore', 'build', 'blocked', 'dismantle', 'mine'].map(n => `#game[data-cursor=${n}]{cursor:${cursorCSS(n)}}`).join('\n')
+  style.textContent = ['explore', 'build', 'blocked', 'far', 'construct', 'dismantle', 'mine'].map(n => `#game[data-cursor=${n}]{cursor:${cursorCSS(n)}}`).join('\n')
     + `\n#game[data-cursor=none]{cursor:none}`
     + `\n.game-ui .slot:has(.slot-icon img){cursor:${cursorCSS('grab')}}`
     + `\n.game-ui.slot-dragging,.game-ui.slot-dragging *{cursor:${cursorCSS('grabbing')}!important}`;

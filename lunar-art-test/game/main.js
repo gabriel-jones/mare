@@ -18,8 +18,9 @@ import {createResearchView} from './research-view.js';
 import {createHunt,stepHunt,fire,release,roll,wrench,pinned,grabbedBy,rouse} from './hunt.js';
 import {isWeapon,holdWeapon,reload,craft,heldWeapon,armsOf,WEAPONS} from './arms.js';
 import {installCursors,createReticle} from './cursors.js';
-import {crateDistance,moveStack,storeAll,storeSlot,takeSlot} from './storage.js';
+import {crateDistance,moveStack,storeAll,storeSlot,takeSlot,crates as storageCrates,crateCentre,BASE_REACH} from './storage.js';
 import {worldVectorToCave} from './cave-space.js';
+import {count} from './inventory.js';
 
 // ?sandbox=1 plays a throwaway colony that never touches the real save.
 const KEY=new URLSearchParams(location.search).has('sandbox')?'lunar-frontier.sandbox':'lunar-frontier.phase-a.v1';
@@ -27,7 +28,7 @@ const KEY=new URLSearchParams(location.search).has('sandbox')?'lunar-frontier.sa
 const SHORTCUTS={...Object.fromEntries(Object.entries(DEFS).filter(([,def])=>def.key).map(([type,def])=>[def.key,type])),m:'mine',z:'dismantle'};
 const canvas=document.querySelector('#game'),boot=document.querySelector('#boot');
 let state=createState(),selectedType=null,rotation=0,world,ui,selectedSlot=0;
-let placeOk=true,pointerIn=false,placementReason='',constructionReason='',hover=null,targetId=null,constructing=false,speed=1,saveStatus='Not saved',beltPath=null,paintPath=null,erasing=null;
+let placeOk=true,placeFar=null,pointerIn=false,placementReason='',constructionReason='',hover=null,targetId=null,constructing=false,speed=1,saveStatus='Not saved',beltPath=null,paintPath=null,erasing=null;
 let orbit=null,research=null,shipStatus='pad';
 let jumpVelocity=0,accumulator=0,last=performance.now(),uiClock=0,autoClock=0,salvageReason='';
 const encounter=createEncounter();
@@ -133,10 +134,13 @@ function placePaint(){
  * when a weapon is up and the reticle takes over. */
 function cursorMode(){
  if(drawn()&&heldWeapon(state))return 'none';
- if(!selectedType||state.player.cave!=null)return 'explore';
+ if(state.player.cave!=null)return 'explore';
+ if(!selectedType)return constructing||(hover&&state.buildings.some(b=>!b.built&&footprint(b.type,b.x,b.z,b.rotation).some(c=>c.x===hover.x&&c.z===hover.z)))?'construct':'explore';
  const tool=selectedType==='dismantle'?'dismantle':selectedType==='mine'?'mine':'build';
- return hover&&!placeOk?'blocked':tool;
+ return hover&&!placeOk?'blocked':hover&&placeFar&&tool==='build'?'far':tool;
 }
+/** Crate logistics areas show while placing buildings, building them, or being told they're out of reach. */
+const showLogistics=()=>!!(selectedType&&selectedType!=='mine')||constructing||/crate range/.test(constructionReason);
 function reticleState(){
  const w=heldWeapon(state),a=armsOf(state),spec=WEAPONS[w],p=state.player,at=aimClient&&world.aim(aimClient.x,aimClient.y);
  return {weapon:w,magazine:spec.magazine,loaded:a.loaded[w],reload:a.reloading>0?1-a.reloading/spec.reload:null,far:!!at&&Math.hypot(at.x-p.x,at.z-p.z)>spec.range,spraying:spec.stream&&hunt.trigger&&a.loaded[w]>0&&!a.reloading};
@@ -214,7 +218,17 @@ function refreshGhost(){
   world?.setGhost(selectedType,hover.x,hover.z,0,valid>0,line);return;
  }
  const valid=validatePlacement(state,selectedType,hover.x,hover.z,rotation),underfoot=valid.ok&&!DEFS[selectedType].walkable&&playerObstructs(state,{type:selectedType,x:hover.x,z:hover.z,rotation,built:false});
- placeOk=valid.ok&&!underfoot;placementReason=underfoot?'Step out of the footprint before placing.':valid.ok?'Click to place blueprint':valid.reason;world?.setGhost(selectedType,hover.x,hover.z,rotation,valid.ok&&!underfoot);
+ placeOk=valid.ok&&!underfoot;placeFar=placeOk?outOfCrateRange(selectedType,hover.x,hover.z,rotation):null;
+ placementReason=underfoot?'Step out of the footprint before placing.':placeFar?`Out of crate range · carry `:valid.ok?'Click to place blueprint':valid.reason;world?.setGhost(selectedType,hover.x,hover.z,rotation,valid.ok&&!underfoot);
+}
+/** What a blueprint here would still need from your pockets, when it stands outside every crate's logistics
+ * area and crate stock can't reach it; null when it is in range, there are no crates, or you carry enough. */
+function outOfCrateRange(type,x,z,rotation){
+ const list=storageCrates(state);if(!list.length)return null;
+ const c=buildingCenter({type,x,z,rotation},DEFS);
+ if(list.some(b=>{const p=crateCentre(b);return Math.hypot(p.x-c.x,p.z-c.z)<=BASE_REACH;}))return null;
+ const short=Object.entries(DEFS[type].cost??{}).filter(([item,n])=>count(state.inventory,item)<n).map(([item,n])=>`${n-count(state.inventory,item)} ${ITEM_INFO[item]?.name.toLowerCase()??item}`);
+ return short.length?short:null;
 }
 function placeBelts(){
  const line=beltLine();let placed=0,turned=0,reason='';
@@ -390,7 +404,7 @@ async function start(){
    while(accumulator>=1/30){fixedUpdate(1/30);accumulator-=1/30;}
    if(stepEncounter(encounter,state,dt)==='fled')setTimeout(()=>ui.say(ENCOUNTER_SAY),600);
    world.update(state,dt,interpolatePose(previousPose,state.player,accumulator/(1/30)),encounter,hunt);uiClock+=dt;autoClock+=dt;
-   const cursor=cursorMode();if(canvas.dataset.cursor!==cursor)canvas.dataset.cursor=cursor;
+   const cursor=cursorMode();if(canvas.dataset.cursor!==cursor)canvas.dataset.cursor=cursor;world.setLogistics(showLogistics());
    reticle.update(cursor==='none'&&pointerIn?reticleState():null,dt);
    if(state.ship.status!==shipStatus){if(state.ship.status==='orbit'&&shipStatus==='ascent'){notify(`Satellites deployed. ${state.satellites} in orbit.`);orbit.show();}if(state.ship.status==='pad'&&shipStatus==='descent')notify('The Starship is back on the pad.');shipStatus=state.ship.status;}
    if((state.goo?.breaches??0)>breaches){breaches=state.goo.breaches;notify('Containment breach! The goo vat lost power.');ui.say('The vat has breached. Goo is spreading through the base and something hatched. Flares burn both: press X for flares, Q to throw.');}
