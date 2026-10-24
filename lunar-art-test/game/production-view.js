@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { DIRS } from './defs.js';
+import { DIRS, DEFS } from './defs.js';
+import { createRegolithFx } from './regolith-fx.js';
 import { surfaceHeightAt as heightAt } from './terrain.js';
 import { ROVER, MINING_RADIUS, REGOLITH_PER_CELL, beltTurns } from './production.js';
 import { BELT_ITEM_SIZES } from './item-models.js';
@@ -7,6 +8,7 @@ import { BELT_ITEM_SIZES } from './item-models.js';
 // Presentation for the Phase B logistics layer: rovers, belt items and the mining zones.
 export function createProductionView(scene, models, itemModels = null) {
   const root = new THREE.Group(); scene.add(root);
+  const regolith = createRegolithFx(root), at = new THREE.Vector3();
   const geometries = [], materials = [];
   const own = (list, item) => { list.push(item); return item; };
 
@@ -107,8 +109,49 @@ export function createProductionView(scene, models, itemModels = null) {
       if (view.cargo && r.kind === 'hauler') view.cargo.visible = !modeled && r.cargo >= 1;
       else if (view.cargo) { const load = Math.max(0, Math.min(1, r.cargo / ROVER.capacity)); view.cargo.visible = !modeled && load > .02; view.cargo.scale.set(.6 + .4 * load, Math.max(.05, load), .6 + .4 * load); }
       view.beacon.intensity = r.task === 'idle' || r.task === 'charging' ? 0 : (1 - daylight) * 5 + .6;
+      if (r.kind !== 'hauler') kickUp(state, r, view, dt, travelled);
     }
     for (const [id, view] of rovers) if (!live.has(id)) { root.remove(view.root); rovers.delete(id); }
+  }
+
+  // Miners throw regolith about: the auger sprays it while digging, rear wheels kick it up on the move, and
+  // unloading lobs the load out of the bin into the dock's open top.
+  const DOCK_MOUTH = { hopper: 1.95, melter: 1.45 };
+  function kickUp(state, r, view, dt, travelled) {
+    const kind = r.load ?? 'regolith', f = view.root.rotation.y, fx = Math.sin(f), fz = Math.cos(f);
+    view.sprayClock = (view.sprayClock ?? 0) + dt;
+    if (r.task === 'mining' && view.drill) {
+      const n = Math.floor(view.sprayClock * 36); view.sprayClock -= n / 36;
+      if (n) {
+        at.set(0, .12, 1.62); view.model.localToWorld(at);
+        const side = Math.random() < .5 ? 1 : -1;
+        regolith.spray(at.x, at.y, at.z, fx + fz * side * 1.4, fz - fx * side * 1.4, n, kind, heightAt(state.seed, at.x, at.z));
+      }
+    } else if (travelled / Math.max(dt, 1e-3) > 1.2) {
+      const n = Math.floor(view.sprayClock * 26); view.sprayClock -= n / 26;
+      for (let i = 0; i < n; i++) {
+        at.set(Math.random() < .5 ? -.73 : .73, .05, -.78); view.model.localToWorld(at);
+        regolith.spray(at.x, at.y, at.z, -fx, -fz, 1, 'regolith', heightAt(state.seed, at.x, at.z), 1.4);
+      }
+    } else view.sprayClock = 0;
+    const dock = r.task === 'docked' && state.buildings.find(b => b.id === r.target?.id);
+    if (dock && view.lastCargo != null && r.cargo < view.lastCargo - .01) view.dumpQueue = Math.min(40, (view.dumpQueue ?? 0) + (view.lastCargo - r.cargo) * 1.6);
+    view.lastCargo = r.cargo;
+    view.tip = (view.tip ?? 0) + ((dock && view.dumpQueue > 0 ? 1 : 0) - (view.tip ?? 0)) * Math.min(1, dt * 5);
+    if (!dock) { view.dumpQueue = 0; view.loadRoot.rotation.set(0, 0, 0); return; }
+    view.dumpClock = (view.dumpClock ?? 0) + dt;
+    const def = DEFS[dock.type], w = dock.rotation % 2 ? def.d : def.w, d = dock.rotation % 2 ? def.w : def.d;
+    const cx = (dock.x + (w - 1) / 2) * 2, cz = (dock.z + (d - 1) / 2) * 2, top = heightAt(state.seed, cx, cz) + (DOCK_MOUTH[dock.type] ?? 1.6);
+    // The load slumps toward the dock while it pours out.
+    at.set(cx, 0, cz); view.model.worldToLocal(at);
+    const lean = Math.atan2(at.x, at.z); view.loadRoot.rotation.set(Math.cos(lean) * .55 * view.tip, 0, -Math.sin(lean) * .55 * view.tip);
+    if (!(view.dumpQueue > 0)) return;
+    view.loadRoot.getWorldPosition(at);
+    while (view.dumpClock > .04 && view.dumpQueue > 0) {
+      view.dumpClock -= .04; view.dumpQueue -= 1;
+      const a = Math.random() * Math.PI * 2, rad = Math.sqrt(Math.random()) * .55;
+      regolith.lob({ x: at.x + (Math.random() - .5) * .5, y: at.y + .1, z: at.z + (Math.random() - .5) * .5 }, { x: cx + Math.cos(a) * rad, y: top - .3, z: cz + Math.sin(a) * rad }, .1 + Math.random() * .1, kind, .6 + Math.random() * .2);
+    }
   }
 
   // Mining zones: draped outlines with a number plate, plus excavated cells that darken and widen as they deplete.
@@ -126,9 +169,60 @@ export function createProductionView(scene, models, itemModels = null) {
     return sprite;
   }
   dashes.count = 0; dashes.frustumCulled = false; root.add(dashes);
-  const digMaterial = own(materials, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, transparent: true, opacity: .85, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
+  // Dug ground is a smooth basin rather than per-cell squares: a draped sheet whose normals follow a virtual dip
+  // (the voxel ground can't actually be lowered), darker freshly-turned regolith, and a real spoil berm on the rim.
+  const digMaterial = own(materials, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
   let digMesh = null, areaKey = '', minedKey = '';
-  const ground = new THREE.Color('#a49b8f'), pit = new THREE.Color('#4f4a44'), color = new THREE.Color();
+  const ground = new THREE.Color('#a49b8f'), pit = new THREE.Color('#5d574f'), spoil = new THREE.Color('#968d80'), color = new THREE.Color();
+  const DIP = .45, BERM = .16, STEP = .25, TILE = 16;
+  const bump = (d2, r) => { const t = 1 - d2 / (r * r); return t > 0 ? t * t : 0; };
+  function digField(mined, x, z) {
+    let f = 0, wide = 0;
+    const cx = Math.round(x / 2), cz = Math.round(z / 2);
+    for (let j = -2; j <= 2; j++) for (let i = -2; i <= 2; i++) {
+      const amount = mined.get((cx + i) * 100003 + cz + j); if (!amount) continue;
+      const dx = x - (cx + i) * 2, dz = z - (cz + j) * 2, d2 = dx * dx + dz * dz;
+      f += amount * bump(d2, 1.7); wide += amount * bump(d2, 2.9);
+    }
+    // Flat floor and definite walls rather than a soft smudge; the berm hugs the outside of the wall.
+    const dip = THREE.MathUtils.smoothstep(f * 1.45, .12, .8), rim = THREE.MathUtils.smoothstep(wide * .9, .05, .45) * (1 - THREE.MathUtils.smoothstep(f * 1.45, .05, .3));
+    return [dip, rim];
+  }
+  function trench(state, entries) {
+    const mined = new Map(), tiles = new Set();
+    for (const [cell, amount] of entries) {
+      const [cx, cz] = cell.split(',').map(Number); mined.set(cx * 100003 + cz, Math.min(1, amount / REGOLITH_PER_CELL));
+      for (const ox of [-3, 3]) for (const oz of [-3, 3]) tiles.add(`${Math.floor((cx * 2 + ox) / TILE)},${Math.floor((cz * 2 + oz) / TILE)}`);
+    }
+    const positions = [], colors = [], normals = [], indices = [], n = TILE / STEP + 1, dips = new Float32Array(n * n), rims = new Float32Array(n * n), h = new Float32Array(n * n);
+    for (const tile of tiles) {
+      const [tx, tz] = tile.split(',').map(Number), base = positions.length / 3, alpha = [];
+      for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+        const k = j * n + i, [dip, rim] = digField(mined, tx * TILE + i * STEP, tz * TILE + j * STEP);
+        dips[k] = dip; rims[k] = rim; h[k] = (-dip * DIP + rim * BERM) * 2.6;
+      }
+      for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+        const k = j * n + i, x = tx * TILE + i * STEP, z = tz * TILE + j * STEP, dip = dips[k], rim = rims[k];
+        positions.push(x, heightAt(state.seed, x, z) + .035 + rim * BERM, z);
+        const i0 = Math.max(0, i - 1), i1 = Math.min(n - 1, i + 1), j0 = Math.max(0, j - 1), j1 = Math.min(n - 1, j + 1);
+        const gx = (h[j * n + i1] - h[j * n + i0]) / ((i1 - i0) * STEP), gz = (h[j1 * n + i] - h[j0 * n + i]) / ((j1 - j0) * STEP), len = Math.hypot(gx, 1, gz);
+        normals.push(-gx / len, 1 / len, -gz / len);
+        color.copy(ground).lerp(spoil, rim * .8).lerp(pit, dip);
+        const a = Math.min(.95, Math.max(dip * 1.8, rim * 1.1)); alpha.push(a);
+        colors.push(color.r, color.g, color.b, a);
+      }
+      for (let j = 0; j < n - 1; j++) for (let i = 0; i < n - 1; i++) {
+        const k = j * n + i; if (!alpha[k] && !alpha[k + 1] && !alpha[k + n] && !alpha[k + n + 1]) continue;
+        const p = base + k; indices.push(p, p + n, p + 1, p + 1, p + n, p + n + 1);
+      }
+    }
+    if (digMesh) { root.remove(digMesh); digMesh.geometry.dispose(); digMesh = null; }
+    if (!indices.length) return;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3)); geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 4)); geo.setIndex(indices);
+    digMesh = new THREE.Mesh(geo, digMaterial); digMesh.receiveShadow = true; digMesh.frustumCulled = false; root.add(digMesh);
+  }
   function updateMining(state) {
     const areas = state.miningAreas ?? [], key = `${state.seed}:` + areas.map(a => `${a.id}@${a.x},${a.z}`).join('|');
     if (key !== areaKey) {
@@ -152,26 +246,13 @@ export function createProductionView(scene, models, itemModels = null) {
     const entries = Object.entries(state.mined ?? {}), signature = `${state.seed}:${entries.length}:${Math.round(entries.reduce((s, [, n]) => s + n, 0))}`;
     if (signature === minedKey) return;
     minedKey = signature;
-    const positions = [], colors = [], indices = [];
-    for (const [cell, amount] of entries) {
-      const [cx, cz] = cell.split(',').map(Number), depletion = Math.min(1, amount / REGOLITH_PER_CELL), half = .45 + .5 * depletion, base = positions.length / 3;
-      color.copy(ground).lerp(pit, .35 + .65 * depletion);
-      for (let j = 0; j <= 2; j++) for (let i = 0; i <= 2; i++) {
-        const x = cx * 2 + (i - 1) * half, z = cz * 2 + (j - 1) * half;
-        positions.push(x, heightAt(state.seed, x, z) + .04, z); colors.push(color.r, color.g, color.b);
-      }
-      for (let j = 0; j < 2; j++) for (let i = 0; i < 2; i++) { const p = base + j * 3 + i; indices.push(p, p + 3, p + 1, p + 1, p + 3, p + 4); }
-    }
-    if (digMesh) { root.remove(digMesh); digMesh.geometry.dispose(); digMesh = null; }
-    if (!indices.length) return;
-    const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3)); geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3)); geo.setIndex(indices); geo.computeVertexNormals();
-    digMesh = new THREE.Mesh(geo, digMaterial); digMesh.receiveShadow = true; root.add(digMesh);
+    trench(state, entries);
   }
 
   let time = 0;
   return {
     rovers,
-    update(state, dt, daylight) { time += dt; updateItems(state, time); updateRovers(state, dt, daylight); updateMining(state); },
-    dispose() { scene.remove(root); Object.values(batches).forEach(b => b.dispose()); dashes.dispose(); digMesh?.geometry.dispose(); for (const p of plates.values()) { p.material.map.dispose(); p.material.dispose(); } geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); },
+    update(state, dt, daylight) { time += dt; updateItems(state, time); updateRovers(state, dt, daylight); updateMining(state); regolith.update(dt); },
+    dispose() { regolith.dispose(); scene.remove(root); Object.values(batches).forEach(b => b.dispose()); dashes.dispose(); digMesh?.geometry.dispose(); for (const p of plates.values()) { p.material.map.dispose(); p.material.dispose(); } geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); },
   };
 }
