@@ -7,6 +7,7 @@ import { LIFE, STATIONS, isStation, jobName, roomStatus, readyCount, stationJobs
 import { CROPS, isGrower } from './farm.js';
 import { GOO, gooOn } from './goo.js';
 import { BIO, FUELCELL, RTG_POWER, THERMAL } from './power.js';
+import { buildingHp } from './raid.js';
 
 const roomCache={state:null,time:-1,result:null};
 function roomsOf(state){
@@ -22,7 +23,9 @@ const noPower={text:'No power',read:'GRID OFFLINE',tone:'warning',glyph:'power'}
 // The prototype has one shared power network. Every battery displays its share
 // of the pooled charge; independent battery storage can replace this later.
 export function buildingStatus(building,state){
+ if(!building.built&&building.wreck)return {text:'Wrecked',read:`${Math.floor(building.progress*100)}% · HOLD E TO REBUILD`,tone:'warning',fill:building.progress,glyph:'build'};
  if(!building.built)return {text:'Blueprint',read:`${Math.floor(building.progress*100)}% BUILT · HOLD E`,tone:'construction',fill:building.progress,glyph:'build'};
+ if(building.hp!=null){const k=building.hp/buildingHp(building.type);return {text:`Damaged ${Math.round(k*100)}%`,read:'CLAWED · HOLD E TO PATCH UP',tone:k<.35?'warning':'low',fill:k};}
  const daylight=daylightAt(state.time);
  if(building.type==='battery'){
   const charge=state.power.capacity>0?Math.max(0,Math.min(1,state.power.stored/state.power.capacity)):0;

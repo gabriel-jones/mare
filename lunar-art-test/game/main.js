@@ -3,6 +3,7 @@ import { ZONE_NAMES } from './caves.js';
 import { lootAction, takeLoot } from './delve.js';
 import { stepPeril, dropAction, recoverDrop, craftFlares, throwFlare, flareNow, FLARE, HURT_TEXT, BLACKOUT } from './peril.js';
 import { sampleAction, takeSample, stepBrood, vatAction } from './goo.js';
+import { buildingHp, damagedNear, mend, raidNews, stepRaiders } from './raid.js';
 import {DEFS,createState,validatePlacement,placeBlueprint,construct,tick,serialize,deserialize,cancelBlueprint,deconstruct,collectStorage,setMiningArea,miningAreaReason,removeMiningArea,assignRover,rotateBelt,playerObstructs,interact,removalCheck,PROCESSOR_LOCKED,grantStarterAndroid} from './sim.js';
 import {STARTER_ANDROID,androidNews,wreckAction,repairWreck,setStockTarget} from './android.js';
 import {DIRS,ITEM_INFO,footprint} from './defs.js';
@@ -95,7 +96,8 @@ function nearbyUse(){
   const d=reachOf(b,plots);
   if(d<distance){best={building:b,...action};distance=d;}
  }
- return best;
+ const hurt=!best&&damagedNear(state,4);
+ return hurt?{building:hurt,mend:true,hold:true,verb:`Hold to patch up the ${DEFS[hurt.type].name.toLowerCase()} · ${Math.round(hurt.hp/buildingHp(hurt.type)*100)}%`}:best;
 }
 const STATION_REACH=8;
 /** The grower or workstation whose popup is open, while the player can still reach it. */
@@ -124,7 +126,7 @@ function blueprintTip(){
   const owed=b.paid?Math.max(0,total-(b.paid[item]??0)):0,have=available(state,item);
   return {item,total,owed,have,short:owed>have,away:reach?0:baseCount(state,item)};
  });
- return {id:b.id,type:b.type,progress:b.progress,items};
+ return {id:b.id,type:b.type,progress:b.progress,items,wreck:!!b.wreck};
 }
 function view(){
  const nearest=state.player.cave==null?nearestBlueprint(state,DEFS,100):null,c=nearest?buildingCenter(nearest,DEFS):null;
@@ -195,6 +197,7 @@ function useNearby(){
  else if(use?.wreck)notify(repairWreck(state).reason);
  else if(use?.sample){const r=takeSample(state);notify(r.reason);if(r.wake)rouse(hunt,state,r.wake);}
  else if(use?.cave){const r=takeLoot(state);notify(r.reason);if(r.say)ui.say(r.say);}
+ else if(use?.mend)return;
  else if(use?.building.type==='storage'){if(ui.crateId===use.building.id)ui.closeStore();else ui.openCrate(use.building.id);}
  else if(use)notify(interact(state,use.building.id).reason);
 }
@@ -328,10 +331,12 @@ function fixedUpdate(dt){
  if(hunt.drawn&&aimClient&&!pinned(hunt)){const a=world.aim(aimClient.x,aimClient.y);if(a&&Math.hypot(a.x-p.x,a.z-p.z)>.3)p.facing=Math.atan2(a.x-p.x,a.z-p.z);}
  stepHunt(hunt,state,dt);
  if(!caving&&hunt.dash)nudgePlayer(state,hunt.dash.x,hunt.dash.z,DEFS);
- if(!caving&&state.brood?.length){
-  const fires=(state.flares??[]).filter(f=>f.cave==null).map(f=>({f,n:flareNow(f,p)})).filter(({n})=>n.stage==='down'&&n.lit>0).map(({n})=>({x:n.x,z:n.z,r:FLARE.radius*n.lit}));
-  if(hunt.flame)fires.push(...hunt.flame.points);
-  stepBrood(state,dt,fires);
+ if(state.brood?.length){
+  const fires=caving?[]:(state.flares??[]).filter(f=>f.cave==null).map(f=>({f,n:flareNow(f,p)})).filter(({n})=>n.stage==='down'&&n.lit>0).map(({n})=>({x:n.x,z:n.z,r:FLARE.radius*n.lit}));
+  if(hunt.flame&&!caving)fires.push(...hunt.flame.points);
+  if(!caving)stepBrood(state,dt,fires);
+  // Raids go on at the base while the player is underground.
+  stepRaiders(state,dt,fires);
  }
  updatePortals(dt);
  updatePeril(dt);
@@ -350,7 +355,7 @@ function fixedUpdate(dt){
   else if(!r.ok&&r.reason!==salvageReason)notify(r.reason);
   salvageReason=r.ok?'':r.reason;
  }
- else if(state.player.cave==null&&keys.has('e')&&!ship){const b=nearby();if(b){const r=construct(state,b.id,dt);constructing=r.ok!==false;if(!r.ok)constructionReason=r.reason;if(b.built)completed(b);}}
+ else if(state.player.cave==null&&keys.has('e')&&!ship){const b=nearby();if(b){const r=construct(state,b.id,dt);constructing=r.ok!==false;if(!r.ok)constructionReason=r.reason;if(b.built)completed(b);}else{const use=nearbyUse();if(use?.mend){constructing=true;if(mend(use.building,dt))notify(`${DEFS[use.building.type].name} patched up.`);}}}
  if(constructing&&state.player.speed<=.1){
   const b=nearby();
   if(b){const center=buildingCenter(b,DEFS),target=Math.atan2(center.x-state.player.x,center.z-state.player.z),delta=Math.atan2(Math.sin(target-state.player.facing),Math.cos(target-state.player.facing));state.player.facing+=delta*(1-Math.exp(-dt/.065));}
@@ -359,6 +364,7 @@ function fixedUpdate(dt){
  state.player.animation=hunt.rolling?'roll':!state.player.grounded?'jump':state.player.speed>.1?'run':constructing?'build':'idle';
  tick(state,dt*speed);
  while(androidNews.length)notify(androidNews.shift());
+ while(raidNews.length)notify(raidNews.shift());
 }
 /** Rolls the way the player is steering, or the way they face. Same everywhere: Space jumps, Shift rolls. */
 function dodge(){

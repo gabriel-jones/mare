@@ -214,7 +214,7 @@ export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=n
   const events=[];time.value+=dt;clock+=dt;pulse.value*=Math.exp(-dt*5);
   // Torn off the helmet it clings on through the wrench, then flies, spinning, before it lands and recoils.
   const flung=c.state==='recoil'&&c.thrown?(c.t-CRAWLER.throwDelay)/(CRAWLER.throwTime+.15):-1;
-  const state=flung>=0&&flung<1?'thrown':c.state==='recoil'&&c.thrown&&flung<0?'grab':c.state==='lurk'&&c.speed<.2?'idle':c.state;
+  const state=flung>=0&&flung<1?'thrown':c.state==='recoil'&&c.thrown&&flung<0?'grab':c.state==='lurk'&&c.speed<.2?'idle':c.state==='march'?'stalk':c.state;
   const player=ctx.player??{x:c.x,z:c.z+2};
   const dead=state==='dead';
   // Death is a seizure: violent for a moment, fading, then a few late aftershocks before it curls and melts.

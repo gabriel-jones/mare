@@ -69,7 +69,7 @@ test('a powered vat cultures goo; dark too long it breaches, choking growers and
   assert.match(buildingStatus(vat, s).text, /Breach in/);
   run(s, GOO.breachAfter, .5);
   assert.equal(vat.seeded, false); assert.equal(s.goo.breaches, 1);
-  assert.ok(gooAt(s, 0, 0)); assert.equal(s.brood.length, GOO.hatch);
+  assert.ok(gooAt(s, 0, 0)); assert.equal(s.brood.filter(c => !c.raider).length, GOO.hatch);
   // It creeps through the base, and a grower under it stops.
   s.goo.cells.push([2, 0]); s.time = 25; s.power.stored = s.power.capacity; tick(s, .1);
   const grow = bed.grow; run(s, 5, .5);

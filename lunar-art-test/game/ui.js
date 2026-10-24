@@ -392,7 +392,7 @@ export function createUI(root, callbacks = {}) {
           const name = item => ITEM_INFO[item]?.name ?? item, short = tip.items.filter(i => i.short), away = short.some(i => i.have + i.away >= i.owed);
           const rows = tip.items.map(i => `<li class="${i.owed === 0 ? 'done' : i.short ? 'short' : 'ok'}"><img src="${ITEM_ICON_URLS[i.item]}" alt="" aria-hidden="true" draggable="false"><span>${name(i.item)}</span><b>${i.owed === 0 ? 'Supplied' : `${number(i.owed)} more`}</b><small>${i.owed === 0 ? '' : `${number(i.have)} on hand${i.away ? ` · ${number(i.away)} in crates out of range` : ''}`}</small></li>`).join('');
           const foot = short.length ? `Missing ${short.map(i => name(i.item).toLowerCase()).join(', ')}${away ? '. Carry it from the crates, or build within their range.' : '.'}` : 'Hold <kbd>E</kbd> within 5 m to build.';
-          blueprintTip.innerHTML = `<header><strong>${DEFS[tip.type].name}</strong><span>Blueprint · ${Math.floor(tip.progress * 100)}%</span></header><ul>${rows}</ul><p class="${short.length ? 'missing' : ''}">${foot}</p>`;
+          blueprintTip.innerHTML = `<header><strong>${DEFS[tip.type].name}</strong><span>${tip.wreck ? 'Wrecked' : 'Blueprint'} · ${Math.floor(tip.progress * 100)}%</span></header><ul>${rows}</ul><p class="${short.length ? 'missing' : ''}">${foot}</p>`;
           tipSize = { w: blueprintTip.offsetWidth, h: blueprintTip.offsetHeight };
           placeTip();
         }

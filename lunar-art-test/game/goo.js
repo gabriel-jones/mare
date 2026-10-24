@@ -21,6 +21,7 @@ export const GOO = Object.freeze({
   burnReach: 2.4, burnDamage: 30, hatchlingHp: 30, biteDamage: 9,
   sampleReach: 2.2,
 });
+const RAIDERS = 10;
 
 const zoneKey = (id, zone = 0) => zone ? `${id}:${zone}` : `${id}`;
 export const gooCells = state => state.goo?.cells ?? [];
@@ -158,6 +159,7 @@ export function stepBrood(state, dt, fires = [], rng = Math.random) {
   const cave = surfaceGrid(state);
   const androids = (state.robots ?? []).filter(r => r.kind === 'android' && !r.down);
   for (const c of state.brood) {
+    if (c.raider) continue;
     if (c.state !== 'dead' && fires.some(f => Math.hypot(c.x - f.x, c.z - f.z) < f.r * .6)) {
       const r = hurtCrawler(c, GOO.burnDamage * dt, rng);
       if (r.killed) events.push({ type: 'killed', crawler: c });
@@ -190,8 +192,10 @@ export function restoreGoo(state, raw) {
     state.goo = { cells: g.cells.map(c => [...c]), clock: Math.min(GOO.spreadEvery, Math.max(0, g.clock)), breaches: g.breaches };
   }
   if (raw.brood != null) {
-    if (!Array.isArray(raw.brood) || raw.brood.length > GOO.maxBrood || !raw.brood.every(c => finite(c?.x) && finite(c?.z) && Math.abs(c.x) < 140 && Math.abs(c.z) < 140 && finite(c.hp) && c.hp > 0 && c.hp <= CRAWLER.hp)) throw new Error('Invalid hatchlings.');
-    state.brood = raw.brood.filter(c => c.state !== 'dead').map(c => Object.assign(createCrawler(c.x, c.z), { hp: c.hp, facing: finite(c.facing) ? c.facing : 0 }));
+    // Raiders (raid.js) share the brood, so it can hold a raid as well as a breach.
+    if (!Array.isArray(raw.brood) || raw.brood.length > GOO.maxBrood + RAIDERS || !raw.brood.every(c => finite(c?.x) && finite(c?.z) && Math.abs(c.x) < 140 && Math.abs(c.z) < 140 && finite(c.hp) && c.hp > 0 && c.hp <= CRAWLER.hp)) throw new Error('Invalid hatchlings.');
+    state.brood = raw.brood.filter(c => c.state !== 'dead' && !c.gone).map(c => Object.assign(createCrawler(c.x, c.z), { hp: c.hp, facing: finite(c.facing) ? c.facing : 0 },
+      c.raider === true ? { raider: true, small: c.small === true, ...(Number.isInteger(c.retreat) && c.retreat >= 0 && c.retreat <= 2 ? { retreat: c.retreat } : {}) } : {}));
   }
   if (raw.scraped != null && typeof raw.scraped === 'object' && !Array.isArray(raw.scraped)) {
     state.scraped = {};

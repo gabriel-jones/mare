@@ -9,6 +9,7 @@ export const LAMP_COLORS = Object.freeze({ low: '#f2b45a', fault: '#ff6a32', idl
 export const WORK_LIGHT = '#ffd08f';
 const FLUIDS = { water: '#7fd6ff', regolith: '#d0a466', fuel: '#c9f2ff', goo: '#7b3cff' };
 const base = name => name.replace(/\.?\d{3}$/, '');
+const raidRed = new THREE.Color('#ff2a16'), mix = new THREE.Color();
 
 /** Brightness 0–1 of a lamp level at time `t`: steady, slow pulse, hard blink or dark. */
 export function lampBrightness(level, t) {
@@ -115,14 +116,19 @@ export function createStatusLamps() {
     };
   }
 
-  /** Animates every lamp state; halos and ground pools come up as the sun goes down. */
-  function update(t, daylight) {
-    const night = (1 - daylight) ** 1.5;
+  /** Animates every lamp state; halos and ground pools come up as the sun goes down. `alarm` (0..1) turns the
+   * colony's working lamps raid red, pulsing. */
+  function update(t, daylight, alarm = 0) {
+    const night = (1 - daylight) ** 1.5, pulse = 1 - alarm * .45 * (.5 + .5 * Math.sin(t * 5.2));
     for (const l of looks.values()) {
       const k = lampBrightness(l.level, t);
-      l.bulb.emissiveIntensity = l.level === 'idle' ? .15 : l.level === 'ok' ? 1.7 : k * 3.2;
-      l.glow.opacity = l.level === 'idle' || l.level === 'off' ? 0 : l.level === 'ok' ? .12 + .38 * night : k * (.9 - .55 * daylight);
-      if (l.pool) l.pool.opacity = .04 + .72 * night;
+      if (l.level === 'ok') {
+        l.tint ??= l.glow.color.clone();
+        if (alarm > 0 || l.alarmed) { mix.copy(l.tint).lerp(raidRed, alarm); l.bulb.emissive.copy(mix); l.glow.color.copy(mix); l.pool?.color.copy(mix); l.alarmed = alarm > 0; }
+      }
+      l.bulb.emissiveIntensity = l.level === 'idle' ? .15 : l.level === 'ok' ? 1.7 * (1 + alarm * .6) * pulse : k * 3.2;
+      l.glow.opacity = l.level === 'idle' || l.level === 'off' ? 0 : l.level === 'ok' ? (.12 + .38 * night) * (1 + alarm * .8) * pulse : k * (.9 - .55 * daylight);
+      if (l.pool) l.pool.opacity = (.04 + .72 * night) * pulse;
     }
   }
 

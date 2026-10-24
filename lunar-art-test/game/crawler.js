@@ -24,7 +24,7 @@ export const PISTOL=Object.freeze({damage:12,range:16,magazine:6,reload:1.4,cool
 export const DODGE=Object.freeze({time:.42,distance:3.6,cooldown:.85,invulnerable:.34});
 export const PLAYER_RADIUS=.32;
 
-const ANIM={emerge:'skitter',lurk:'stalk',stalk:'stalk',close:'stalk',evade:'skitter',shriek:'shriek',lunge:'lunge',recover:'idle',grab:'grab',slash:'lunge',recoil:'recoil',flee:'skitter',hit:'hit',dead:'death'};
+const ANIM={march:'stalk',emerge:'skitter',lurk:'stalk',stalk:'stalk',close:'stalk',evade:'skitter',shriek:'shriek',lunge:'lunge',recover:'idle',grab:'grab',slash:'lunge',recoil:'recoil',flee:'skitter',hit:'hit',dead:'death'};
 const cellOf=v=>Math.round(v/CAVE_CELL);
 const between=(rng,[a,b])=>a+(b-a)*rng();
 

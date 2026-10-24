@@ -9,11 +9,12 @@ import { hurtCrawler } from './crawler.js';
 import { cellPassable } from './paths.js';
 import { habitatLayout } from './habitat.js';
 import { createAndroid, freePad } from './space.js';
+import { mend } from './raid.js';
 
 /**
  * Androids: humanoid workers that do the colony's chores in a fixed order of priority. They take up arms from the
  * armory (or a crate) while hatchlings are loose, then put them back; get a downed android back on its feet;
- * build blueprints, carrying the materials over from the crates; feed bioreactors; carry finished goods from stations
+ * build blueprints, carrying the materials over from the crates; patch up raid damage; feed bioreactors; carry finished goods from stations
  * to the crates; harvest ripe crops (the plot replants itself); and keep stations crafting up to each recipe's stock
  * target. Each docks at its own charging pad. Unlike the wheeled robots they walk into rooms, through the airlocks.
  *
@@ -23,7 +24,7 @@ import { createAndroid, freePad } from './space.js';
 export const ANDROID = Object.freeze({
   speed: 2.6, drain: 1 / 480, chargeRate: 1 / 40, chargePower: 1.2, low: .22, hp: 60,
   harvest: 1.4, craft: 1.5, collect: .6, repair: 5, repairCost: Object.freeze({ metal: 10, silicon: 4 }),
-  calm: 6, hit: .8,
+  calm: 6, hit: .85, mend: 15,
 });
 /** A test android and its pad are handed to every colony once, new or loaded. Turn off to make them a mid-game unlock only. */
 export const STARTER_ANDROID = true;
@@ -36,7 +37,13 @@ export const androidNews = [];
 const key = (x, z) => `${x},${z}`;
 const cellOf = r => ({ x: Math.round(r.x / CELL_SIZE), z: Math.round(r.z / CELL_SIZE) });
 const androids = state => state.robots.filter(r => r.kind === 'android');
-export const threats = state => (state.brood ?? []).filter(c => c.state !== 'dead' && c.state !== 'emerge');
+/** Loose hatchlings, and raiders once they reach the base. */
+export const threats = state => (state.brood ?? []).filter(c => c.state !== 'dead' && c.state !== 'emerge' && !c.gone && (!c.raider || c.near));
+/** The odds a shot lands: worse with range, and much worse at something on the move. A blade swing is surer. */
+export function hitChance(spec, distance, speed = 0) {
+  const odds = spec.melee ? .92 - speed * .05 : ANDROID.hit - distance / 45 - speed * .075;
+  return Math.max(.12, Math.min(.92, odds));
+}
 
 // --- Walking ------------------------------------------------------------
 // Machines are solid; room squares are open inside, and the only way between a room and open ground is an airlock's
@@ -183,6 +190,11 @@ function buildJob(state, r) {
   }
   return null;
 }
+/** Raid damage on a standing structure: patched up for free, nearest first. Wrecks are rebuilt as blueprints. */
+function mendJob(state, r) {
+  const b = nearest(r, state.buildings.filter(b => b.built && b.hp != null && !claimed(state, r, `mend:${b.id}`) && !isStuck(state, r, b.id)));
+  return b && job('mend', b);
+}
 function feedJob(state, r) {
   for (const b of state.buildings) {
     if (b.type !== 'bioreactor' || !b.built || !b.fed || b.stock > BIO.cap - 2 || claimed(state, r, `feed:${b.id}`) || isStuck(state, r, b.id)) continue;
@@ -253,7 +265,7 @@ function plan(state, r) {
     }
     if (r.weapon && !loose && (r.calm ?? 0) >= ANDROID.calm) { const crate = crateFor(state, r, r.weapon); if (crate) return job('disarm', crate, { tag: `disarm:${r.id}` }); }
     if (r.carry) { const crate = crateFor(state, r, r.carry.item); return crate ? job('stow', crate, { tag: `stow:${r.id}` }) : null; }
-    return rescueJob(state, r) ?? buildJob(state, r) ?? feedJob(state, r) ?? collectJob(state, r) ?? harvestJob(state, r) ?? craftJob(state, r) ?? (pad ? job('charge', pad) : null);
+    return rescueJob(state, r) ?? buildJob(state, r) ?? mendJob(state, r) ?? feedJob(state, r) ?? collectJob(state, r) ?? harvestJob(state, r) ?? craftJob(state, r) ?? (pad ? job('charge', pad) : null);
   };
   const next = choose();
   if (!next) return;
@@ -269,7 +281,7 @@ const goalsFor = (state, r, j) => {
 };
 function act(state, r, dt, powered, hooks) {
   const j = r.job;
-  if (j.type === 'fight') return fight(state, r, dt);
+  if (j.type === 'fight') return fight(state, r, dt, hooks.rng ?? Math.random);
   const b = j.id != null ? byId(state, j.id) : null;
   if (j.id != null && !b) return 'done';
   if (j.type === 'repair' && !state.robots.some(o => o.id === j.robot && o.down)) return 'done';
@@ -357,6 +369,9 @@ function act(state, r, dt, powered, hooks) {
       r.kit = true;
       return 'done';
     }
+    case 'mend':
+      if (!b.built) return 'done';
+      return mend(b, dt, ANDROID.mend) ? 'done' : 'working';
     case 'repair': {
       const o = state.robots.find(o => o.id === j.robot);
       face(r, Math.atan2(o.x - r.x, o.z - r.z), dt * 8);
@@ -371,7 +386,7 @@ function act(state, r, dt, powered, hooks) {
   return 'done';
 }
 /** Closes to its weapon's reach of the nearest loose hatchling and fires. `shot` counts shots for the view. */
-function fight(state, r, dt) {
+function fight(state, r, dt, rng) {
   const spec = WEAPONS[r.weapon], list = threats(state);
   if (!list.length || !spec) return 'done';
   const target = list.sort((a, b) => Math.hypot(a.x - r.x, a.z - r.z) - Math.hypot(b.x - r.x, b.z - r.z))[0];
@@ -387,14 +402,19 @@ function fight(state, r, dt) {
   r.moving = false; routes.delete(r);
   face(r, Math.atan2(target.x - r.x, target.z - r.z), dt * 12);
   if (r.cool > 0) return 'working';
-  if (spec.melee) { hurtCrawler(target, spec.damage); r.cool = spec.cooldown + .25; r.shot = (r.shot ?? 0) + 1; return 'working'; }
+  const odds = hitChance(spec, d, target.speed ?? 0);
+  if (spec.melee) { if (rng() < odds) hurtCrawler(target, spec.damage); r.cool = spec.cooldown + .25; r.shot = (r.shot ?? 0) + 1; return 'working'; }
   if (r.mag <= 0) {
     if (r.ammo <= 0) return 'done';
     const n = Math.min(spec.magazine, r.ammo); r.mag = n; r.ammo -= n; r.cool = spec.reload;
     return 'working';
   }
   const shots = Math.min(spec.burst ?? 1, r.mag);
-  for (let i = 0; i < shots; i++) if (Math.random() < ANDROID.hit) hurtCrawler(target, spec.damage);
+  let landed = 0;
+  for (let i = 0; i < shots; i++) if (rng() < odds) { hurtCrawler(target, spec.damage); landed++; }
+  // A miss goes wide, past the target, so the tracer shows it.
+  if (!landed) { const side = (rng() < .5 ? -1 : 1) * (.8 + rng()), ux = (target.x - r.x) / (d || 1), uz = (target.z - r.z) / (d || 1); r.aim = { x: target.x + ux * 2 - uz * side, z: target.z + uz * 2 + ux * side }; }
+  r.hits = (r.hits ?? 0) + landed; r.misses = (r.misses ?? 0) + shots - landed;
   r.mag -= shots; r.cool = (spec.cooldown ?? .3) + (spec.charge ?? 0) + .2; r.shot = (r.shot ?? 0) + 1;
   return 'working';
 }

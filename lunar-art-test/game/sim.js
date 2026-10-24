@@ -15,6 +15,7 @@ import { restoreInfest } from './infest.js';
 import { GOO, ensureVat, gooDemand, restoreGoo, stepGoo, useVat } from './goo.js';
 import { BIO, THERMAL, ensurePower, steadyGeneration, stepFuelCells, thermalCapacity } from './power.js';
 import { haulerDemand, restoreHauler, stepHaulers } from './hauler.js';
+import { buildingHp, restoreRaid, stepRaid } from './raid.js';
 import { createMission, processorUnlocked, restoreMission, stepMission } from './mission.js';
 import { available, baseCount, BASE_REACH, canReceive, crates, emptyCrate, inReach, pay, receive, stash, takeSlot } from './storage.js';
 export { CELL_SIZE, DEFS, footprint } from './defs.js';
@@ -160,7 +161,7 @@ export function construct(state, id, dt) {
 }
 /** Finishes a building whose progress has reached 1: a robot pad rolls its robot out and is gone. Returns the message. */
 function completeBuilding(state, b) {
-  b.progress = 1; b.built = true; delete b.paid;
+  b.progress = 1; b.built = true; delete b.paid; delete b.wreck;
   if (DEFS[b.type].robot) {
     const cells = footprint(b.type, b.x, b.z, b.rotation);
     state.buildings.splice(state.buildings.indexOf(b), 1);
@@ -205,6 +206,12 @@ export function cancelBlueprint(state, id) {
   if (b.built) return { ok: false, reason: 'Completed buildings cannot be cancelled.' };
   const blocked = removalReason(state, b);
   if (blocked) return { ok: false, reason: blocked };
+  // A wrecked crate still holds what it held.
+  if (b.slots) {
+    if (!crateFits(state, b)) return { ok: false, reason: CRATE_FULL };
+    const held = crateContents(b); b.slots = emptyCrate();
+    for (const [item, n] of Object.entries(held)) inv.add(state.inventory, item, stash(state, item, n, null, b));
+  }
   if (!refund(state, b)) return { ok: false, reason: NO_ROOM };
   state.buildings.splice(index, 1);
   return { ok: true, reason: 'Blueprint cancelled; materials returned.' };
@@ -330,7 +337,7 @@ export function tick(state, dt) {
   state.time += dt;
   // Machines run on the previous tick's supply state, so derived power always matches the saved state.
   const powered = state.power.powered !== false;
-  if (dt > 0) { stepProduction(state, dt, powered); stepHaulers(state, dt, powered, robotTopology(state)); stepAndroids(state, dt, powered, androidHooks(state)); stepSpace(state, dt, powered); stepLife(state, dt, powered); stepGoo(state, dt, powered); }
+  if (dt > 0) { stepProduction(state, dt, powered); stepHaulers(state, dt, powered, robotTopology(state)); stepAndroids(state, dt, powered, androidHooks(state)); stepSpace(state, dt, powered); stepLife(state, dt, powered); stepGoo(state, dt, powered); stepRaid(state, dt); }
   stepMission(state);
   const daylight = daylightAt(state.time);
   let generation = steadyGeneration(state), demand = productionDemand(state) + spaceDemand(state) + haulerDemand(state) + androidDemand(state) + lifeDemand(state, roomStatus(state)) + gooDemand(state), capacity = thermalCapacity(state);
@@ -363,7 +370,17 @@ function restoreBuilding(raw) {
     if (typeof raw.paid !== 'object' || Object.entries(raw.paid).some(([item, n]) => !(item in cost) || !wholeCount(n, cost[item]))) throw new Error('Invalid construction materials.');
     b.paid = { ...raw.paid };
   }
-  if (!b.built) return b;
+  if (!b.built) {
+    if (raw.wreck === true) {
+      b.wreck = true;
+      if (b.type === 'storage' && raw.slots != null) b.slots = inv.restore(raw.slots, DEFS.storage.slots);
+    }
+    return b;
+  }
+  if (raw.hp != null) {
+    if (!finite(raw.hp) || raw.hp <= 0 || raw.hp > buildingHp(b.type)) throw new Error('Invalid building health.');
+    if (raw.hp < buildingHp(b.type)) b.hp = raw.hp;
+  }
   if (b.type === 'conveyor' && raw.items != null) {
     if (!Array.isArray(raw.items) || raw.items.length > Math.ceil(1 / BELT_SPACING) + 1) throw new Error('Invalid belt contents.');
     let previous = Infinity;
@@ -544,6 +561,7 @@ export function deserialize(text) {
   restoreBuffs(state, raw);
   restoreInfest(state, raw);
   restoreGoo(state, raw);
+  restoreRaid(state, raw);
   if (raw.starter === true) state.starter = true;
   if (new Set(state.robots.map(r => r.id)).size !== state.robots.length) throw new Error('Invalid robots.');
   tick(state, 0);
