@@ -6,7 +6,7 @@ import { sampleAction, takeSample, stepBrood, vatAction } from './goo.js';
 import {DEFS,createState,validatePlacement,placeBlueprint,construct,tick,serialize,deserialize,cancelBlueprint,deconstruct,collectStorage,setMiningArea,miningAreaReason,removeMiningArea,assignRover,rotateBelt,playerObstructs,interact,removalCheck,PROCESSOR_LOCKED} from './sim.js';
 import {DIRS,ITEM_INFO,footprint} from './defs.js';
 import {movePlayer,nudgePlayer,nearestBlueprint,buildingCenter,resetLocomotion,interpolatePose,RUN_SPEED} from './controller.js';
-import {eat,lifeAction,setCrop,startCraft,growBeds,isStation} from './life.js';
+import {eat,lifeAction,setCrop,startCraft,growBeds,isStation,useLife} from './life.js';
 import {habitatLayout} from './habitat.js';
 import {isGrower} from './farm.js';
 import {createWorld} from './world.js';
@@ -102,10 +102,11 @@ function openStation(){
 }
 /** Clicking a grower or workstation opens its popup; true when the click was taken. */
 function clickStation(cell){
- const b=cell&&state.buildings.find(o=>o.built&&(isGrower(o)||isStation(o))&&footprint(o.type,o.x,o.z,o.rotation).some(c=>c.x===cell.x&&c.z===cell.z));
+ const b=stationAt(cell);
  if(!b){const open=stationId!=null;stationId=null;return open;}
  if(!sameRoom(b)){notify(`Go inside to use the ${DEFS[b.type].name.toLowerCase()}.`);return true;}
  if(reachOf(b,growBeds(state))>STATION_REACH){notify(`Walk closer to the ${DEFS[b.type].name.toLowerCase()}.`);return true;}
+ if(isGrower(b)&&b.grow>=1){notify(useLife(state,b).reason);return true;}
  const bed=growBeds(state).get(b.id),open=openStation();
  stationId=open&&(open===b||bed?.includes(open))?null:b.id;
  ui.update(state,view());
@@ -158,9 +159,18 @@ function placePaint(){
  notify(placed?`${placed} ${DEFS[selectedType].name.toLowerCase()} square${placed>1?'s':''} · walk over and hold E to build`:reason);
  paintPath=null;refreshGhost();
 }
+/** Over a grower or workstation with no tool out, the pointer says what a click does: harvest a ripe plot, pick a
+ * crop for a growing one, or open a station's recipes. */
+function useCursor(){
+ if(selectedType||state.player.cave!=null||!hover)return null;
+ const b=stationAt(hover);
+ return !b?null:isStation(b)?'craft':b.grow>=1?'harvest':'plant';
+}
+const stationAt=cell=>cell&&state.buildings.find(o=>o.built&&(isGrower(o)||isStation(o))&&footprint(o.type,o.x,o.z,o.rotation).some(c=>c.x===cell.x&&c.z===cell.z));
 /** Which pointer the game canvas shows: a tool's own, red when the cell under it won't take the action, or none
  * when a weapon is up and the reticle takes over. */
 function cursorMode(){
+ const use=useCursor();if(use)return use;
  if(drawn()&&heldWeapon(state))return 'none';
  if(state.player.cave!=null)return 'explore';
  if(!selectedType)return constructing||(hover&&state.buildings.some(b=>!b.built&&footprint(b.type,b.x,b.z,b.rotation).some(c=>c.x===hover.x&&c.z===hover.z)))?'construct':'explore';
@@ -184,7 +194,7 @@ function useNearby(){
 /** The selected slot if it holds food, otherwise the most filling food carried. */
 function foodSlot(){
  if(ITEM_INFO[state.inventory[selectedSlot]?.item]?.food)return selectedSlot;
- let slot=selectedSlot,best=0;
+ let slot=selectedSlot??0,best=0;
  state.inventory.forEach((s,i)=>{const food=ITEM_INFO[s?.item]?.food??0;if(food>best){best=food;slot=i;}});
  return slot;
 }
@@ -300,7 +310,7 @@ function completed(b){
 /** On the surface a weapon is out while its slot is selected and no build tool is; underground it always is. */
 const drawn=()=>state.player.cave!=null||(!selectedType&&isWeapon(state.inventory[selectedSlot]?.item));
 /** Picking a slot that holds a weapon takes it up. */
-function pickSlot(i){selectedSlot=i;const item=state.inventory[i]?.item;if(isWeapon(item))holdWeapon(state,item);else release(hunt);ui.update(state,view());}
+function pickSlot(i){selectedSlot=i;const item=i==null?null:state.inventory[i]?.item;if(isWeapon(item))holdWeapon(state,item);else release(hunt);ui.update(state,view());}
 function fixedUpdate(dt){
  const dx=(keys.has('d')?1:0)-(keys.has('a')?1:0),dz=(keys.has('s')?1:0)-(keys.has('w')?1:0);
  previousPose={...state.player};
@@ -412,7 +422,7 @@ async function start(){
    if(state.player.cave!=null&&caveKey(k))return;
    if(k===' '&&!(state.player.y>0)&&!hunt.rolling&&!pinned(hunt))jumpVelocity=1.8;
    if(k==='shift'&&!ui.storeOpen())dodge();
-   if(k==='escape'){select(null);stationId=null;}
+   if(k==='escape'){if(selectedType||stationId!=null){select(null);stationId=null;}else if(selectedSlot!=null)pickSlot(null);}
    if(k==='b')ui.toggleMenu();
    if(k==='g')ui.toggleRobots();
    if(k==='i')ui.toggleStock();

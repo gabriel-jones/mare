@@ -9,6 +9,8 @@ const lined = (shapes, colour, w = 2, ink = true) => `<g fill="none" stroke-line
 const brackets = '<path d="M7 12V7h5M20 7h5v5M25 20v5h-5M12 25H7v-5"/>';
 const fingers = '<rect x="9" y="8.5" width="3.6" height="10" rx="1.8"/><rect x="12.7" y="6" width="3.6" height="12" rx="1.8"/><rect x="16.4" y="6.5" width="3.6" height="12" rx="1.8"/><rect x="20.1" y="9" width="3.4" height="10" rx="1.7"/>';
 const palm = '<rect x="9" y="14" width="14.5" height="12.5" rx="4.5"/>';
+const teeth = Array.from({ length: 8 }, (_, i) => `<rect x="14" y="4.5" width="4" height="5" rx=".8" transform="rotate(${i * 45} 16 16)"/>`).join('');
+const LEAF = '#9fd39b';
 
 export const CURSOR_ART = {
   // The everyday pointer: a pale arrow, its tip touched with amber.
@@ -24,6 +26,12 @@ export const CURSOR_ART = {
   dismantle: { at: [4, 4], fallback: 'crosshair', svg: lined('<path d="M7 7 23.5 23.5q2.4 2.6-.2 4.6"/>', RED, 3) + lined('<path d="M8.5 8.5 3.5 6.5M8.5 8.5 6.5 3.5"/>', RED, 2.2) },
   // Staking a claim: the flag's foot is the point.
   mine: { at: [7, 28], fallback: 'crosshair', svg: filled('<path d="M8 5.5 25 10 8 14.5z"/>', AMBER, 2.6) + lined('<path d="M7 28V4.5"/>', SUIT, 2) },
+  // A workstation: a cog, its hub lit amber.
+  craft: { at: [16, 16], fallback: 'pointer', svg: filled(teeth + '<circle cx="16" cy="16" r="8.2"/>', SUIT) + filled('<circle cx="16" cy="16" r="3"/>', AMBER, 0) },
+  // A ripe plot: a sickle, cutting at the blade's tip.
+  harvest: { at: [25, 7], fallback: 'pointer', svg: filled('<path d="M10.5 22.5C7 13 14.5 5 25.5 6.5 17.5 8.5 12.8 13.6 13.6 21.6z"/>', AMBER, 2.6) + lined('<path d="M11.8 22.2 5.5 28.5"/>', SUIT, 3.2) },
+  // A plot still growing: a sprout; clicking chooses what the bed grows.
+  plant: { at: [16, 27], fallback: 'pointer', svg: lined('<path d="M16 27.5V14"/>', SUIT, 2.2) + filled('<path d="M16 17.5C11 18.5 7 15 7 9.5 12.5 9.5 16 12.5 16 17.5zM16 14.5C16.5 9.5 20 6 25.5 6.5 25.5 12 21.5 15 16 14.5z"/>', LEAF, 2.6) + lined('<path d="M11 27.5h10"/>', AMBER, 2) },
   // Suit gloves for the pack and crates: open to pick up, closed while carrying.
   grab: { at: [16, 14], fallback: 'grab', svg: filled(fingers + palm + '<rect x="4.8" y="15.5" width="3.6" height="9" rx="1.8" transform="rotate(-32 6.6 20)"/>', SUIT) + lined('<path d="M10 25.5h12"/>', AMBER, 2) },
   grabbing: { at: [16, 14], fallback: 'grabbing', svg: filled('<rect x="8.5" y="10" width="15.5" height="16" rx="5"/><circle cx="10.9" cy="11.4" r="2.3"/><circle cx="14.6" cy="10.6" r="2.3"/><circle cx="18.3" cy="10.6" r="2.3"/><circle cx="21.8" cy="11.4" r="2.2"/>', SUIT) + lined('<path d="M12.7 12.4v3M16.4 12v3M20 12.4v3"/>', '#b9b4a8', .9, false) + lined('<path d="M10 25.5h12"/>', AMBER, 2) },
@@ -36,7 +44,7 @@ export const cursorCSS = name => { const c = CURSOR_ART[name]; return `${url(c.s
 export function installCursors() {
   if (document.getElementById('game-cursors')) return;
   const style = document.createElement('style'); style.id = 'game-cursors';
-  style.textContent = ['explore', 'build', 'blocked', 'far', 'construct', 'dismantle', 'mine'].map(n => `#game[data-cursor=${n}]{cursor:${cursorCSS(n)}}`).join('\n')
+  style.textContent = ['explore', 'build', 'blocked', 'far', 'construct', 'dismantle', 'mine', 'craft', 'harvest', 'plant'].map(n => `#game[data-cursor=${n}]{cursor:${cursorCSS(n)}}`).join('\n')
     + `\n#game[data-cursor=none]{cursor:none}`
     + `\n.game-ui .slot:has(.slot-icon img){cursor:${cursorCSS('grab')}}`
     + `\n.game-ui.slot-dragging,.game-ui.slot-dragging *{cursor:${cursorCSS('grabbing')}!important}`;
