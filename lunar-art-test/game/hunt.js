@@ -91,6 +91,8 @@ export function stepHunt(hunt,state,dt,rng=Math.random){
   if(hunt.key!==null)Object.assign(hunt,createHunt(),{events:hunt.events,trigger:hunt.trigger});
   const brood=state.brood??[];
   hunt.clock+=dt;stepFlame(hunt,state,null,brood,dt,rng);land(hunt,state,null,brood,dt,rng);
+  // On the surface the caller moves the player by `dash`, through the surface's own collision.
+  const dash=stepDodge(hunt.dodge,dt);hunt.rolling=dash.rolling;hunt.dash=dash.rolling?dash:null;
   return;
  }
  const zone=p.zone??0,key=`${p.cave}:${zone}`,cave=caveLayout(state.seed,p.cave,zone);
@@ -222,7 +224,7 @@ export function fire(hunt,state){
 export function release(hunt){hunt.trigger=false;}
 /** Roll toward (dx, dz) in cave space. Not while held. */
 export function roll(hunt,state,dx,dz){
- if(state.player.cave==null||pinned(hunt))return false;
+ if(pinned(hunt))return false;
  if(!startDodge(hunt.dodge,dx,dz))return false;
  hunt.events.push({type:'roll'});return true;
 }

@@ -27,6 +27,7 @@ import { createGooView } from './goo-view.js';
 import { FLARE } from './peril.js';
 import { GOO } from './goo.js';
 import { beltSlopes } from './belt-slope.js';
+import { DODGE } from './crawler.js';
 import { BIO, THERMAL } from './power.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createLightBudget, createAdaptiveResolution, trimShadows } from './render-budget.js';
@@ -438,7 +439,7 @@ export async function createWorld(canvas, initialState) {
     if(suitUnderground!==underground){suitMaterials.forEach(({material,color,environment})=>{material.color.copy(color).multiplyScalar(underground?.3:1);material.envMapIntensity=underground?.05:environment;});suitUnderground=underground;}
     const hunting=hunt&&combat&&(underground?!!caveView:hunt.drawn);
     if(hunting)combat.enter(underground?caveView:surfaceSpace,state);else combat?.leave();
-    actor?.update(hunting?combat.pose(state,renderPose,hunt,dt):renderPose,dt);
+    actor?.update(hunting?combat.pose(state,renderPose,hunt,dt):renderPose.animation==='roll'?{...renderPose,rate:actor.duration('roll')/DODGE.time}:renderPose,dt);
     if(hunting)combat.after(state,hunt,dt);
     if(canvas.dataset.animation!==renderPose.animation)canvas.dataset.animation=renderPose.animation||'idle';
     const ids=new Set(state.buildings.map(b=>b.id));for(const [id,o] of structures)if(!ids.has(id)){buildFx.clear(o);scene.remove(o.root,o.ports);o.ownedMaterials?.forEach(m=>m.dispose());o.tread?.dispose();structures.delete(id);}

@@ -279,6 +279,7 @@ export function createUI(root, callbacks = {}) {
     toggleMenu() { setOpen(menu.hidden); },
     toggleRobots() { setRobots(robotsPanel.hidden); },
     robotsOpen: () => !robotsPanel.hidden,
+    storeOpen: () => storeOpen,
     toggleStock() { setStore(!(storeOpen && crateId == null)); },
     openCrate(id) { setStore(true, id); },
     closeStore() { setStore(false); },
@@ -316,7 +317,7 @@ export function createUI(root, callbacks = {}) {
         el.querySelector('.slot-icon').innerHTML = slot ? `<img src="${ITEM_ICON_URLS[slot.item]}" width="256" height="256" alt="" aria-hidden="true" draggable="false">` : '';
         el.querySelector('strong').textContent = slot && slot.count > 1 ? slot.count : '';
         el.dataset.item = slot?.item ?? '';
-        el.title = slot ? `${ITEM_INFO[slot.item].name} × ${slot.count}${ITEM_INFO[slot.item].food ? ' · F to eat' : ''}` : 'Empty';
+        el.title = slot ? `${ITEM_INFO[slot.item].name} × ${slot.count}${ITEM_INFO[slot.item].food ? ' · click to eat' : slot.item === 'flare' ? ' · click to throw' : ''}` : 'Empty';
         el.setAttribute('aria-label', `Slot ${slotKey(i)}: ${el.title}`);
       });
       tools.hidden = !selected; label.textContent = selected ? TOOLS[selected].name : '';
@@ -325,16 +326,18 @@ export function createUI(root, callbacks = {}) {
       reasonLabel.textContent = invalid ? view.placementReason : ''; reasonLabel.hidden = !invalid;
       renderStation(state, selected ? null : view.station);
       renderBuffs(state);
-      const held = state.inventory[view.foodSlot ?? view.selectedSlot], edible = ITEM_INFO[held?.item]?.food && satiety < 100;
+      const inHand = state.inventory[view.selectedSlot], held = state.inventory[view.foodSlot ?? view.selectedSlot], edible = ITEM_INFO[held?.item]?.food && satiety < 100;
+      // Items are used by clicking with them in hand; the hint names the slot key when they're elsewhere.
+      const use = (item, verb) => inHand?.item === item ? `<kbd>Click</kbd> ${verb}` : `<kbd>${slotKey(state.inventory.findIndex(s => s?.item === item))}</kbd> ${verb}`;
       const lines = [];
       if (view.missionUse) lines.push(`<kbd>E</kbd> ${view.missionUse.verb}${view.missionUse.hold && view.missionUse.progress > 0 ? ` <span class="hint-progress"><i style="transform:scaleX(${view.missionUse.progress})"></i></span>` : ''}`);
       else if (view.use && !view.nearbyBuilding) lines.push(`<kbd>E</kbd> ${view.use.verb}`);
       if (state.player.cave != null || infested(state) || view.night) {
         const flares = count(state.inventory, 'flare');
-        if (flares) lines.push(`<kbd>Q</kbd> Throw flare · ${flares}`);
+        if (flares) lines.push(`${use('flare', 'Throw flare')} · ${flares}`);
         else if (available(state, 'metal') >= 2) lines.push('<kbd>X</kbd> Make 3 flares · 2 metal');
       }
-      if (edible && (status.label || satiety < 70)) lines.push(`<kbd>F</kbd> Eat ${RECIPES[held.item] ? ITEM_INFO[held.item].name.toLowerCase() : `raw ${ITEM_INFO[held.item].name.toLowerCase()}`}`);
+      if (edible && (status.label || satiety < 70)) lines.push(`${use(held.item, 'Eat')} ${RECIPES[held.item] ? ITEM_INFO[held.item].name.toLowerCase() : `raw ${ITEM_INFO[held.item].name.toLowerCase()}`}`);
       const next = lines.join('<span class="hint-gap"></span>');
       if (next !== hintKey) { hintKey = next; hint.innerHTML = next; hint.hidden = !next; }
       for (const item of items) {

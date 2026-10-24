@@ -5,7 +5,7 @@ import { stepPeril, dropAction, recoverDrop, craftFlares, throwFlare, flareNow, 
 import { sampleAction, takeSample, stepBrood, vatAction } from './goo.js';
 import {DEFS,createState,validatePlacement,placeBlueprint,construct,tick,serialize,deserialize,cancelBlueprint,deconstruct,collectStorage,setMiningArea,miningAreaReason,removeMiningArea,assignRover,rotateBelt,playerObstructs,interact,removalCheck,PROCESSOR_LOCKED} from './sim.js';
 import {DIRS,ITEM_INFO,footprint} from './defs.js';
-import {movePlayer,nearestBlueprint,buildingCenter,resetLocomotion,interpolatePose,RUN_SPEED} from './controller.js';
+import {movePlayer,nudgePlayer,nearestBlueprint,buildingCenter,resetLocomotion,interpolatePose,RUN_SPEED} from './controller.js';
 import {eat,lifeAction,setCrop,setRecipe} from './life.js';
 import {isGrower} from './farm.js';
 import {createWorld} from './world.js';
@@ -277,11 +277,12 @@ function fixedUpdate(dt){
  const dx=(keys.has('d')?1:0)-(keys.has('a')?1:0),dz=(keys.has('s')?1:0)-(keys.has('w')?1:0);
  previousPose={...state.player};
  const p=state.player,caving=p.cave!=null;
- if(caving&&(hunt.rolling||pinned(hunt))){p.vx=0;p.vz=0;p.speed=0;}
+ if(hunt.rolling||caving&&pinned(hunt)){p.vx=0;p.vz=0;p.speed=0;}
  else movePlayer(state,dx,dz,dt,DEFS);
  hunt.drawn=drawn();if(!hunt.drawn)release(hunt);
  if(hunt.drawn&&aimClient&&!pinned(hunt)){const a=world.aim(aimClient.x,aimClient.y);if(a&&Math.hypot(a.x-p.x,a.z-p.z)>.3)p.facing=Math.atan2(a.x-p.x,a.z-p.z);}
  stepHunt(hunt,state,dt);
+ if(!caving&&hunt.dash)nudgePlayer(state,hunt.dash.x,hunt.dash.z,DEFS);
  if(!caving&&state.brood?.length){
   const fires=(state.flares??[]).filter(f=>f.cave==null).map(f=>({f,n:flareNow(f,p)})).filter(({n})=>n.stage==='down'&&n.lit>0).map(({n})=>({x:n.x,z:n.z,r:FLARE.radius*n.lit}));
   if(hunt.flame)fires.push(...hunt.flame.points);
@@ -310,18 +311,28 @@ function fixedUpdate(dt){
   if(b){const center=buildingCenter(b,DEFS),target=Math.atan2(center.x-state.player.x,center.z-state.player.z),delta=Math.atan2(Math.sin(target-state.player.facing),Math.cos(target-state.player.facing));state.player.facing+=delta*(1-Math.exp(-dt/.065));}
  }
  state.player.grounded=!(state.player.y>0||jumpVelocity>0);
- state.player.animation=!state.player.grounded?'jump':state.player.speed>.1?'run':constructing?'build':'idle';
+ state.player.animation=hunt.rolling?'roll':!state.player.grounded?'jump':state.player.speed>.1?'run':constructing?'build':'idle';
  tick(state,dt*speed);
 }
-/** Underground controls: Space rolls, Shift jumps, E breaks a grab, R reloads. True when handled. */
+/** Rolls the way the player is steering, or the way they face. Same everywhere: Space jumps, Shift rolls. */
+function dodge(){
+ const p=state.player;if(p.y>0)return;
+ const dx=(keys.has('d')?1:0)-(keys.has('a')?1:0),dz=(keys.has('s')?1:0)-(keys.has('w')?1:0);
+ let way={x:(dx+dz)*Math.SQRT1_2,z:(-dx+dz)*Math.SQRT1_2};
+ if(!dx&&!dz)way={x:Math.sin(p.facing),z:Math.cos(p.facing)};
+ else if(p.cave!=null)way=worldVectorToCave(state.seed,p.cave,way.x,way.z);
+ // Holstered on the surface there is no combat view to play the roll event; the run pose plays it instead.
+ if(roll(hunt,state,way.x,way.z)&&!drawn())hunt.events.pop();
+}
+/** Thrown flares, food and medkits are used by clicking with them in hand. True when the click was used. */
+function useHeld(){
+ const item=state.inventory[selectedSlot]?.item;
+ if(item==='flare'){const r=throwFlare(state,aimClient&&world.aim(aimClient.x,aimClient.y)).reason;if(r)notify(r);return true;}
+ if(ITEM_INFO[item]?.food||ITEM_INFO[item]?.heal){notify(eat(state,selectedSlot).reason);return true;}
+ return false;
+}
+/** Underground controls: E breaks a grab, R reloads. True when handled. */
 function caveKey(k){
- const p=state.player;
- if(k===' '){
-  const dx=(keys.has('d')?1:0)-(keys.has('a')?1:0),dz=(keys.has('s')?1:0)-(keys.has('w')?1:0);
-  const way=dx||dz?worldVectorToCave(state.seed,p.cave,(dx+dz)*Math.SQRT1_2,(-dx+dz)*Math.SQRT1_2):{x:Math.sin(p.facing),z:Math.cos(p.facing)};
-  if(!(p.y>0))roll(hunt,state,way.x,way.z);return true;
- }
- if(k==='shift'){if(!(p.y>0)&&!hunt.rolling&&!pinned(hunt))jumpVelocity=1.8;return true;}
  if(k==='e'&&grabbedBy(hunt)){wrench(hunt,state);return true;}
  if(k==='r'){const r=reload(state);if(r.reason)notify(r.reason);return true;}
  return false;
@@ -344,6 +355,7 @@ async function start(){
    if(e.button===2){select(null);return;}
    if(e.button!==0)return;
    aimClient={x:e.clientX,y:e.clientY};
+   if(!selectedType&&useHeld())return;
    if(drawn()){const r=fire(hunt,state);if(r.reason)notify(r.reason);try{canvas.setPointerCapture(e.pointerId);}catch{}return;}
    point(e);
    if(selectedType==='conveyor'&&hover){beltPath=[{x:hover.x,z:hover.z}];try{canvas.setPointerCapture(e.pointerId);}catch{}refreshGhost();}
@@ -366,10 +378,11 @@ async function start(){
    if(k==='t'&&!e.repeat){e.preventDefault();orbit.close();research.toggle();return;}
    if(orbit.open){if(k==='escape')orbit.close();return;}
    if(research.open){if(k==='escape')research.close();return;}
-   if(['w','a','s','d','e','f','q','x',' ','r','b','g','i','escape'].includes(k)||SHORTCUTS[k]||/^[0-9]$/.test(k))e.preventDefault();
+   if(['w','a','s','d','e','x',' ','r','b','g','i','escape'].includes(k)||SHORTCUTS[k]||/^[0-9]$/.test(k))e.preventDefault();
    keys.add(k);if(e.repeat)return;
    if(state.player.cave!=null&&caveKey(k))return;
-   if(k===' '&&!(state.player.y>0)){jumpVelocity=1.8;}
+   if(k===' '&&!(state.player.y>0)&&!hunt.rolling&&!pinned(hunt))jumpVelocity=1.8;
+   if(k==='shift'&&!ui.storeOpen())dodge();
    if(k==='escape')select(null);
    if(k==='b')ui.toggleMenu();
    if(k==='g')ui.toggleRobots();
@@ -380,8 +393,6 @@ async function start(){
    if(mission&&!mission.hold)notify(installCore(state).reason);
    else if(ship&&!ship.hold)notify(loadSatellite(state).reason);
    else if(k==='e'&&!mission&&!ship&&!nearby())useNearby();
-   if(k==='f')eatSelected();
-   if(k==='q'){const r=throwFlare(state,aimClient&&world.aim(aimClient.x,aimClient.y)).reason;if(r)notify(r);}
    if(k==='x')notify(craftFlares(state).reason);
    if(k==='delete'||k==='backspace')cancel();
    if(/^[0-9]$/.test(k))pickSlot((Number(k)+9)%10);
@@ -407,7 +418,7 @@ async function start(){
    const cursor=cursorMode();if(canvas.dataset.cursor!==cursor)canvas.dataset.cursor=cursor;world.setLogistics(showLogistics());world.setZones(selectedType==='mine'||!!ui?.robotsOpen?.());
    reticle.update(cursor==='none'&&pointerIn?reticleState():null,dt);
    if(state.ship.status!==shipStatus){if(state.ship.status==='orbit'&&shipStatus==='ascent'){notify(`Satellites deployed. ${state.satellites} in orbit.`);orbit.show();}if(state.ship.status==='pad'&&shipStatus==='descent')notify('The Starship is back on the pad.');shipStatus=state.ship.status;}
-   if((state.goo?.breaches??0)>breaches){breaches=state.goo.breaches;notify('Containment breach! The goo vat lost power.');ui.say('The vat has breached. Goo is spreading through the base and something hatched. Flares burn both: press X for flares, Q to throw.');}
+   if((state.goo?.breaches??0)>breaches){breaches=state.goo.breaches;notify('Containment breach! The goo vat lost power.');ui.say('The vat has breached. Goo is spreading through the base and something hatched. Flares burn both: press X for flares, then click with them in hand to throw.');}
    orbit.update(state,dt);research.update(state);
    if(ui.crateId!=null){const b=state.buildings.find(o=>o.id===ui.crateId);if(!b||state.player.cave!=null||crateDistance(state,b)>3.6)ui.closeStore();}
    if(uiClock>.1){ui.update(state,view());refreshGhost();uiClock=0;}

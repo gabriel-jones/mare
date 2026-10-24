@@ -19,6 +19,26 @@ export function interpolatePose(previous,current,alpha){
  const angle=Math.atan2(Math.sin(current.facing-previous.facing),Math.cos(current.facing-previous.facing));
  return {...current,x:previous.x+(current.x-previous.x)*alpha,y:previous.y+(current.y-previous.y)*alpha,z:previous.z+(current.z-previous.z)*alpha,facing:previous.facing+angle*alpha};
 }
+export function playerBlocked(state,x,z,defs,ground=true){
+ const p=state.player;
+ if(p.cave!=null)return !caveWalkable(state.seed,p.cave,x,z,.3,p.zone??0)||silkBlocks(state,x,z,.3);
+ if(Math.abs(x)>125||Math.abs(z)>125)return true;
+ if(ground&&terrainBlocked(state.seed,x,z,state.buildings,defs))return true;
+ // Landing ship itself is solid; the rest of the pad is walkable.
+ if(Math.hypot(x,z+10)<1.9)return true;
+ if(wallBlocks(habitatLayout(state.buildings),x,z,PLAYER_RADIUS))return true;
+ for(const b of state.buildings){
+  const d=defs[b.type];if(!b.built||!d||d.walkable)continue;
+  const w=b.rotation%2?d.d:d.w,h=b.rotation%2?d.w:d.d,r=PLAYER_RADIUS-(d.inset??0);
+  if(x>b.x*2-1-r&&x<(b.x+w-1)*2+1+r&&z>b.z*2-1-r&&z<(b.z+h-1)*2+1+r)return true;
+ }return false;
+}
+/** Shoves the player by (dx, dz) on the surface, one axis at a time, stopping at anything solid. Used by the roll. */
+export function nudgePlayer(state,dx,dz,defs){
+ const p=state.player,ground=!terrainBlocked(state.seed,p.x,p.z,state.buildings,defs);
+ if(!playerBlocked(state,p.x+dx,p.z,defs,ground))p.x+=dx;
+ if(!playerBlocked(state,p.x,p.z+dz,defs,ground))p.z+=dz;
+}
 export function movePlayer(state,dx,dz,dt,defs){
  const p=state.player,step=Math.max(0,Math.min(dt,.05));
  const len=Math.hypot(dx,dz),speed=RUN_SPEED*hunger(p.satiety??100).speed*(buffed(p,'stamina')?BUFFS.stamina.speed:1);
@@ -29,19 +49,7 @@ export function movePlayer(state,dx,dz,dt,defs){
  const vx=p.vx??0,vz=p.vz??0,dvx=targetX-vx,dvz=targetZ-vz;
  const change=Math.hypot(dvx,dvz),limit=(len?45:54)*step,blend=change?Math.min(1,limit/change):1;
  p.vx=vx+dvx*blend;p.vz=vz+dvz*blend;
- const blocked=(x,z,ground=true)=>{
-  if(p.cave!=null)return !caveWalkable(state.seed,p.cave,x,z,.3,p.zone??0)||silkBlocks(state,x,z,.3);
-  if(Math.abs(x)>125||Math.abs(z)>125)return true;
-  if(ground&&terrainBlocked(state.seed,x,z,state.buildings,defs))return true;
-  // Landing ship itself is solid; the rest of the pad is walkable.
-  if(Math.hypot(x,z+10)<1.9)return true;
-  if(wallBlocks(habitatLayout(state.buildings),x,z,PLAYER_RADIUS))return true;
-  for(const b of state.buildings){
-   const d=defs[b.type];if(!b.built||!d||d.walkable)continue;
-   const w=b.rotation%2?d.d:d.w,h=b.rotation%2?d.w:d.d,r=PLAYER_RADIUS-(d.inset??0);
-   if(x>b.x*2-1-r&&x<(b.x+w-1)*2+1+r&&z>b.z*2-1-r&&z<(b.z+h-1)*2+1+r)return true;
-  }return false;
- };
+ const blocked=(x,z,ground=true)=>playerBlocked(state,x,z,defs,ground);
  // Resolve axes separately, clearing blocked velocity rather than accumulating it. Someone already standing on
  // ground too steep to walk ignores the ground until they're off it, so a cliff edge can never trap them.
  const ground=p.cave!=null||!terrainBlocked(state.seed,p.x,p.z,state.buildings,defs);
