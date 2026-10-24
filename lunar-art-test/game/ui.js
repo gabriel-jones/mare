@@ -54,9 +54,11 @@ export function createUI(root, callbacks = {}) {
       <div class="work-order">
         <img class="order-art" alt="" aria-hidden="true" draggable="false">
         <div class="order-body">
+          <small class="order-label">Objective</small>
           <strong class="objective-task"></strong>
-          <span class="order-foot"><span class="pips"></span><small class="objective-distance"></small></span>
+          <span class="pips"></span>
         </div>
+        <small class="objective-distance"></small>
       </div>
       <div class="comms">
         <button type="button" class="comms-unit" data-action="replay" title="Ship AI · replay message">${pic('icons/comms')}</button>
