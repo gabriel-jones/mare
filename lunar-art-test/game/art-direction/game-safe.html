@@ -13,7 +13,7 @@
 (()=>{const real=window.localStorage,mem=new Map();for(let i=0;i<real.length;i++){const k=real.key(i);mem.set(k,real.getItem(k));}
  const store={getItem:k=>mem.has(k)?mem.get(k):null,setItem:(k,v)=>{mem.set(k,String(v));},removeItem:k=>{mem.delete(k);},clear:()=>mem.clear(),key:i=>[...mem.keys()][i]??null,get length(){return mem.size;}};
  Object.defineProperty(window,'localStorage',{value:store,configurable:true});
- window.sandboxed=window.localStorage===store;window.bootErrors=[];
+ window.sandboxed=window.localStorage===store;window.bootErrors=[];window.debugGame=true;
  addEventListener('error',e=>bootErrors.push(String(e.error?.stack||e.message)));addEventListener('unhandledrejection',e=>bootErrors.push(String(e.reason?.stack||e.reason)));
  const err=console.error;console.error=(...a)=>{bootErrors.push(a.map(String).join(' ').slice(0,800));err(...a);};})();
 </script>
