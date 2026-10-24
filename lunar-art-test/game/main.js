@@ -18,7 +18,7 @@ import {createResearchView} from './research-view.js';
 import {createHunt,stepHunt,fire,release,roll,wrench,pinned,grabbedBy,rouse} from './hunt.js';
 import {isWeapon,holdWeapon,reload,craft,heldWeapon,armsOf,WEAPONS} from './arms.js';
 import {installCursors,createReticle} from './cursors.js';
-import {crateDistance,moveStack,storeAll,storeSlot,takeSlot,crates as storageCrates,crateCentre,BASE_REACH} from './storage.js';
+import {crateDistance,moveStack,storeAll,storeSlot,takeSlot,crates as storageCrates,crateCentre,BASE_REACH,available,baseCount,inReach} from './storage.js';
 import {worldVectorToCave} from './cave-space.js';
 import {count} from './inventory.js';
 
@@ -93,11 +93,21 @@ function nearbyStation(){
  }
  return best;
 }
+/** The unbuilt blueprint under the cursor, with what each material still owes against what can be reached. */
+function blueprintTip(){
+ if(selectedType||!hover||!pointerIn||!aimClient||state.player.cave!=null)return null;
+ const b=state.buildings.find(b=>!b.built&&footprint(b.type,b.x,b.z,b.rotation).some(c=>c.x===hover.x&&c.z===hover.z));if(!b)return null;
+ const reach=inReach(state),items=Object.entries(DEFS[b.type].cost??{}).map(([item,total])=>{
+  const owed=b.paid?Math.max(0,total-(b.paid[item]??0)):0,have=available(state,item);
+  return {item,total,owed,have,short:owed>have,away:reach?0:baseCount(state,item)};
+ });
+ return {id:b.id,type:b.type,progress:b.progress,items,x:aimClient.x,y:aimClient.y};
+}
 function view(){
  const nearest=state.player.cave==null?nearestBlueprint(state,DEFS,100):null,c=nearest?buildingCenter(nearest,DEFS):null;
  const guidance=nearest?`${DEFS[nearest.type].name} blueprint: ${Math.ceil(Math.hypot(c.x-state.player.x,c.z-state.player.z))}m away. Walk within 5m, then hold E.`:null;
  const goal=objective(state),distance=goal.target&&state.player.cave==null?Math.round(Math.hypot(goal.target.x-state.player.x,goal.target.z-state.player.z)):null;
- return {objective:{...goal,distance},missionUse:missionAction(state)??shipAction(state),locked:{...(processorUnlocked(state)?{}:{processor:PROCESSOR_LOCKED}),...Object.fromEntries(Object.keys(DEFS).map(type=>[type,lockedReason(state,type)]).filter(([,reason])=>reason))},selectedType,rotation,placementReason,constructionReason,nearbyBuilding:nearby(),use:nearbyUse(),station:nearbyStation(),selectedSlot,foodSlot:foodSlot(),guidance,constructing,night:Math.sin(state.time/240*Math.PI*2+Math.PI/3)<=0,paused:false,saveStatus:saveStatus+(speed>1?' · Time ×12':''),timeScale:speed};
+ return {objective:{...goal,distance},missionUse:missionAction(state)??shipAction(state),locked:{...(processorUnlocked(state)?{}:{processor:PROCESSOR_LOCKED}),...Object.fromEntries(Object.keys(DEFS).map(type=>[type,lockedReason(state,type)]).filter(([,reason])=>reason))},selectedType,rotation,placementReason,constructionReason,blueprintTip:blueprintTip(),nearbyBuilding:nearby(),use:nearbyUse(),station:nearbyStation(),selectedSlot,foodSlot:foodSlot(),guidance,constructing,night:Math.sin(state.time/240*Math.PI*2+Math.PI/3)<=0,paused:false,saveStatus:saveStatus+(speed>1?' · Time ×12':''),timeScale:speed};
 }
 function point(event){hover=world?.pick(event.clientX,event.clientY);canvas.dataset.hoverCell=hover?`${hover.x},${hover.z}`:'';if(!hover){world?.clearGhost();return;}if(beltPath)extendBeltPath(hover);if(paintPath)extendPaintPath(hover);targetId=hover.buildingId??null;canvas.dataset.targetId=String(targetId??'');if(erasing)eraseAt();refreshGhost();}
 const MAX_PAINT=120;

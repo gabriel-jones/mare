@@ -69,6 +69,7 @@ export function createUI(root, callbacks = {}) {
     <div class="construction">
       <div class="station" aria-label="Station" hidden></div>
       <div class="context-hint" hidden></div>
+      <div class="blueprint-tip" role="tooltip" hidden></div>
       <div id="build-menu" class="build-menu" aria-label="Construction" hidden>
         ${GROUPS.map(([title, types]) => `<h3>${title}</h3>${types.map(type => { const def = TOOLS[type]; return `<button type="button" class="build-item" data-build="${type}" aria-pressed="false" title="${def.description}${def.cost ? ` · ${costText(def)}` : ''}">${pic(`build/${type}`, 'build-art')}<span>${def.name}</span><kbd>${def.key?.toUpperCase() ?? ''}</kbd></button>`; }).join('')}`).join('')}
       </div>
@@ -100,7 +101,7 @@ export function createUI(root, callbacks = {}) {
     </section>
     <div class="notification" role="status" aria-live="polite" hidden></div>`;
   const fields = Object.fromEntries([...root.querySelectorAll('[data-value]')].map(el => [el.dataset.value, el]));
-  const menu = root.querySelector('.build-menu'), toggle = root.querySelector('.build-toggle'), tools = root.querySelector('.selection-tools'), label = root.querySelector('.selected-name'), reasonLabel = root.querySelector('.selected-reason'), notice = root.querySelector('.notification'), hint = root.querySelector('.context-hint');
+  const menu = root.querySelector('.build-menu'), toggle = root.querySelector('.build-toggle'), tools = root.querySelector('.selection-tools'), label = root.querySelector('.selected-name'), reasonLabel = root.querySelector('.selected-reason'), blueprintTip = root.querySelector('.blueprint-tip'), notice = root.querySelector('.notification'), hint = root.querySelector('.context-hint'); let tipKey = '';
   const rotateButton = root.querySelector('[data-action=rotate]'), foodMeter = root.querySelector('.tube i'), food = root.querySelector('.food-resource'), plates = [...root.querySelectorAll('.plates i')], health = root.querySelector('.health-resource');
   const items = [...root.querySelectorAll('[data-build]')], slots = [...root.querySelectorAll('[data-slot]')];
   const panel = root.querySelector('.objective'), panelMessage = panel.querySelector('.objective-message'), panelTask = panel.querySelector('.objective-task'), panelStep = panel.querySelector('.objective-step'), panelDistance = panel.querySelector('.objective-distance'), orderImage = panel.querySelector('.order-art'), pips = panel.querySelector('.pips');
@@ -324,6 +325,21 @@ export function createUI(root, callbacks = {}) {
       rotateButton.hidden = selected === 'mine' || selected === 'dismantle' || !!TOOLS[selected]?.paint;
       const invalid = selected && view.placementReason && !/^(Click|Drag)|release to place/.test(view.placementReason);
       reasonLabel.textContent = invalid ? view.placementReason : ''; reasonLabel.hidden = !invalid;
+      const tip = view.blueprintTip;
+      blueprintTip.hidden = !tip;
+      if (tip) {
+        const key = JSON.stringify([tip.id, Math.floor(tip.progress * 100), tip.items]);
+        if (key !== tipKey) {
+          tipKey = key;
+          const name = item => ITEM_INFO[item]?.name ?? item, short = tip.items.filter(i => i.short), away = short.some(i => i.have + i.away >= i.owed);
+          const rows = tip.items.map(i => `<li class="${i.owed === 0 ? 'done' : i.short ? 'short' : 'ok'}"><img src="${ITEM_ICON_URLS[i.item]}" alt="" aria-hidden="true" draggable="false"><span>${name(i.item)}</span><b>${i.owed === 0 ? 'Supplied' : `${number(i.owed)} more`}</b><small>${i.owed === 0 ? '' : `${number(i.have)} on hand${i.away ? ` · ${number(i.away)} in crates out of range` : ''}`}</small></li>`).join('');
+          const foot = short.length ? `Missing ${short.map(i => name(i.item).toLowerCase()).join(', ')}${away ? '. Carry it from the crates, or build within their range.' : '.'}` : 'Hold <kbd>E</kbd> within 5 m to build.';
+          blueprintTip.innerHTML = `<header><strong>${DEFS[tip.type].name}</strong><span>Blueprint · ${Math.floor(tip.progress * 100)}%</span></header><ul>${rows}</ul><p class="${short.length ? 'missing' : ''}">${foot}</p>`;
+        }
+        const w = blueprintTip.offsetWidth, h = blueprintTip.offsetHeight;
+        const x = tip.x + 20 + w > innerWidth - 8 ? tip.x - 14 - w : tip.x + 20, y = tip.y + 20 + h > innerHeight - 8 ? tip.y - 14 - h : tip.y + 20;
+        blueprintTip.style.transform = `translate(${Math.round(x)}px,${Math.round(y)}px)`;
+      } else tipKey = '';
       renderStation(state, selected ? null : view.station);
       renderBuffs(state);
       const inHand = state.inventory[view.selectedSlot], held = state.inventory[view.foodSlot ?? view.selectedSlot], edible = ITEM_INFO[held?.item]?.food && satiety < 100;
