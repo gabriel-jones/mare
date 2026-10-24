@@ -81,7 +81,6 @@ body[data-hurt=true]::after { content:'';position:fixed;inset:0;pointer-events:n
 .game-ui .slot { touch-action:none;user-select:none; }
 .game-ui .slot.dragging { opacity:.35; }
 .game-ui .slot.drop-target { border-color:var(--amber);box-shadow:0 0 0 1px var(--amber) inset,0 0 12px #f0b45a55; }
-.game-ui.slot-dragging, .game-ui.slot-dragging * { cursor:grabbing !important; }
 .slot-ghost { position:fixed;left:0;top:0;width:48px;height:48px;z-index:50;pointer-events:none;filter:drop-shadow(0 4px 8px #000a); }
 .slot-ghost img { width:100%;height:100%;object-fit:contain; }
 .slot-ghost strong { position:absolute;right:2px;bottom:0;font-size:12px;font-weight:600;color:#f2f2e9;text-shadow:0 1px 2px #000,0 0 3px #000; }
@@ -289,3 +288,23 @@ body[data-research=open] .game-ui, body[data-research=open] .building-status-lay
 .ledger-moving span { color:#9fd8c0; }
 .ledger-flow { margin:8px 2px 0;color:#7d888d;font-size:10.5px;line-height:1.45; }
 .game-ui .stock-toggle[aria-expanded=true] { border-color:var(--amber); }
+.reticle { position:fixed;left:0;top:0;width:80px;height:80px;z-index:4;pointer-events:none;overflow:visible;display:none;transition:opacity .15s; }
+.reticle.shown { display:block; }
+.reticle * { fill:none;stroke-linecap:round; }
+.reticle .under,.reticle .flame-under { stroke:#0b0f14d0;stroke-width:4.4; }
+.reticle .tick { stroke:#edbd79;stroke-width:2; }
+.reticle .dot-under { fill:#0b0f14d0; }
+.reticle .dot { fill:#f2efe6; }
+.reticle .seg { stroke:#f2efe62e;stroke-width:3; }
+.reticle .seg.on { stroke:#edbd79d9; }
+.reticle .reload { stroke:#f2efe6;stroke-width:3;stroke-dasharray:0 1;transform:rotate(0deg);display:none; }
+.reticle.reloading .reload { display:block; }
+.reticle.reloading .ammo { opacity:.35; }
+.reticle.empty .tick,.reticle.empty .dot { stroke:#ff6a55;fill:#ff6a55; }
+.reticle .flame,.reticle .flame-under { display:none; }
+.reticle.flamer .flame,.reticle.flamer .flame-under { display:block; }
+.reticle.flamer .ticks { display:none; }
+.reticle .flame { stroke:#edbd79;stroke-width:2;stroke-dasharray:7 6.6;transition:stroke .12s; }
+.reticle.flamer .seg.on { stroke:#ff9a4a; }
+.reticle.spraying .flame { stroke:#ffb15a;stroke-width:2.6;stroke-dasharray:none;filter:drop-shadow(0 0 4px #ff7a2a) drop-shadow(0 0 9px #ff5a1a99); }
+.reticle.far { opacity:.42; }

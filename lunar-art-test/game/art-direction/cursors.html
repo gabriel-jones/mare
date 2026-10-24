@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Cursors</title>
+<link rel="stylesheet" href="../game.css">
+<style>
+body{margin:0;padding:28px;background:#11161c;color:#dce5e8;font:13px Inter,system-ui;overflow:auto}
+h2{font-size:13px;font-weight:600;color:#edbd79;margin:22px 0 10px}
+.row{display:flex;flex-wrap:wrap;gap:14px}
+.card{width:150px;border:1px solid #ffffff18;border-radius:6px;overflow:hidden;background:#161c23}
+.card .big{height:150px;display:grid;place-items:center;background:linear-gradient(135deg,#9a9a92 0 50%,#07090c 50%)}
+.card .big img{width:128px;height:128px;image-rendering:pixelated}
+.card .try{height:64px;display:grid;place-items:center;background:#6d6f6a;color:#111;font-size:11px}
+.card .try img{width:32px;height:32px}
+.card p{margin:6px 8px}
+.stage{position:relative;width:150px;height:150px;border:1px solid #ffffff18;border-radius:6px;background:radial-gradient(#5d5f5a,#26292b)}
+.stage .reticle{position:absolute;transform:translate(35px,35px)!important}
+.stage p{position:absolute;bottom:4px;left:8px;margin:0;font-size:11px}
+</style></head><body>
+<h2>Fixed cursors · 4× on light and dark ground, then actual size (hover the grey strip to try it)</h2>
+<div class="row" id="fixed"></div>
+<h2>Weapon reticle</h2>
+<div class="row" id="reticles"></div>
+<script type="module">
+import { CURSOR_ART, cursorCSS, createReticle } from '../cursors.js';
+const fixed = document.querySelector('#fixed');
+for (const [name, c] of Object.entries(CURSOR_ART)) {
+  const src = cursorCSS(name).match(/url\("(.*?)"\)/)[1];
+  fixed.insertAdjacentHTML('beforeend', `<div class="card"><div class="big"><img src="${src}"></div><div class="try" style="cursor:${cursorCSS(name)}"><img src="${src}"></div><p>${name} · point ${c.at.join(',')}</p></div>`);
+}
+const states = [
+  ['pistol, full', { weapon: 'pistol', magazine: 6, loaded: 6 }],
+  ['pistol, just fired', { weapon: 'pistol', magazine: 6, loaded: 4 }, 'kick'],
+  ['rifle, 7 left', { weapon: 'rifle', magazine: 12, loaded: 7 }],
+  ['rifle, reloading', { weapon: 'rifle', magazine: 12, loaded: 0, reload: .6 }],
+  ['rifle, empty', { weapon: 'rifle', magazine: 12, loaded: 0, reload: null }],
+  ['rifle, out of reach', { weapon: 'rifle', magazine: 12, loaded: 9, far: true }],
+  ['flamer, idle', { weapon: 'flamethrower', magazine: 100, loaded: 70 }],
+  ['flamer, spraying', { weapon: 'flamethrower', magazine: 100, loaded: 45, spraying: true }],
+];
+const host = document.querySelector('#reticles');
+for (const [label, s, kick] of states) {
+  const stage = document.createElement('div'); stage.className = 'stage'; stage.innerHTML = `<p>${label}</p>`; host.append(stage);
+  const r = createReticle(stage), base = { reload: null, ...s };
+  r.update(kick ? { ...base, loaded: base.loaded + 1 } : base, 0);
+  r.update(base, kick ? .02 : 0);
+}
+</script>
+</body></html>

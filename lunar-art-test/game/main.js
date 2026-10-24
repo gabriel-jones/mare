@@ -16,7 +16,8 @@ import {shipAction,holdLaunch,releaseLaunch,loadSatellite,recallShip,selectResea
 import {createOrbitView} from './orbit-view.js';
 import {createResearchView} from './research-view.js';
 import {createHunt,stepHunt,fire,release,roll,wrench,pinned,grabbedBy,rouse} from './hunt.js';
-import {isWeapon,holdWeapon,reload,craft} from './arms.js';
+import {isWeapon,holdWeapon,reload,craft,heldWeapon,armsOf,WEAPONS} from './arms.js';
+import {installCursors,createReticle} from './cursors.js';
 import {available,crateDistance,moveStack,storeAll,storeSlot,takeSlot} from './storage.js';
 import {worldVectorToCave} from './cave-space.js';
 
@@ -26,7 +27,7 @@ const KEY=new URLSearchParams(location.search).has('sandbox')?'lunar-frontier.sa
 const SHORTCUTS={...Object.fromEntries(Object.entries(DEFS).filter(([,def])=>def.key).map(([type,def])=>[def.key,type])),m:'mine',z:'dismantle'};
 const canvas=document.querySelector('#game'),boot=document.querySelector('#boot');
 let state=createState(),selectedType=null,rotation=0,world,ui,selectedSlot=0;
-let placementReason='',constructionReason='',hover=null,targetId=null,constructing=false,speed=1,saveStatus='Not saved',beltPath=null,paintPath=null,erasing=null;
+let placeOk=true,pointerIn=false,placementReason='',constructionReason='',hover=null,targetId=null,constructing=false,speed=1,saveStatus='Not saved',beltPath=null,paintPath=null,erasing=null;
 let orbit=null,research=null,shipStatus='pad';
 let jumpVelocity=0,accumulator=0,last=performance.now(),uiClock=0,autoClock=0,salvageReason='';
 const encounter=createEncounter();
@@ -130,6 +131,18 @@ function placePaint(){
  notify(placed?`${placed} ${DEFS[selectedType].name.toLowerCase()} square${placed>1?'s':''} · walk over and hold E to build`:reason);
  paintPath=null;refreshGhost();
 }
+/** Which pointer the game canvas shows: a tool's own, red when the cell under it won't take the action, or none
+ * when a weapon is up and the reticle takes over. */
+function cursorMode(){
+ if(drawn()&&heldWeapon(state))return 'none';
+ if(!selectedType||state.player.cave!=null)return 'explore';
+ const tool=selectedType==='dismantle'?'dismantle':selectedType==='mine'?'mine':'build';
+ return hover&&!placeOk?'blocked':tool;
+}
+function reticleState(){
+ const w=heldWeapon(state),a=armsOf(state),spec=WEAPONS[w],p=state.player,at=aimClient&&world.aim(aimClient.x,aimClient.y);
+ return {weapon:w,magazine:spec.magazine,loaded:a.loaded[w],reload:a.reloading>0?1-a.reloading/spec.reload:null,far:!!at&&Math.hypot(at.x-p.x,at.z-p.z)>spec.range,spraying:spec.stream&&hunt.trigger&&a.loaded[w]>0&&!a.reloading};
+}
 function useNearby(){
  const use=nearbyUse();
  if(use?.drop)notify(recoverDrop(state).reason);
@@ -184,6 +197,7 @@ function refreshGhost(){
  if(state.player.cave!=null||!selectedType||!hover){world?.clearGhost();return;}
  if(selectedType==='dismantle'){
   const b=state.buildings.find(b=>b.id===targetId);
+  placeOk=!b||!removalCheck(state,b.id);
   if(!b){placementReason='Click or drag over structures to dismantle them';world?.clearGhost();return;}
   const refused=removalCheck(state,b.id);
   placementReason=refused??`Click to dismantle ${DEFS[b.type].name.toLowerCase()}`;
@@ -191,20 +205,20 @@ function refreshGhost(){
  }
  if(selectedType==='mine'){
   const reason=miningAreaReason(state,hover.x,hover.z);
-  placementReason=reason??'Click to mark a mining zone';world?.setGhost('mine',hover.x,hover.z,0,!reason);return;
+  placeOk=!reason;placementReason=reason??'Click to mark a mining zone';world?.setGhost('mine',hover.x,hover.z,0,!reason);return;
  }
  if(selectedType==='conveyor'){
-  const line=beltLine(),blocked=line.find(c=>!c.valid);
+  const line=beltLine(),blocked=line.find(c=>!c.valid);placeOk=line.some(c=>c.valid);
   placementReason=!blocked?(beltPath?`${line.length} belt${line.length>1?'s':''} · release to place`:line[0]?.existing!=null?'Click to turn this belt, or drag a route':'Drag a route; it can turn corners'):line.some(c=>c.valid)?'Blocked cells are skipped':blocked.reason;
   world?.setGhost('conveyor',hover.x,hover.z,rotation,line.some(c=>c.valid),line);return;
  }
  if(DEFS[selectedType].paint){
-  const line=paintLine(),valid=line.filter(c=>c.valid).length,blocked=line.find(c=>!c.valid);
+  const line=paintLine(),valid=line.filter(c=>c.valid).length,blocked=line.find(c=>!c.valid);placeOk=valid>0;
   placementReason=paintPath?`${valid} square${valid===1?'':'s'}${blocked?` · ${line.length-valid} blocked`:''} · release to place`:blocked?blocked.reason:'Click or drag to paint squares';
   world?.setGhost(selectedType,hover.x,hover.z,0,valid>0,line);return;
  }
  const valid=validatePlacement(state,selectedType,hover.x,hover.z,rotation),underfoot=valid.ok&&!DEFS[selectedType].walkable&&playerObstructs(state,{type:selectedType,x:hover.x,z:hover.z,rotation,built:false});
- placementReason=underfoot?'Step out of the footprint before placing.':valid.ok?'Click to place blueprint':valid.reason;world?.setGhost(selectedType,hover.x,hover.z,rotation,valid.ok&&!underfoot);
+ placeOk=valid.ok&&!underfoot;placementReason=underfoot?'Step out of the footprint before placing.':valid.ok?'Click to place blueprint':valid.reason;world?.setGhost(selectedType,hover.x,hover.z,rotation,valid.ok&&!underfoot);
 }
 function placeBelts(){
  const line=beltLine();let placed=0,turned=0,reason='';
@@ -308,11 +322,13 @@ async function start(){
   try{const raw=localStorage.getItem(KEY);if(raw){state=deserialize(raw);resetPlayer();restored=true;saveStatus='Restored local save';}}catch(e){saveStatus='New colony · save unreadable';}
   ui=createUI(document.querySelector('#ui'),{onSelect:select,onAssign:(robot,area)=>{const r=assignRover(state,robot,area);if(!r.ok)notify(r.reason);},onRemoveZone:id=>notify(removeMiningArea(state,id).reason),onSlot:i=>{if(selectedSlot===i)eatSelected();pickSlot(i);},onRotate:()=>{rotation=(rotation+1)%4;refreshGhost();},onSave:save,onLoad:load,onReset:()=>{state=createState(Math.floor(Math.random()*999999));selectedType=null;resetPlayer();targetId=null;keys.clear();world?.clearGhost();save();notify('New lunar landing created.');},onStation:({id,crop,recipe,make})=>{const b=state.buildings.find(o=>o.id===id);if(!b)return;notify((make?craft(state,make):crop?setCrop(state,b,crop):setRecipe(state,b,recipe)).reason);canvas.focus({preventScroll:true});},onCancel:()=>select(null),onStore:(id,i,half)=>crateMove(id,b=>{const s=state.inventory[i];return storeSlot(state,i,b,half&&s?Math.ceil(s.count/2):Infinity);}),onTake:(id,i,half)=>crateMove(id,b=>{const s=b.slots[i];return takeSlot(state,b,i,half&&s?Math.ceil(s.count/2):Infinity);}),onMoveSlot:({crate,from,to,half})=>{if(from.crate||to.crate){crateMove(crate,b=>moveStack(state,b,from,to,half));return;}const r=moveStack(state,null,from,to,half);if(!r.ok)notify(r.reason);else if(to.i!=null&&from.i===selectedSlot){pickSlot(to.i);return;}ui.update(state,view());canvas.focus({preventScroll:true});},onStoreAll:id=>crateMove(id,b=>storeAll(state,b),true),onTakeAll:id=>crateMove(id,b=>collectStorage(state,b.id),true),onCloseStore:()=>canvas.focus({preventScroll:true}),onOrbit:()=>{research?.close();orbit?.toggle();},onResearch:()=>{orbit?.close();research?.toggle();},onTimeToggle:()=>{speed=speed===1?12:1;notify(speed===1?'Normal day/night speed.':'Day/night simulation ×12. Movement stays normal.');}});
   world=await createWorld(canvas,state);
+  installCursors();const reticle=createReticle();
   if(window.debugGame)window.game={world,get state(){return state;}};
   orbit=createOrbitView({onReturn:()=>{notify(recallShip(state).reason);orbit.close();},onClose:()=>{keys.clear();canvas.focus({preventScroll:true});}});
   research=createResearchView({onResearch:id=>notify(selectResearch(state,id).reason),onClose:()=>{keys.clear();canvas.focus({preventScroll:true});}});
-  canvas.addEventListener('pointermove',e=>{aimClient={x:e.clientX,y:e.clientY};point(e);});
-  canvas.addEventListener('pointerleave',()=>{if(beltPath||paintPath||erasing)return;hover=null;world.clearGhost();});
+  canvas.addEventListener('pointermove',e=>{pointerIn=true;aimClient={x:e.clientX,y:e.clientY};reticle.move(e.clientX,e.clientY);point(e);});
+  canvas.addEventListener('pointerenter',()=>{pointerIn=true;});
+  canvas.addEventListener('pointerleave',()=>{pointerIn=false;if(beltPath||paintPath||erasing)return;hover=null;world.clearGhost();});
   canvas.addEventListener('pointerdown',e=>{
    canvas.focus({preventScroll:true});
    if(e.button===2){select(null);return;}
@@ -378,6 +394,8 @@ async function start(){
    while(accumulator>=1/30){fixedUpdate(1/30);accumulator-=1/30;}
    if(stepEncounter(encounter,state,dt)==='fled')setTimeout(()=>ui.say(ENCOUNTER_SAY),600);
    world.update(state,dt,interpolatePose(previousPose,state.player,accumulator/(1/30)),encounter,hunt);uiClock+=dt;autoClock+=dt;
+   const cursor=cursorMode();if(canvas.dataset.cursor!==cursor)canvas.dataset.cursor=cursor;
+   reticle.update(cursor==='none'&&pointerIn?reticleState():null,dt);
    if(state.ship.status!==shipStatus){if(state.ship.status==='orbit'&&shipStatus==='ascent'){notify(`Satellites deployed. ${state.satellites} in orbit.`);orbit.show();}if(state.ship.status==='pad'&&shipStatus==='descent')notify('The Starship is back on the pad.');shipStatus=state.ship.status;}
    if((state.goo?.breaches??0)>breaches){breaches=state.goo.breaches;notify('Containment breach! The goo vat lost power.');ui.say('The vat has breached. Goo is spreading through the base and something hatched. Flares burn both: press X for flares, Q to throw.');}
    orbit.update(state,dt);research.update(state);
