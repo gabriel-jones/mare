@@ -290,7 +290,7 @@ body[data-research=open] .game-ui, body[data-research=open] .building-status-lay
 
 .objective { position:absolute;top:14px;right:16px;left:auto;width:min(340px,calc(100% - 32px)); }
 .buffs { top:84px;left:16px; }
-.comms { display:flex;flex-direction:row-reverse;align-items:flex-start;gap:6px; }
+.comms { display:flex;flex-direction:row-reverse;align-items:flex-start;gap:6px;margin-top:4px; }
 .game-ui .comms-unit { flex:none;width:64px;height:64px;padding:0;border:0;background:none;filter:drop-shadow(0 3px 5px #0009); }
 .game-ui .comms-unit:hover { background:none;filter:drop-shadow(0 3px 5px #0009) brightness(1.12); }
 .comms-unit img { display:block;width:100%;height:100%; }
@@ -299,7 +299,7 @@ body[data-research=open] .game-ui, body[data-research=open] .building-status-lay
 .objective.aside .objective-message { color:#ffd9a0;text-shadow:0 0 6px #ffb45a55; }
 .objective.fresh .comms-unit { animation:comms-call .45s 6 alternate; }
 @keyframes comms-call { to { filter:drop-shadow(0 0 10px #7fe3ffcc) brightness(1.25); } }
-.work-order { display:flex;align-items:center;gap:10px;margin:6px 0 0;padding:0 8px 0 2px;border-style:solid;border-color:transparent;border-width:9px 9px 9px 42px;border-image:url(assets/ui/kit/tag.png) 24 24 24 112 fill / 9px 9px 9px 42px;color:var(--ink);filter:drop-shadow(0 4px 8px #0008);transform-origin:-26px 50%; }
+.work-order { display:flex;align-items:center;gap:10px;margin:0;padding:0 8px 0 2px;border-style:solid;border-color:transparent;border-width:9px 9px 9px 42px;border-image:url(assets/ui/kit/tag.png) 24 24 24 112 fill / 9px 9px 9px 42px;color:var(--ink);filter:drop-shadow(0 4px 8px #0008);transform-origin:-26px 50%; }
 .objective.fresh .work-order { animation:tag-swing 1.3s ease-out; }
 @keyframes tag-swing { 0% { transform:rotate(-7deg); } 30% { transform:rotate(4deg); } 60% { transform:rotate(-2deg); } 100% { transform:none; } }
 .order-art { width:64px;height:64px;margin:-10px 0;flex:none;object-fit:contain;filter:drop-shadow(0 2px 2px #0006); }
@@ -310,7 +310,6 @@ body[data-research=open] .game-ui, body[data-research=open] .building-status-lay
 .pips i { width:14px;height:14px;background:url(assets/ui/kit/pip-off.png) center/contain no-repeat; }
 .pips i.on { background-image:url(assets/ui/kit/pip-on.png); }
 .objective-distance { font:600 11px var(--mono);color:#2a6c84; }
-.objective-step { margin-left:auto;font:600 10px var(--mono);color:#4c5154;font-variant-numeric:tabular-nums; }
 .objective.complete .order-art { filter:drop-shadow(0 2px 2px #0006) saturate(.5); }
 @media(max-width:600px) { .objective { top:auto;bottom:110px;right:12px;width:calc(100% - 24px); } .objective-message { font-size:11px; } }
 

@@ -1,0 +1,89 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Quest banner alternatives • art review</title>
+<style>
+/* Six directions for the objective banner, each at real size over the game, with the comms unit beneath. */
+:root{--ink:#2b2f33;--lcd:#8fe6ff;--mono:ui-monospace,"SF Mono",Menlo,monospace;--glass:rgba(14,18,22,.66);--amber:#edbd79;--orange:#cf5a1e;--ivory:#d9d8cb}
+*{box-sizing:border-box}
+body{margin:0;padding:24px;background:#0b0f13;color:#e3dccd;font:13px Inter,ui-sans-serif,sans-serif}
+h1{margin:0 0 4px;font-size:16px}body>p{margin:0 0 18px;color:#8d979c}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(440px,1fr));gap:18px}
+figure{margin:0}
+figcaption{display:flex;gap:8px;align-items:baseline;margin:8px 2px 0}
+figcaption b{color:var(--amber);font:700 12px var(--mono)}figcaption span{color:#9aa4a8;font-size:12px;line-height:1.4}
+.stage{position:relative;height:250px;border-radius:8px;overflow:hidden;background:url(quest-banner-bg.png) 72% 8%/1100px auto}
+.hud{position:absolute;top:14px;right:16px;width:340px}
+.comms{display:flex;flex-direction:row-reverse;align-items:flex-start;gap:6px;margin-top:6px}
+.comms img{width:56px;height:56px;filter:drop-shadow(0 3px 5px #0009)}
+.comms p{flex:1;margin:6px 0 0;padding:9px 12px;border-radius:10px;background:var(--glass);backdrop-filter:blur(8px);font:500 12px/1.45 var(--mono);color:var(--lcd);text-shadow:0 0 6px #4fd2ff55}
+.art{width:60px;height:60px;object-fit:contain;flex:none;filter:drop-shadow(0 2px 3px #0007)}
+.title{font-weight:700;font-size:13px;line-height:1.25}
+.dist{font:600 11px var(--mono)}
+
+/* A · current tag (reference) */
+.a{display:flex;align-items:center;gap:10px;padding:0 8px 0 2px;border-style:solid;border-color:transparent;border-width:9px 9px 9px 42px;border-image:url(../assets/ui/kit/tag.png) 24 24 24 112 fill / 9px 9px 9px 42px;color:var(--ink);filter:drop-shadow(0 4px 8px #0008)}
+.a .art{margin:-10px 0}.a .body{display:grid;gap:3px;padding:6px 0}
+.a .pips{display:inline-flex;gap:1px}.a .pips i{width:14px;height:14px;background:url(../assets/ui/kit/pip-off.png) center/contain no-repeat}.a .pips i.on{background-image:url(../assets/ui/kit/pip-on.png)}
+.a .dist{color:#2a6c84;margin-left:8px}
+
+/* B · equipment plate: ivory ceramic, hazard edge, screw heads */
+.b{position:relative;display:flex;align-items:center;gap:10px;padding:8px 14px 8px 22px;border-radius:6px;background:linear-gradient(#e4e3d7,#c9c8ba);color:var(--ink);box-shadow:0 1px 0 #fff8 inset,0 -2px 0 #0002 inset,0 5px 12px #0008}
+.b::before{content:"";position:absolute;left:0;top:0;bottom:0;width:12px;border-radius:6px 0 0 6px;background:repeating-linear-gradient(-45deg,#c8501c 0 6px,#1d2226 6px 12px)}
+.b::after{content:"";position:absolute;right:7px;top:7px;width:5px;height:5px;border-radius:50%;background:#8b8c84;box-shadow:0 1px 0 #fff8,0 calc(100% + 0px) 0 #8b8c84}
+.b .art{margin:-14px 0 -14px -4px}
+.b .body{display:grid;gap:5px}
+.b .bar{display:flex;gap:3px}.b .bar i{width:16px;height:5px;border-radius:1px;background:#00000022}.b .bar i.on{background:#c8501c}
+.b .dist{color:#5c6164;margin-left:8px}
+
+/* C · LCD strip: matches the resource bar */
+.c{display:flex;align-items:center;gap:8px;padding:6px 14px 6px 6px;border-radius:12px;background:var(--glass);backdrop-filter:blur(8px)}
+.c .art{width:52px;height:52px}
+.c .body{flex:1;display:grid;gap:5px}
+.c small{font:600 9px var(--mono);letter-spacing:.14em;color:#7d888d}
+.c .title{font:600 13px var(--mono);color:var(--lcd);text-shadow:0 0 6px #4fd2ff55}
+.c .bar{display:flex;gap:2px}.c .bar i{flex:1;height:4px;background:#8fe6ff22}.c .bar i.on{background:var(--lcd);box-shadow:0 0 6px #4fd2ff88}
+.c .dist{color:var(--lcd);opacity:.7}
+
+/* D · floating: no box at all */
+.d{display:flex;align-items:center;gap:10px;justify-content:flex-end;text-align:right}
+.d .art{width:64px;height:64px;order:2;filter:drop-shadow(0 4px 6px #000a)}
+.d .body{display:grid;gap:6px;justify-items:end}
+.d .title{font-size:16px;color:#fff;text-shadow:0 1px 2px #000,0 0 14px #000a}
+.d .bar{display:flex;gap:3px}.d .bar i{width:22px;height:3px;border-radius:2px;background:#ffffff44;box-shadow:0 1px 2px #0008}.d .bar i.on{background:var(--amber)}
+.d .dist{color:var(--amber);text-shadow:0 1px 2px #000}
+
+/* E · rack tray: the render sits in a hotbar tray, a glass slab carries the words, an orange tab the distance */
+.e{display:flex;align-items:stretch;filter:drop-shadow(0 4px 8px #0008)}
+.e .tray{width:66px;height:74px;display:grid;place-items:center;background:url(../assets/ui/kit/tray.png) center/100% 100% no-repeat;flex:none}
+.e .tray .art{width:50px;height:50px}
+.e .body{flex:1;display:grid;align-content:center;gap:6px;margin:8px 0;padding:0 12px;background:rgba(14,18,22,.8);border-radius:0 4px 4px 0}
+.e .title{color:#ecebe2}
+.e .pips{display:inline-flex;gap:1px}.e .pips i{width:13px;height:13px;background:url(../assets/ui/kit/pip-off.png) center/contain no-repeat}.e .pips i.on{background-image:url(../assets/ui/kit/pip-on.png)}
+.e .tab{display:grid;place-items:center;margin:8px 0;padding:0 9px;border-radius:0 6px 6px 0;background:#c8501c;color:#fff1e2;font:700 11px var(--mono)}
+
+/* F · graphite case with ivory header and the pad's orange corner brackets */
+.f{position:relative;padding:0;border-radius:6px;background:#1a2024ee;box-shadow:0 5px 14px #0008;overflow:hidden}
+.f header{display:flex;justify-content:space-between;padding:4px 10px;background:var(--ivory);color:#2b2f33;font:700 9px var(--mono);letter-spacing:.16em}
+.f .row{display:flex;align-items:center;gap:10px;padding:8px 14px 10px 8px}
+.f .row::before,.f .row::after{content:"";position:absolute;width:12px;height:12px;border:2px solid #d8641f}
+.f .row::before{left:5px;bottom:5px;border-right:0;border-top:0}.f .row::after{right:5px;bottom:5px;border-left:0;border-top:0}
+.f .art{width:54px;height:54px}
+.f .body{display:grid;gap:6px}.f .title{color:#f0eee4}
+.f .bar{display:flex;gap:3px}.f .bar i{width:14px;height:6px;background:#ffffff1c;transform:skewX(-20deg)}.f .bar i.on{background:#d8641f}
+.f .dist{color:#9aa4a8}
+</style></head><body>
+<h1>Objective banner, six directions</h1>
+<p>Same objective in each: Build a xeno lab, 1 of 3 done, 24 m away. The ship AI sits under the banner. A is today's tag for reference.</p>
+<div class="grid" id="grid"></div>
+<script type="module">
+const icon='../assets/ui/build/xenolab.png',comms='../assets/ui/icons/comms.png';
+const pips=(cls='on')=>`<i class="${cls}"></i><i></i><i></i>`;
+const say=`<div class="comms"><img src="${comms}" alt=""><p>Titanium. And carvings, you said? Build a xeno lab.</p></div>`;
+const V=[
+ ['A','Current tag','The orange luggage tag, for reference.',`<div class="a"><img class="art" src="${icon}"><div class="body"><strong class="title">Build a xeno lab</strong><span><span class="pips">${pips()}</span><span class="dist">24 m</span></span></div></div>`],
+ ['B','Equipment plate','Ivory ceramic like the buildings, a hazard-striped edge and a screw head. Reads like a label riveted to a machine.',`<div class="b"><img class="art" src="${icon}"><div class="body"><strong class="title">Build a xeno lab</strong><span style="display:flex;align-items:center"><span class="bar">${pips()}</span><span class="dist">24 m</span></span></div></div>`],
+ ['C','LCD strip','Same dark glass and cyan LCD type as the resource bar, so the HUD reads as one console. Quietest of the boxed ones.',`<div class="c"><img class="art" src="${icon}"><div class="body"><small>OBJECTIVE</small><strong class="title">Build a xeno lab</strong><span class="bar">${pips()}</span></div><span class="dist">24 m</span></div>`],
+ ['D','Floating','No container: the render and a bold line straight over the world, amber ticks for progress. Minimal chrome.',`<div class="d"><img class="art" src="${icon}"><div class="body"><strong class="title">Build a xeno lab</strong><span style="display:flex;gap:8px;align-items:center"><span class="dist">24 m</span><span class="bar">${pips()}</span></span></div></div>`],
+ ['E','Rack tray','The render sits in a hotbar tray, a dark slab carries the words, and an orange tab holds the distance. Ties to the tool rack.',`<div class="e"><div class="tray"><img class="art" src="${icon}"></div><div class="body"><strong class="title">Build a xeno lab</strong><span class="pips">${pips()}</span></div><span class="tab">24 m</span></div>`],
+ ['F','Work order case','Graphite case with an ivory header strip and the launch pad\'s orange corner brackets. Most "official document".',`<div class="f"><header><span>WORK ORDER</span><span>24 M</span></header><div class="row"><img class="art" src="${icon}"><div class="body"><strong class="title">Build a xeno lab</strong><span class="bar">${pips()}</span></div></div></div>`],
+];
+document.getElementById('grid').innerHTML=V.map(([k,name,why,html])=>`<figure><div class="stage"><div class="hud">${html}${say}</div></div><figcaption><b>${k}</b><span><strong style="color:#e3dccd">${name}.</strong> ${why}</span></figcaption></figure>`).join('');
+</script></body></html>

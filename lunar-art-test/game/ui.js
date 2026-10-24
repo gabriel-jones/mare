@@ -51,16 +51,16 @@ export function createUI(root, callbacks = {}) {
     </div>
     <div class="buffs" aria-label="Meal effects"></div>
     <section class="objective" aria-label="Ship AI" aria-live="polite">
-      <div class="comms">
-        <button type="button" class="comms-unit" data-action="replay" title="Ship AI · replay message">${pic('icons/comms')}</button>
-        <p class="objective-message"></p>
-      </div>
       <div class="work-order">
         <img class="order-art" alt="" aria-hidden="true" draggable="false">
         <div class="order-body">
           <strong class="objective-task"></strong>
-          <span class="order-foot"><span class="pips"></span><small class="objective-distance"></small><small class="objective-step"></small></span>
+          <span class="order-foot"><span class="pips"></span><small class="objective-distance"></small></span>
         </div>
+      </div>
+      <div class="comms">
+        <button type="button" class="comms-unit" data-action="replay" title="Ship AI · replay message">${pic('icons/comms')}</button>
+        <p class="objective-message"></p>
       </div>
     </section>
     <div class="hotbar" role="toolbar" aria-label="Inventory">
@@ -111,7 +111,7 @@ export function createUI(root, callbacks = {}) {
   }
   const rotateButton = root.querySelector('[data-action=rotate]'), foodMeter = root.querySelector('.tube i'), food = root.querySelector('.food-resource'), plates = [...root.querySelectorAll('.plates i')], health = root.querySelector('.health-resource');
   const items = [...root.querySelectorAll('[data-build]')], slots = [...root.querySelectorAll('[data-slot]')];
-  const panel = root.querySelector('.objective'), panelMessage = panel.querySelector('.objective-message'), panelTask = panel.querySelector('.objective-task'), panelStep = panel.querySelector('.objective-step'), panelDistance = panel.querySelector('.objective-distance'), orderImage = panel.querySelector('.order-art'), pips = panel.querySelector('.pips');
+  const panel = root.querySelector('.objective'), panelMessage = panel.querySelector('.objective-message'), panelTask = panel.querySelector('.objective-task'), panelDistance = panel.querySelector('.objective-distance'), orderImage = panel.querySelector('.order-art'), pips = panel.querySelector('.pips');
   let spoken = { text: '', at: 0, shown: -1 }, orderId = null, pipsKey = '';
   const speak = text => { spoken = { text, at: performance.now(), shown: -1 }; };
   let noticeTimer, hintKey = '', objectiveKey = '', aiNote = null, freshTimer;
@@ -425,7 +425,6 @@ export function createUI(root, callbacks = {}) {
         if (id !== orderId) { orderId = id; orderImage.src = orderArt(id); }
         panelTask.textContent = goal.done ? 'All objectives complete' : goal.objective;
         panel.classList.toggle('complete', !!goal.done);
-        panelStep.textContent = goal.done ? '' : `${goal.step + 1} / ${goal.count}`;
         const [have, need] = goal.done ? [1, 1] : goal.parts ?? [0, 1], pk = `${have}/${need}`;
         if (pk !== pipsKey) { pipsKey = pk; pips.innerHTML = Array.from({ length: need }, (_, i) => `<i${i < have ? ' class="on"' : ''}></i>`).join(''); pips.title = need > 1 ? `${have} of ${need}` : ''; }
         panelDistance.textContent = goal.distance != null && goal.distance > 6 ? `${goal.distance} m` : '';
