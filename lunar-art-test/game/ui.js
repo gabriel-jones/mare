@@ -38,8 +38,8 @@ export function createUI(root, callbacks = {}) {
   root.classList.add('game-ui');
   root.innerHTML = `
     <div class="resource-bar" aria-label="Colony resources">
-      <span class="readout" title="Oxygen reserve: fills rooms; vented from regolith processing">${pic('icons/oxygen', 'readout-art')}<span class="lcd"><small>O₂</small><strong data-value="oxygen">0</strong></span></span>
-      <span class="readout" title="Water reserve: grow beds drink it; recyclers reclaim it">${pic('icons/water', 'readout-art')}<span class="lcd"><small>H₂O</small><strong data-value="water">0</strong></span></span>
+      <span class="readout" title="Oxygen reserve: fills rooms; vented from regolith processing">${pic('icons/oxygen', 'readout-art')}<span class="lcd"><strong data-value="oxygen">0</strong></span></span>
+      <span class="readout" title="Water reserve: grow beds drink it; recyclers reclaim it">${pic('icons/water', 'readout-art')}<span class="lcd"><strong data-value="water">0</strong></span></span>
       <span class="readout power-resource" title="Power generation / demand">${pic('icons/power', 'readout-art')}<span class="lcd"><strong data-value="power">0</strong><small>kW</small></span></span>
       <span class="readout" title="Battery charge">${pic('icons/battery', 'readout-art')}<span class="lcd"><strong data-value="battery">0 / 0</strong><small>kJ</small></span></span>
       <span class="readout health-resource" title="Suit integrity. Vents and toxic pools wear it down; it recovers on the surface. At zero you black out.">${pic('icons/suit', 'readout-art')}<span class="plates">${'<i data-state="whole"></i>'.repeat(PLATES)}</span><strong data-value="health">100%</strong></span>
@@ -54,9 +54,8 @@ export function createUI(root, callbacks = {}) {
       <div class="work-order">
         <img class="order-art" alt="" aria-hidden="true" draggable="false">
         <div class="order-body">
-          <small class="order-head"><span>Work order</span><span class="objective-step"></span></small>
           <strong class="objective-task"></strong>
-          <span class="order-foot"><span class="pips"></span><small class="objective-distance"></small></span>
+          <span class="order-foot"><span class="pips"></span><small class="objective-distance"></small><small class="objective-step"></small></span>
         </div>
       </div>
     </section>
@@ -70,7 +69,7 @@ export function createUI(root, callbacks = {}) {
         ${GROUPS.map(([title, types]) => `<h3>${title}</h3>${types.map(type => { const def = TOOLS[type]; return `<button type="button" class="build-item" data-build="${type}" aria-pressed="false" title="${def.description}${def.cost ? ` · ${costText(def)}` : ''}">${pic(`build/${type}`, 'build-art')}<span>${def.name}</span><kbd>${def.key?.toUpperCase() ?? ''}</kbd></button>`; }).join('')}`).join('')}
       </div>
       <div class="robots-panel" aria-label="Robots" hidden></div>
-      <button type="button" class="build-toggle" data-action="build" aria-expanded="false" aria-controls="build-menu">${pic('icons/build', 'key-art')}<span>Build</span><kbd>B</kbd></button>
+      <button type="button" class="build-toggle" data-action="build" aria-label="Build" title="Build (B)" aria-expanded="false" aria-controls="build-menu">${pic('icons/build', 'key-art')}<kbd>B</kbd></button>
       <button type="button" class="build-toggle robots-toggle" data-action="robots" aria-expanded="false" aria-label="Robots" title="Robots (G)">${pic('icons/robots', 'key-art')}<kbd>G</kbd></button>
       <button type="button" class="build-toggle robots-toggle stock-toggle" data-action="stock" aria-expanded="false" aria-label="Base stock" title="Base stock (I)">${pic('icons/stock', 'key-art')}<kbd>I</kbd></button>
       <button type="button" class="build-toggle robots-toggle orbit-toggle" data-action="orbit" aria-label="Orbit" title="Orbit (O)">${pic('icons/orbit', 'key-art')}<kbd>O</kbd><b class="orbit-badge" hidden></b></button>

@@ -313,7 +313,7 @@ def tray(lit):
         box('Rack / tray floor', (0, .01, .03), (.76, .74, .01), p['navy'], .04)
         box('Rack / tray lip', (0, -.4, .05), (.84, .05, .05), p['ivory_shade'], .015)
         box('Rack / lip lamp', (0, -.4, .078), (.5, .022, .008), p['cyan' if lit else 'cyan_off'], .004)
-        box('Rack / number tab', (-.3, .51, .085), (.24, .1, .03), p['amber_lit' if lit else 'orange'], .015)
+        box('Rack / number tab', (-.3, .51, .085), (.24, .1, .03), p['dark'], .015)
     return build
 
 
