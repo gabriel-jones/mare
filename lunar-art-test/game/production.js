@@ -340,7 +340,7 @@ function stepRover(state, r, dt, powered, topology) {
 export const robotTopology = state => state.buildings.filter(b => b.built && (!DEFS[b.type].walkable || DEFS[b.type].enclosed)).map(b => b.id).join(',');
 export function stepProduction(state, dt, powered) {
   const index = cellIndex(state);
-  stepBelts(state, index, dt);
+  if (powered) stepBelts(state, index, dt);
   stepMachines(state, index, dt, powered);
   const topology = robotTopology(state);
   for (const r of state.robots) {

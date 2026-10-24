@@ -4,7 +4,7 @@ import { caveLayout } from './caves.js';
 import { buildingStatus, robotStatus, shipStatus, lampLevel } from './building-status.js';
 import { LAUNCH } from './space.js';
 import { DIRS, ITEM_INFO, ports as machinePorts } from './defs.js';
-import { MINING_RADIUS, beltTurns, total, MELT } from './production.js';
+import { MINING_RADIUS, beltTurns, total, MELT, BELT_SPEED } from './production.js';
 import { createStatusLamps } from './status-lamps.js';
 import { createProductionView } from './production-view.js';
 import { loadItemLibrary, BELT_ITEM_SIZES } from './item-models.js';
@@ -29,6 +29,7 @@ import { GOO } from './goo.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createLightBudget, createAdaptiveResolution, trimShadows } from './render-budget.js';
 import { createConstructionFx } from './construction-fx.js';
+import { createTreadTexture, applyTread, ownTread } from './conveyor-tread.js';
 
 // Presentation only: the simulation owns all positions, resources, and time.
 /** Where each grower shows its ripe crop: [x, y, z, size] in the model's space. */
@@ -52,6 +53,7 @@ export async function createWorld(canvas, initialState) {
     loadItemLibrary(loader),
   ]);
   const models=new Map(loaded);
+  const tread=createTreadTexture(renderer);applyTread(models.get('conveyor'),tread);applyTread(models.get('conveyor-corner'),tread);
   const lamps=createStatusLamps();for(const model of models.values())if(model)lamps.prepare(model);let lampClock=0;
   const [astronautGLTF,crawlerGLTF]=await Promise.all([
     loader.loadAsync('./assets/astronaut-v3.glb').catch(e=>{console.error('Animated astronaut failed',e);return null;}),
@@ -416,13 +418,13 @@ export async function createWorld(canvas, initialState) {
     actor?.update(hunting?combat.pose(state,renderPose,hunt,dt):renderPose,dt);
     if(hunting)combat.after(state,hunt,dt);
     if(canvas.dataset.animation!==renderPose.animation)canvas.dataset.animation=renderPose.animation||'idle';
-    const ids=new Set(state.buildings.map(b=>b.id));for(const [id,o] of structures)if(!ids.has(id)){buildFx.clear(o);scene.remove(o.root,o.ports);o.ownedMaterials?.forEach(m=>m.dispose());structures.delete(id);}
+    const ids=new Set(state.buildings.map(b=>b.id));for(const [id,o] of structures)if(!ids.has(id)){buildFx.clear(o);scene.remove(o.root,o.ports);o.ownedMaterials?.forEach(m=>m.dispose());o.tread?.dispose();structures.delete(id);}
     const turns=beltTurns(state),obstructs=b=>Math.hypot(b.x*2-state.player.x,b.z*2-state.player.z)<8&&playerObstructs(state,b);
     habitatView.update(state,dt,{player:renderPose,powered:state.power.powered!==false,obstructs});
     for(const b of state.buildings){
       let o=structures.get(b.id);const turn=b.type==='conveyor'?turns.get(b.id)??0:0;
-      if(o&&(o.type!==b.type||o.rotation!==b.rotation||o.turn!==turn)){buildFx.clear(o);scene.remove(o.root,o.ports);o.ownedMaterials.forEach(m=>m.dispose());structures.delete(b.id);o=null;}
-      if(!o){o=buildModel(b.type,turn);o.type=b.type;o.rotation=b.rotation;o.turn=turn;o.ports=new THREE.Group();portArrows(o.ports,b);scene.add(o.ports);o.ownedMaterials=[];const clones=new Map();o.root.traverse(n=>{if(n.isMesh){n.castShadow=true;n.receiveShadow=true;const copy=m=>{if(!clones.has(m.uuid)){const c=m.clone();c.userData.baseEmission=c.emissiveIntensity;c.userData.baseColor=c.color.clone();c.userData.baseEmissive=c.emissive.clone();clones.set(m.uuid,c);o.ownedMaterials.push(c);}return clones.get(m.uuid);};n.material=Array.isArray(n.material)?n.material.map(copy):copy(n.material);}});o.statusHeight??=new THREE.Box3().setFromObject(o.root).max.y;o.lamp=lamps.attach(o.root);structures.set(b.id,o);scene.add(o.root);}
+      if(o&&(o.type!==b.type||o.rotation!==b.rotation||o.turn!==turn)){buildFx.clear(o);scene.remove(o.root,o.ports);o.ownedMaterials.forEach(m=>m.dispose());o.tread?.dispose();structures.delete(b.id);o=null;}
+      if(!o){o=buildModel(b.type,turn);o.type=b.type;o.rotation=b.rotation;o.turn=turn;o.ports=new THREE.Group();portArrows(o.ports,b);scene.add(o.ports);o.ownedMaterials=[];const clones=new Map();o.root.traverse(n=>{if(n.isMesh){n.castShadow=true;n.receiveShadow=true;const copy=m=>{if(!clones.has(m.uuid)){const c=m.clone();c.userData.baseEmission=c.emissiveIntensity;c.userData.baseColor=c.color.clone();c.userData.baseEmissive=c.emissive.clone();clones.set(m.uuid,c);o.ownedMaterials.push(c);o.tread??=ownTread(c,tread);}return clones.get(m.uuid);};n.material=Array.isArray(n.material)?n.material.map(copy):copy(n.material);}});o.statusHeight??=new THREE.Box3().setFromObject(o.root).max.y;o.lamp=lamps.attach(o.root);structures.set(b.id,o);scene.add(o.root);}
       o.root.visible=true;
       const def=DEFS[b.type],w=b.rotation%2?def.d:def.w,d=b.rotation%2?def.w:def.d;
       const bx=(b.x+(w-1)/2)*2,bz=(b.z+(d-1)/2)*2;
@@ -451,6 +453,12 @@ export async function createWorld(canvas, initialState) {
         // steeper and the camera, which looks from the far side of the sky, would see the array edge-on.
         const up=daylight>.02,yaw=up?Math.atan2(sunDir.x,sunDir.z)-b.rotation*Math.PI/2:o.panel.rotation.y,tilt=up?Math.min(.32,Math.PI/2-Math.asin(sunDir.y)):0,k=1-Math.exp(-dt*1.2);
         o.panel.rotation.order='YXZ';o.panel.rotation.y+=Math.atan2(Math.sin(yaw-o.panel.rotation.y),Math.cos(yaw-o.panel.rotation.y))*k;o.panel.rotation.x+=(tilt-o.panel.rotation.x)*k;
+      }
+      if(o.tread){
+        // The tread runs with the items: it halts in a blackout and when the load in front is backed up.
+        const sum=b.items.reduce((s,i)=>s+i.p,0)+b.items.length*7;o.beltIdle=sum!==o.beltSum||!b.items.length?0:(o.beltIdle??0)+dt;o.beltSum=sum;
+        const target=b.built&&state.power.powered!==false&&dt>0&&o.beltIdle<.25?BELT_SPEED:0;o.beltSpeed=(o.beltSpeed??0)+(target-(o.beltSpeed??0))*Math.min(1,dt*8);
+        o.tread.offset.y=(o.tread.offset.y+o.beltSpeed*dt)%1;
       }
       if(o.heater&&b.built){const glow=melterReady(state,b)&&state.power.powered!==false?1:0;o.heater.traverse(n=>{if(n.isMesh)n.material.emissiveIntensity=(n.material.userData.baseEmission||0)*glow;});}
     }

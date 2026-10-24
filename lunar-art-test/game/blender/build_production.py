@@ -6,9 +6,16 @@ from mathutils import Vector
 
 OUT = '/Users/gabe/Documents/Playground/lunar-art-test/game/assets'
 RENDER = os.environ.get('LUNAR_RENDER_PREVIEW', '1') == '1'
-previous_scene = bpy.context.window.scene
-scene = bpy.data.scenes.new('Lunar production asset library')
-bpy.context.window.scene = scene
+EXPORT = globals().get('ONLY') or {'rover', 'processor', 'conveyor', 'storage', 'hopper'}
+# Inside the Blender UI the kit builds in a scene of its own; run headless (blender -b) it uses the empty startup scene.
+window = bpy.context.window
+previous_scene = window.scene if window else None
+if window:
+    scene = bpy.data.scenes.new('Lunar production asset library')
+    window.scene = scene
+else:
+    scene = bpy.context.scene; scene.name = 'Lunar production asset library'
+    for o in list(scene.objects): bpy.data.objects.remove(o, do_unlink=True)
 objects = []
 created = {'objects': [], 'meshes': [], 'materials': []}
 
@@ -39,6 +46,8 @@ M = {
  'floor': material('Lunar • regolith composite', (.19,.22,.24), .1,.75),
  'regolith': material('Lunar • loose regolith', (.36,.34,.31), 0,.95),
  'rubber': material('Lunar • wheel elastomer', (.025,.028,.03), 0,.8),
+ # The runtime gives this material a scrolling tread texture; UV v runs along the travel direction.
+ 'belt': material('Lunar • conveyor belt', (.42,.43,.43), 0,.85),
 }
 
 def track(o):
@@ -71,12 +80,12 @@ def cyl(name, loc, radius, depth, mat='metal', vertices=16, rotation=None):
     if rotation: o.rotation_euler = rotation
     return finish(o, name, mat, 0, True)
 
-def beam(name, a, b, width, mat='dark'):
+def beam(name, a, b, width, mat='dark', bevel=True):
     a, b = Vector(a), Vector(b)
     bpy.ops.mesh.primitive_cube_add(size=1, location=(a + b) / 2)
     o = bpy.context.object; o.scale = (width, width, (b - a).length)
     o.rotation_euler = (b - a).to_track_quat('Z', 'Y').to_euler()
-    return finish(o, name, mat, min(width * .15, .025))
+    return finish(o, name, mat, min(width * .15, .025) if bevel else 0)
 
 def mesh_object(name, vs, fs, mat):
     me = bpy.data.meshes.new(name); me.from_pydata(vs, [], fs); me.update()
@@ -132,7 +141,7 @@ def export_asset(name, builder, location, parts=()):
         if o: result.append(o)
     bpy.ops.object.select_all(action='DESELECT')
     for o in result: o.select_set(True)
-    bpy.ops.export_scene.gltf(filepath=os.path.join(OUT, name + '.glb'), export_format='GLB', use_selection=True, use_active_scene=True, export_apply=True, export_yup=True, export_animations=False)
+    if name in EXPORT: bpy.ops.export_scene.gltf(filepath=os.path.join(OUT, name + '.glb'), export_format='GLB', use_selection=True, use_active_scene=True, export_apply=True, export_yup=True, export_animations=False)
     tris = sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for o in result)
     print('LUNAR_ASSET', name, 'triangles', tris, 'nodes', len(result))
     for o in result:
@@ -207,15 +216,39 @@ def processor():
     beam('Radiator manifold', (1.8, -.25, 2.75), (1.8, 1.9, 2.75), .1, 'metal')
     status_lamp(.95, .9, 3.7)
 
-# --- Conveyor segment: 2 x 2 m. Items travel toward -Y. Kept very light; colonies need many. ---
+def uv_strip(name, rows, mat):
+    """Quad strip through `rows` of (left, right) points; UV u runs across, v along the rows (0..1)."""
+    vs = [p for row in rows for p in row]
+    fs = [(i * 2, i * 2 + 1, i * 2 + 3, i * 2 + 2) for i in range(len(rows) - 1)]
+    me = bpy.data.meshes.new(name); me.from_pydata(vs, [], fs); me.update()
+    for f in me.polygons:
+        if f.normal.z < 0: f.flip()
+    uv = me.uv_layers.new(name='UVMap')
+    for loop in me.loops: uv.data[loop.index].uv = (loop.vertex_index % 2, (loop.vertex_index // 2) / (len(rows) - 1))
+    o = bpy.data.objects.new(name, me); scene.collection.objects.link(o)
+    return finish(o, name, mat)
+
+BELT_Z = .38
+def belt_frame_side(x, sign):
+    box('Side channel', (x, 0, .38), (.08, 1.98, .2), 'metal', 0)
+    box('Rail cap', (x, 0, .49), (.12, 1.98, .025), 'orange', 0)
+    box('Rubber skirt', (x - sign * .055, 0, .43), (.03, 1.98, .07), 'dark', 0)
+
+def belt_leg(x0, y0, x1, y1):
+    beam('Support leg', (x0, y0, .29), (x1, y1, .03), .07, 'dark', False)
+    box('Leg foot', (x1, y1, .015), (.18, .16, .03), 'metal', 0)
+
+# --- Conveyor segment: 2 x 2 m. Items travel toward -Y. Kept light; colonies need many. ---
 def conveyor():
-    box('Belt bed', (0, 0, .3), (1.3, 1.98, .1), 'dark', .02)
-    box('Belt surface', (0, 0, .36), (1.16, 1.98, .02), 'floor', 0)
-    for x in [-.72, .72]:
-        box('Side rail', (x, 0, .38), (.14, 1.98, .2), 'metal', .02)
-        for y in [-.7, .7]: box('Belt leg', (x, y, .14), (.1, .1, .28), 'dark', .01)
-    arrow('Travel chevron', (0, .1), .9, .6, .375)
-    for y in [-.92, .92]: cyl('End roller', (0, y, .33), .07, 1.2, 'metal', 8, (0, math.pi / 2, 0))
+    # The tread is a separate node; its v coordinate increases toward -Y so scrolling matches the items.
+    uv_strip('Belt', [((-.55, y, BELT_Z), (.55, y, BELT_Z)) for y in (.97, 0, -.97)], 'belt')
+    box('Bed plate', (0, 0, .31), (1.12, 1.9, .07), 'dark', 0)
+    for x, sign in [(-.62, -1), (.62, 1)]:
+        belt_frame_side(x, sign)
+        for y in [-.62, .62]: belt_leg(x, y, x * 1.12, y)
+    for y in [-.62, .62]: beam('Leg brace', (-.68, y, .14), (.68, y, .14), .035, 'metal', False)
+    for y in [-.95, .95]: cyl('End roller', (0, y, BELT_Z - .065), .065, 1.14, 'metal', 8, (0, math.pi / 2, 0))
+    box('Drive motor', (.75, .1, .3), (.12, .26, .15), 'orange', 0)
 
 # --- Storage crate: 2 x 2 m, belt inlets on every face. ---
 def storage():
@@ -254,7 +287,7 @@ STATUS = [('Lamp', (0, 0, 0))]
 layout = []
 layout += export_asset('rover', rover, (-9, 0, 0), parts=[('Wheel_*', None), ('Drill', (0, -1.05, .7)), ('Cargo', (0, .5, .79))] + STATUS)
 layout += export_asset('processor', processor, (-3, 0, 0), parts=STATUS)
-layout += export_asset('conveyor', conveyor, (3, -2, 0))
+layout += export_asset('conveyor', conveyor, (3, -2, 0), parts=[('Belt', (0, 0, 0))])
 layout += export_asset('storage', storage, (3, 2, 0), parts=STATUS)
 layout += export_asset('hopper', hopper, (7.5, 0, 0), parts=STATUS + [('Level', (1.2, -1.335, .66))])
 
@@ -276,6 +309,7 @@ if RENDER: bpy.ops.render.render(write_still=True)
 bpy.data.libraries.write(os.path.join(OUT, 'production-library.blend'), {scene}, fake_user=True)
 
 # Leave the user's open file as it was.
+if not window: raise SystemExit
 bpy.context.window.scene = previous_scene
 lights = [o.data for o in (sun, area)]; cam = camera.data; world = scene.world
 for o in list(scene.collection.objects): bpy.data.objects.remove(o, do_unlink=True)

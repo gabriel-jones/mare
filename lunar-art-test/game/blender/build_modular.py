@@ -9,9 +9,16 @@ from mathutils import Vector
 
 OUT = '/Users/gabe/Documents/Playground/lunar-art-test/game/assets'
 RENDER = os.environ.get('LUNAR_RENDER_PREVIEW', '1') == '1'
-previous_scene = bpy.context.window.scene
-scene = bpy.data.scenes.new('Lunar modular asset library')
-bpy.context.window.scene = scene
+EXPORT = globals().get('ONLY')
+# Inside the Blender UI the kit builds in a scene of its own; run headless (blender -b) it uses the empty startup scene.
+ui_window = bpy.context.window
+previous_scene = ui_window.scene if ui_window else None
+if ui_window:
+    scene = bpy.data.scenes.new('Lunar modular asset library')
+    ui_window.scene = scene
+else:
+    scene = bpy.context.scene; scene.name = 'Lunar modular asset library'
+    for o in list(scene.objects): bpy.data.objects.remove(o, do_unlink=True)
 objects = []
 created = {'objects': [], 'meshes': [], 'materials': []}
 
@@ -45,6 +52,8 @@ M = {
  'soil': material('Lunar • hydroponic substrate', (.11,.075,.05), 0,.95),
  'water': material('Lunar • reclaimed water', (.06,.34,.56), .2,.08),
  'grow': material('Lunar • grow light emission', (1,.5,.82), .1,.3, 2.5),
+ # The runtime gives this material a scrolling tread texture; UV v runs along the travel direction.
+ 'belt': material('Lunar • conveyor belt', (.42,.43,.43), 0,.85),
 }
 
 def finish(o, name, mat, bevel=0, smooth=False):
@@ -253,25 +262,45 @@ INTERIOR = {
     'recycler': [('Recycler', recycler), ('Lamp', lambda: status_lamp(0, .02, 1.08))],
 }
 
+def beam(name, a, b, width, mat='dark'):
+    a, b = Vector(a), Vector(b)
+    bpy.ops.mesh.primitive_cube_add(size=1, location=(a + b) / 2)
+    o = bpy.context.object; o.scale = (width, width, (b - a).length)
+    o.rotation_euler = (b - a).to_track_quat('Z', 'Y').to_euler()
+    return finish(o, name, mat)
+
+def uv_strip(name, rows, mat):
+    """Quad strip through `rows` of (left, right) points; UV u runs across, v along the rows (0..1)."""
+    vs = [p for row in rows for p in row]
+    fs = [(i * 2, i * 2 + 1, i * 2 + 3, i * 2 + 2) for i in range(len(rows) - 1)]
+    me = bpy.data.meshes.new(name); me.from_pydata(vs, [], fs); me.update()
+    for f in me.polygons:
+        if f.normal.z < 0: f.flip()
+    uv = me.uv_layers.new(name='UVMap')
+    for loop in me.loops: uv.data[loop.index].uv = (loop.vertex_index % 2, (loop.vertex_index // 2) / (len(rows) - 1))
+    o = bpy.data.objects.new(name, me); scene.collection.objects.link(o)
+    return finish(o, name, mat)
+
 # --- Conveyor corner: enters from +X, turns 90 degrees and leaves toward -Y (game +Z). ---
+# Same section as the straight belt in build_production.py so the two meet cleanly.
 def conveyor_corner():
-    c, a0, a1 = (1, -1), math.pi / 2, math.pi
-    sector('Belt bed', c, .35, 1.65, .25, .35, a0, a1, 'dark')
-    sector('Belt surface', c, .42, 1.58, .35, .37, a0, a1, 'floor')
-    for r0, r1 in [(.21, .35), (1.65, 1.79)]: sector('Side rail', c, r0, r1, .28, .48, a0, a1, 'metal')
-    for r in [.28, 1.72]:
-        a = math.radians(135); box('Belt leg', (c[0] + r * math.cos(a), c[1] + r * math.sin(a), .14), (.1, .1, .28), 'dark')
-    cyl('End roller', (.92, 0, .33), .07, 1.2, 'metal', 8, (math.pi / 2, 0, 0))
-    cyl('End roller', (0, -.92, .33), .07, 1.2, 'metal', 8, (0, math.pi / 2, 0))
-    # Chevron at mid-arc, pointing along the direction of travel.
-    a = math.radians(135); mx, my = c[0] + math.cos(a), c[1] + math.sin(a)
-    t, n = Vector((-math.sin(a), math.cos(a))), Vector((math.cos(a), math.sin(a)))
-    length, width, z = .9, .6, .375
-    tip = Vector((mx, my)) + t * length / 2; back = Vector((mx, my)) - t * length / 2
-    pts = [back + n * width / 2, back + t * width * .45, back - n * width / 2, tip]
-    mesh_object('Travel chevron', [(p.x, p.y, z) for p in pts], [(0, 3, 1), (1, 3, 2)], 'orange')
+    c, a0, a1, z = (1, -1), math.pi / 2, math.pi, .38
+    at = lambda r, a, h: (c[0] + r * math.cos(a), c[1] + r * math.sin(a), h)
+    uv_strip('Belt', [(at(.45, a, z), at(1.55, a, z)) for a in [a0 + (a1 - a0) * i / 14 for i in range(15)]], 'belt')
+    for r0, r1, steps in [(.34, .42, 6), (1.58, 1.66, 8)]:
+        sector('Side channel', c, r0, r1, .28, .48, a0, a1, 'metal', steps)
+        sector('Rail cap', c, r0 - .02, r1 + .02, .48, .505, a0, a1, 'orange', steps)
+    a = math.radians(135)
+    for r in [.38, 1.62]:
+        p0, p1 = at(r, a, .29), at(r * (1.12 if r > 1 else .8), a, .03)
+        beam('Support leg', p0, p1, .07)
+        box('Leg foot', p1, (.17, .17, .03), 'metal')
+    beam('Leg brace', at(.32, a, .14), at(1.7, a, .14), .035, 'metal')
+    cyl('End roller', (.95, 0, z - .065), .065, 1.14, 'metal', 8, (math.pi / 2, 0, 0))
+    cyl('End roller', (0, -.95, z - .065), .065, 1.14, 'metal', 8, (0, math.pi / 2, 0))
 
 def export(name, groups):
+    if EXPORT and name not in EXPORT: return
     bpy.ops.object.select_all(action='DESELECT')
     for o in groups: o.select_set(True)
     bpy.ops.export_scene.gltf(filepath=os.path.join(OUT, name + '.glb'), export_format='GLB', use_selection=True, use_active_scene=True, export_apply=True, export_yup=True, export_animations=False)
@@ -352,6 +381,7 @@ if RENDER: bpy.ops.render.render(write_still=True)
 bpy.data.libraries.write(os.path.join(OUT, 'modular-library.blend'), {scene}, fake_user=True)
 
 # Leave the user's open file as it was.
+if not ui_window: raise SystemExit
 bpy.context.window.scene = previous_scene
 lights = [o.data for o in (sun, area)]; cam = camera.data; world = scene.world
 for o in list(scene.collection.objects): bpy.data.objects.remove(o, do_unlink=True)
