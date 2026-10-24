@@ -404,7 +404,7 @@ async function start(){
    while(accumulator>=1/30){fixedUpdate(1/30);accumulator-=1/30;}
    if(stepEncounter(encounter,state,dt)==='fled')setTimeout(()=>ui.say(ENCOUNTER_SAY),600);
    world.update(state,dt,interpolatePose(previousPose,state.player,accumulator/(1/30)),encounter,hunt);uiClock+=dt;autoClock+=dt;
-   const cursor=cursorMode();if(canvas.dataset.cursor!==cursor)canvas.dataset.cursor=cursor;world.setLogistics(showLogistics());
+   const cursor=cursorMode();if(canvas.dataset.cursor!==cursor)canvas.dataset.cursor=cursor;world.setLogistics(showLogistics());world.setZones(selectedType==='mine'||!!ui?.robotsOpen?.());
    reticle.update(cursor==='none'&&pointerIn?reticleState():null,dt);
    if(state.ship.status!==shipStatus){if(state.ship.status==='orbit'&&shipStatus==='ascent'){notify(`Satellites deployed. ${state.satellites} in orbit.`);orbit.show();}if(state.ship.status==='pad'&&shipStatus==='descent')notify('The Starship is back on the pad.');shipStatus=state.ship.status;}
    if((state.goo?.breaches??0)>breaches){breaches=state.goo.breaches;notify('Containment breach! The goo vat lost power.');ui.say('The vat has breached. Goo is spreading through the base and something hatched. Flares burn both: press X for flares, Q to throw.');}

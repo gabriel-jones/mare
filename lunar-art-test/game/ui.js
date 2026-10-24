@@ -278,6 +278,7 @@ export function createUI(root, callbacks = {}) {
   return {
     toggleMenu() { setOpen(menu.hidden); },
     toggleRobots() { setRobots(robotsPanel.hidden); },
+    robotsOpen: () => !robotsPanel.hidden,
     toggleStock() { setStore(!(storeOpen && crateId == null)); },
     openCrate(id) { setStore(true, id); },
     closeStore() { setStore(false); },

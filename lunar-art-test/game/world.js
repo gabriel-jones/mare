@@ -510,5 +510,5 @@ export async function createWorld(canvas, initialState) {
   }
   function dispose(){disposed=true;logistics.dispose();buildFx.dispose();portLinks.dispose();groundPads.dispose();groundMarks.dispose();headlamp.dispose();meetView?.dispose();gooView.dispose();broodViews.forEach(v=>v.dispose());surfaceFx.removeFromParent();lamps.dispose();caveViews.forEach(v=>v.dispose());vignette.remove();expedition.dispose();productionView.dispose();habitatView.dispose();statusLayer.remove();terrainView.dispose();grid.geometry.dispose();grid.material.dispose();combat?.dispose();actor?.dispose();reflection.dispose();canvas.removeEventListener('wheel',zoom);for(const o of structures.values()){o.ownedMaterials?.forEach(m=>m.dispose());scene.remove(o.ports);}geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());itemModels?.dispose();renderer.dispose();}
   resize();update(initialState,1);
-  return {renderer,scene,camera,actor,update,pick,aim,setGhost,clearGhost,setLogistics:shown=>{logisticsShown=shown;},resize,dispose};
+  return {renderer,scene,camera,actor,update,pick,aim,setGhost,clearGhost,setLogistics:shown=>{logisticsShown=shown;},setZones:shown=>productionView.setZones(shown),resize,dispose};
 }

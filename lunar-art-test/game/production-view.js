@@ -169,13 +169,14 @@ export function createProductionView(scene, models, itemModels = null) {
     return sprite;
   }
   dashes.count = 0; dashes.frustumCulled = false; root.add(dashes);
-  // Dug ground is a smooth basin rather than per-cell squares: a draped sheet whose normals follow a virtual dip
-  // (the voxel ground can't actually be lowered), darker freshly-turned regolith, and a real spoil berm on the rim.
-  const digMaterial = own(materials, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
+  // Dug ground matches the faceted terrain: a draped sheet of flat-shaded, slightly irregular triangles lit as if the
+  // pit were really sunk (the ground can't be lowered), in the terrain's palette, with a spoil berm on the rim.
+  const digMaterial = own(materials, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, transparent: true, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2 }));
   let digMesh = null, areaKey = '', minedKey = '';
-  const ground = new THREE.Color('#a49b8f'), pit = new THREE.Color('#5d574f'), spoil = new THREE.Color('#968d80'), color = new THREE.Color();
-  const DIP = .45, BERM = .16, STEP = .25, TILE = 16;
+  const ground = new THREE.Color('#8e877b'), pit = new THREE.Color('#4a4642'), floor = new THREE.Color('#5a5650'), spoil = new THREE.Color('#a39b8d'), color = new THREE.Color();
+  const DIP = .45, BERM = .16, STEP = .8, TILE = 16, RELIEF = 1.5;
   const bump = (d2, r) => { const t = 1 - d2 / (r * r); return t > 0 ? t * t : 0; };
+  const hash = (x, z) => { const n = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453; return n - Math.floor(n); };
   function digField(mined, x, z) {
     let f = 0, wide = 0;
     const cx = Math.round(x / 2), cz = Math.round(z / 2);
@@ -188,40 +189,50 @@ export function createProductionView(scene, models, itemModels = null) {
     const dip = THREE.MathUtils.smoothstep(f * 1.45, .12, .8), rim = THREE.MathUtils.smoothstep(wide * .9, .05, .45) * (1 - THREE.MathUtils.smoothstep(f * 1.45, .05, .3));
     return [dip, rim];
   }
+  const ab = new THREE.Vector3(), ac = new THREE.Vector3(), normal = new THREE.Vector3();
   function trench(state, entries) {
     const mined = new Map(), tiles = new Set();
     for (const [cell, amount] of entries) {
       const [cx, cz] = cell.split(',').map(Number); mined.set(cx * 100003 + cz, Math.min(1, amount / REGOLITH_PER_CELL));
       for (const ox of [-3, 3]) for (const oz of [-3, 3]) tiles.add(`${Math.floor((cx * 2 + ox) / TILE)},${Math.floor((cz * 2 + oz) / TILE)}`);
     }
-    const positions = [], colors = [], normals = [], indices = [], n = TILE / STEP + 1, dips = new Float32Array(n * n), rims = new Float32Array(n * n), h = new Float32Array(n * n);
+    const positions = [], colors = [], normals = [], n = TILE / STEP + 1, points = [];
     for (const tile of tiles) {
-      const [tx, tz] = tile.split(',').map(Number), base = positions.length / 3, alpha = [];
+      const [tx, tz] = tile.split(',').map(Number);
+      // Lattice points wander by a global hash, so neighbouring tiles agree and the facets never look gridded.
       for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
-        const k = j * n + i, [dip, rim] = digField(mined, tx * TILE + i * STEP, tz * TILE + j * STEP);
-        dips[k] = dip; rims[k] = rim; h[k] = (-dip * DIP + rim * BERM) * 2.6;
+        const gx = tx * TILE + i * STEP, gz = tz * TILE + j * STEP, x = gx + (hash(gx, gz) - .5) * STEP * .35, z = gz + (hash(gz + 7.1, gx) - .5) * STEP * .35;
+        const [dip, rim] = digField(mined, x, z), y = heightAt(state.seed, x, z);
+        points[j * n + i] = { x, z, y: y + .035 + rim * BERM, v: y + (-dip * DIP + rim * BERM) * RELIEF, dip, rim, a: Math.min(.95, Math.max(dip * 1.8, rim * 1.1)) };
       }
-      for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
-        const k = j * n + i, x = tx * TILE + i * STEP, z = tz * TILE + j * STEP, dip = dips[k], rim = rims[k];
-        positions.push(x, heightAt(state.seed, x, z) + .035 + rim * BERM, z);
-        const i0 = Math.max(0, i - 1), i1 = Math.min(n - 1, i + 1), j0 = Math.max(0, j - 1), j1 = Math.min(n - 1, j + 1);
-        const gx = (h[j * n + i1] - h[j * n + i0]) / ((i1 - i0) * STEP), gz = (h[j1 * n + i] - h[j0 * n + i]) / ((j1 - j0) * STEP), len = Math.hypot(gx, 1, gz);
-        normals.push(-gx / len, 1 / len, -gz / len);
-        color.copy(ground).lerp(spoil, rim * .8).lerp(pit, dip);
-        const a = Math.min(.95, Math.max(dip * 1.8, rim * 1.1)); alpha.push(a);
-        colors.push(color.r, color.g, color.b, a);
-      }
+      const facet = (p, q, r) => {
+        const a = (p.a + q.a + r.a) / 3; if (a < .03) return;
+        const dip = (p.dip + q.dip + r.dip) / 3, rim = (p.rim + q.rim + r.rim) / 3, cx = (p.x + q.x + r.x) / 3, cz = (p.z + q.z + r.z) / 3;
+        ab.set(q.x - p.x, q.v - p.v, q.z - p.z); ac.set(r.x - p.x, r.v - p.v, r.z - p.z); normal.crossVectors(ac, ab).normalize();
+        if (normal.y < 0) normal.negate();
+        // Walls go stony and shaded like crater walls; the floor settles to crater-floor grey; the berm catches light.
+        color.copy(ground).lerp(spoil, rim * .8).lerp(floor, dip).lerp(pit, dip * .6 * THREE.MathUtils.smoothstep(1 - normal.y, .03, .3));
+        color.multiplyScalar(.95 + hash(cx, cz) * .1);
+        for (const v of [p, q, r]) { positions.push(v.x, v.y, v.z); normals.push(normal.x, normal.y, normal.z); colors.push(color.r, color.g, color.b, a); }
+      };
       for (let j = 0; j < n - 1; j++) for (let i = 0; i < n - 1; i++) {
-        const k = j * n + i; if (!alpha[k] && !alpha[k + 1] && !alpha[k + n] && !alpha[k + n + 1]) continue;
-        const p = base + k; indices.push(p, p + n, p + 1, p + 1, p + n, p + n + 1);
+        const a = points[j * n + i], b = points[j * n + i + 1], c = points[(j + 1) * n + i], d = points[(j + 1) * n + i + 1];
+        if (hash(tx * TILE + i, tz * TILE + j + 3.3) < .5) { facet(a, c, b); facet(b, c, d); } else { facet(a, c, d); facet(a, d, b); }
       }
     }
     if (digMesh) { root.remove(digMesh); digMesh.geometry.dispose(); digMesh = null; }
-    if (!indices.length) return;
+    if (!positions.length) return;
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3)); geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 4)); geo.setIndex(indices);
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 4));
     digMesh = new THREE.Mesh(geo, digMaterial); digMesh.receiveShadow = true; digMesh.frustumCulled = false; root.add(digMesh);
+  }
+  // Zone outlines and plates only show while the robots tab is open or a zone is being marked.
+  let zonesShown = false, zoneFade = 0;
+  function fadeZones(dt) {
+    zoneFade = Math.max(0, Math.min(1, zoneFade + (zonesShown ? dt : -dt) / .2));
+    dashes.visible = zoneFade > 0; dashes.material.opacity = .9 * zoneFade;
+    for (const sprite of plates.values()) { sprite.visible = zoneFade > 0; sprite.material.opacity = zoneFade; }
   }
   function updateMining(state) {
     const areas = state.miningAreas ?? [], key = `${state.seed}:` + areas.map(a => `${a.id}@${a.x},${a.z}`).join('|');
@@ -253,7 +264,8 @@ export function createProductionView(scene, models, itemModels = null) {
   return {
     rovers,
     regolith,
-    update(state, dt, daylight) { time += dt; updateItems(state, time); updateRovers(state, dt, daylight); updateMining(state); regolith.update(dt); },
+    update(state, dt, daylight) { time += dt; updateItems(state, time); updateRovers(state, dt, daylight); updateMining(state); fadeZones(dt); regolith.update(dt); },
+    setZones(shown) { zonesShown = shown; },
     dispose() { regolith.dispose(); scene.remove(root); Object.values(batches).forEach(b => b.dispose()); dashes.dispose(); digMesh?.geometry.dispose(); for (const p of plates.values()) { p.material.map.dispose(); p.material.dispose(); } geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); },
   };
 }
