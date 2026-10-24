@@ -36,8 +36,8 @@ export function createGroundMarks(scene, { heightAt, dust }) {
     };
     return material;
   };
-  // Boot prints linger a few seconds behind the walker; wheel tracks wear away over a minute.
-  const sets = [[boot, 40, 2.5, 3], [tread, 1200, 40, 25]].map(([map, size, hold, fadeOut]) => {
+  // Prints and wheel tracks both linger a few seconds behind whoever made them, then fade.
+  const sets = [[boot, 40, 2.5, 3], [tread, 400, 2.5, 3]].map(([map, size, hold, fadeOut]) => {
     const geometry = plane.clone(), fade = new THREE.InstancedBufferAttribute(new Float32Array(size), 1);
     fade.setUsage(THREE.DynamicDrawUsage); geometry.setAttribute('fade', fade);
     const mesh = new THREE.InstancedMesh(geometry, look(map), size); mesh.count = 0; mesh.frustumCulled = false; mesh.receiveShadow = true; mesh.renderOrder = 1; root.add(mesh);

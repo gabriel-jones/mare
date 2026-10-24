@@ -229,13 +229,25 @@ def building(name):
     return build
 
 
+def open_tray(p):
+    # The grow bed in game is an open tray: drop the canopy, its posts and the status lamp.
+    building('growbed')(p)
+    import bmesh
+    for o in list(bpy.context.scene.objects):
+        if o.type != 'MESH' or o.name.startswith('Plants'): continue
+        if o.name.startswith('Lamp'): bpy.data.objects.remove(o, do_unlink=True); continue
+        bm = bmesh.new(); bm.from_mesh(o.data)
+        high = [v for v in bm.verts if (o.matrix_world @ v.co).z > .62]
+        bmesh.ops.delete(bm, geom=high, context='VERTS'); bm.to_mesh(o.data); bm.free()
+
+
 HUD = [('build', build_tool), ('robots', building('rover')), ('stock', crate_stack), ('orbit', icons['satellite']),
        ('research', flask_rig), ('oxygen', oxygen), ('water', water), ('power', power), ('battery', battery),
        ('suit', helmet), ('food', ration), ('comms', comms), ('lock', padlock)]
 GLB_BUILDINGS = ['solar', 'battery', 'hopper', 'habitat', 'growbed', 'hydrorack', 'verticalfarm', 'mushroomtray', 'galley',
                  'armory', 'goovat', 'mill', 'recycler', 'conveyor', 'processor', 'melter', 'storage', 'fabricator',
-                 'assembler', 'electrolyser', 'tank', 'dock', 'roverbay', 'xenolab', 'reactor', 'fuelcell', 'thermal', 'rtg', 'bioreactor']
-BUILD = [(k, building(k)) for k in GLB_BUILDINGS] + [('greenhouse', greenhouse), ('airlock', airlock), ('mine', mine), ('dismantle', dismantle)]
+                 'assembler', 'electrolyser', 'tank', 'dock', 'roverbay', 'hauler', 'rover', 'xenolab', 'reactor', 'fuelcell', 'thermal', 'rtg', 'bioreactor']
+BUILD = [(k, open_tray if k == 'growbed' else building(k)) for k in GLB_BUILDINGS] + [('greenhouse', greenhouse), ('airlock', airlock), ('mine', mine), ('dismantle', dismantle)]
 
 
 def studio_batch(entries, out, size):

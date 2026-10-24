@@ -3,7 +3,7 @@ import { DEFS, ITEM_INFO } from './defs.js';
 import { HAULER } from './hauler.js';
 import { ELECTROLYSIS, LAUNCH, REACTOR_POWER, electrolyserReady, touchesPad } from './space.js';
 import { processorReady, melterReady, fabricatorReady, assemblerReady, currentPart, ASSEMBLY, FAB, remainingRegolith, roverHasWork, hasMelter, miningCells, dockSpace, total, ROVER, RECIPE, MELT, PROCESSOR_INPUT_CAP } from './production.js';
-import { LIFE, STATIONS, isStation, roomStatus, readyCount, stationJobs } from './life.js';
+import { LIFE, STATIONS, isStation, jobName, roomStatus, readyCount, stationJobs } from './life.js';
 import { CROPS, isGrower } from './farm.js';
 import { GOO, gooOn } from './goo.js';
 import { BIO, FUELCELL, RTG_POWER, THERMAL } from './power.js';
@@ -95,8 +95,8 @@ export function buildingStatus(building,state){
   const ready=Object.entries(building.ready??{}).filter(([,n])=>n);
   if(ready.length){const [item,n]=ready[0];return {text:ready.length>1||n>1?`${readyCount(building)} ready`:`${ITEM_INFO[item].name} ready`,read:'PACK FULL · PRESS E TO COLLECT',tone:'low'};}
   const st=STATIONS[building.type],next=stationJobs(building)[0];
-  if(next)return state.power.powered===false&&st.power?noPower:{text:st.verb,read:ITEM_INFO[next].name.toUpperCase(),tone:'charge',fill:building.work};
-  return {text:'Idle',read:`CLICK TO ${building.type==='galley'?'COOK':building.type==='mill'?'MILL':'CRAFT'}`,tone:'inactive'};
+  if(next)return state.power.powered===false&&st.power?noPower:{text:st.verb,read:jobName(next).toUpperCase(),tone:'charge',fill:building.work};
+  return {text:'Idle',read:`CLICK TO ${building.type==='galley'?'COOK':building.type==='mill'?'MILL':building.type==='roverbay'?'ASSEMBLE':'CRAFT'}`,tone:'inactive'};
  }
  if(building.type==='recycler'){
   if(state.reserves.water>=LIFE.waterCap)return {text:'Tanks full',read:`WATER ${Math.floor(state.reserves.water)}`,tone:'inactive'};

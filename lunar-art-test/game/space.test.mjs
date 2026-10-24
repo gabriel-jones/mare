@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { payInFull, createState, placeBlueprint, tick, serialize, deserialize, interact, validatePlacement } from './sim.js';
+import { payInFull, createState, placeBlueprint, tick, serialize, deserialize, interact, validatePlacement, construct } from './sim.js';
+import { ensureLifeState, startCraft, STATIONS } from './life.js';
 import { ensureBuildingState, FAB, KIT } from './production.js';
 import { LAUNCH, TECHS, holdLaunch, loadSatellite, recallShip, selectResearch, shipAction } from './space.js';
 import { count, createInventory } from './inventory.js';
@@ -43,8 +44,13 @@ test('haulers bring parts to the assembler and the finished satellite to the shi
   const s = colony();
   const crate = build(s, 'storage', -7, 2), asm = build(s, 'assembler', -4, 1), dock = build(s, 'dock', 0, 2);
   crate.slots = createInventory({ frame: 1, wing: 2, chip: 2 }, crate.slots.length);
-  assert.equal(interact(s, dock.id).ok, true);
+  // A hauler is put together on a pad like any blueprint, then drives off.
+  const pad = placeBlueprint(s, 'hauler', 3, 5); assert.equal(pad.ok, true, pad.reason);
+  s.player.x = 3 * 2 + 3; s.player.z = 5 * 2;
+  for (let i = 0; i < 40 && s.buildings.some(b => b.id === pad.id); i++) construct(s, pad.id, .5);
+  assert.equal(s.buildings.some(b => b.id === pad.id), false, 'the pad is gone');
   assert.equal(s.robots.filter(r => r.kind === 'hauler').length, 1);
+  assert.equal(s.robots.find(r => r.kind === 'hauler').home, dock.id);
   run(s, 25);
   assert.equal(crate.slots.filter(Boolean).length, 0, 'parts collected');
   run(s, 60);
@@ -77,16 +83,25 @@ test('electrolysers fuel the ship through a pad-side tank, then it launches, orb
   assert.equal(s.ship.status, 'pad');
 });
 
-test('satellites earn research that unlocks the rover bay, which builds more rovers', () => {
+test('satellites earn research that unlocks the robot bay, which assembles robots by itself', () => {
   const s = colony();
   s.satellites = 2;
   run(s, TECHS.roverbay.cost / 8 * 60 + 2, 1 / 4);
   assert.deepEqual(s.research.done, ['roverbay']);
   assert.equal(selectResearch(s, 'roverbay').ok, false);
-  const bay = build(s, 'roverbay', -4, 1);
-  assert.equal(interact(s, bay.id).ok, true);
+  const bay = build(s, 'roverbay', -4, 1); ensureLifeState(bay);
+  assert.equal(startCraft(s, bay, 'miner').ok, true);
+  assert.equal(s.robots.filter(r => r.kind === 'miner').length, 1, 'assembled over time');
+  run(s, STATIONS.roverbay.time + 1, 1 / 4);
   assert.equal(s.robots.filter(r => r.kind === 'miner').length, 2);
   const restored = deserialize(serialize(s));
   assert.deepEqual(restored.research, s.research);
   assert.equal(restored.satellites, 2);
+});
+
+test('robots are built from the menu within the colony limit; haulers need a dock first', () => {
+  const s = colony();
+  assert.match(validatePlacement(s, 'hauler', 3, 5).reason, /robot dock first/);
+  for (let i = 0; i < 3; i++) assert.equal(placeBlueprint(s, 'rover', 3 + i, 5).ok, true);
+  assert.match(validatePlacement(s, 'rover', 7, 5).reason, /can run 4 mining rovers/, 'pads count toward the limit');
 });

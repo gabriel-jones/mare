@@ -4,6 +4,7 @@ import * as inv from './inventory.js';
 import { missing, pay } from './storage.js';
 import { gooOn } from './goo.js';
 import { ARMORY, BENCH, armoryKnown } from './arms.js';
+import { ROBOT_COST, ROBOT_NAME, robotRoom, spawnRobot, bayExit } from './space.js';
 import { CROPS, GALLEY, MILL, RECIPES, BUFFS, isGrower, cropsFor, defaultCrop, recipeKnown, obtainable, addBuffs, buffed, stepBuffs } from './farm.js';
 
 // Provisional tuning.
@@ -54,15 +55,18 @@ const grainFor = item => Object.keys(MILL.makes).find(k => MILL.makes[k] === ite
 export const STATIONS = Object.freeze({
   galley: { verb: 'Cooking', time: GALLEY.time, queue: GALLEY.queue, ready: GALLEY.ready, power: GALLEY.power, air: true, recipes: Object.keys(RECIPES), known: recipeKnown, input: id => RECIPES[id].input, makes: () => 1, job: id => id, product: job => job },
   mill: { verb: 'Milling', time: MILL.time, queue: MILL.cap, ready: MILL.cap, power: MILL.power, air: true, recipes: Object.values(MILL.makes), known: obtainable, input: id => ({ [grainFor(id)]: 1 }), makes: () => 1, job: grainFor, product: job => MILL.makes[job] },
+  // The robot bay's product rolls out beside it rather than into the pack.
+  roverbay: { verb: 'Assembling', time: 20, queue: 2, ready: 0, power: 1, air: false, robots: true, recipes: Object.keys(ROBOT_COST), known: () => true, input: id => ROBOT_COST[id], makes: () => 1, job: id => id, product: job => job },
   armory: { verb: 'Crafting', time: BENCH.time, queue: BENCH.queue, ready: BENCH.ready, power: 0, air: false, recipes: Object.keys(ARMORY), known: armoryKnown, input: id => ARMORY[id].input, makes: id => ARMORY[id].makes, job: id => id, product: job => job },
 });
 export const isStation = b => !!STATIONS[b?.type];
-const working = (b, status) => b.built && b.queue?.length > 0 && readyCount(b) < STATIONS[b.type].ready && (!STATIONS[b.type].air || pressurisedAt(status, b));
+const working = (b, status) => b.built && b.queue?.length > 0 && (STATIONS[b.type].robots || readyCount(b) < STATIONS[b.type].ready) && (!STATIONS[b.type].air || pressurisedAt(status, b));
 function stepStation(state, b, dt) {
   const s = STATIONS[b.type];
   b.work += dt / s.time;
   if (b.work < 1) return;
   b.work = 0;
+  if (s.robots) { const exit = bayExit(b); spawnRobot(state, b.queue.shift(), exit.x, exit.z); return; }
   const item = s.product(b.queue.shift()), n = s.makes(item), k = Math.min(n, inv.room(state.inventory, item));
   inv.add(state.inventory, item, k);
   if (n > k) b.ready[item] = (b.ready[item] ?? 0) + n - k;
@@ -118,7 +122,9 @@ export function stepLife(state, dt, powered) {
   }
 }
 
-const name = item => ITEM_INFO[item].name.toLowerCase();
+/** What a station job or crop is called, robots included. */
+export const jobName = id => ITEM_INFO[id]?.name ?? ROBOT_NAME[id];
+const name = item => jobName(item).toLowerCase();
 const listing = counts => Object.entries(counts).filter(([, n]) => n).map(([item, n]) => `${n} ${name(item)}`).join(', ');
 
 /** Eats (or, for a medkit, uses) one of the item in the selected slot. */
@@ -156,6 +162,7 @@ export function startCraft(state, b, id) {
   if (!s || !b.built) return { ok: false, reason: 'Nothing to make here.' };
   if (!s.recipes.includes(id) || !s.known(state, id)) return { ok: false, reason: b.type === 'armory' ? 'Research it first (T).' : 'Unknown recipe.' };
   if (b.queue.length >= s.queue) return { ok: false, reason: `The ${DEFS[b.type].name.toLowerCase()} is busy.` };
+  if (s.robots && robotRoom(state, id) < 1) return { ok: false, reason: `The colony can't run more ${ROBOT_NAME[id].toLowerCase()}s yet.` };
   const input = s.input(id), short = missing(state, input);
   if (short.length) return { ok: false, reason: `Needs ${short.map(([item, n]) => `${n} ${name(item)}`).join(', ')}.` };
   pay(state, input);

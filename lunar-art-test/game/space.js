@@ -2,7 +2,6 @@ import { fuelBurning } from './power.js';
 import { CELL_SIZE, DEFS, PARTS, footprint } from './defs.js';
 import { RECIPES, createRover } from './production.js';
 import * as inv from './inventory.js';
-import { pay } from './storage.js';
 
 /** Starship fuelling, launches, orbit and research. Pure and serializable, like the rest of the sim. */
 export const SHIP_PAD = Object.freeze({ x: 0, z: -10, reach: 6.5 });
@@ -26,7 +25,7 @@ export const TECHS = Object.freeze({
   pistol: { name: 'Pistol', branch: 'arms', cost: 1, innate: true, description: 'The sidearm you landed with. An armory can make another.' },
   rifle: { name: 'Semi-auto rifle', branch: 'arms', cost: 18, requires: ['pistol'], description: 'Twelve rounds, harder hits and a longer reach. Crafted at an armory.' },
   flamethrower: { name: 'Flamethrower', branch: 'arms', cost: 28, requires: ['rifle'], description: 'Burns crawlers, silk, nests and goo up close, on fuel refined from black goo. Lets you scrape nests (E).' },
-  roverbay: { name: 'Rover bay', branch: 'industry', cost: 24, description: 'A bay that builds extra mining rovers.' },
+  roverbay: { name: 'Robot bay', branch: 'industry', cost: 24, description: 'A bay that assembles haulers and rovers on its own.' },
   reactor: { name: 'Resonance reactor', branch: 'deep', cost: 40, schematic: true, hint: 'Needs a schematic from deep in the caves', description: 'Steady power from a rare-earth lattice, day and night.' },
   containment: { name: 'Goo containment', branch: 'deep', cost: 30, schematic: true, hint: 'Study the Heart of the Deep at a xeno lab', description: 'A sealed vat that cultures black goo. Scrape a sample from a live nest (E).' },
 });
@@ -35,7 +34,9 @@ export const missingFor = (state, id) => (TECHS[id].requires ?? []).filter(r => 
 /** Research points a xeno lab gets from studying each find. */
 export const STUDY = Object.freeze({ artifact: 12, heart: 60 });
 export const REACTOR_POWER = 10;
-export const ROBOT_COST = Object.freeze({ hauler: { metal: 25, silicon: 10 }, miner: { metal: 30, silicon: 12 } });
+export const ROBOT_COST = Object.freeze({ hauler: DEFS.hauler.cost, miner: DEFS.rover.cost });
+/** The build-menu type that puts each kind of robot together. */
+export const ROBOT_TYPE = Object.freeze({ hauler: 'hauler', miner: 'rover' });
 export const ROBOT_LIMIT = Object.freeze({ hauler: 3, miner: 4 });
 
 export const createShip = () => ({ status: 'pad', t: 0, fuel: 0, payload: 0, hold: 0 });
@@ -134,27 +135,32 @@ export function recallShip(state) {
   return { ok: true, reason: 'Starship returning to the pad.' };
 }
 
-/** E at a robot dock or rover bay builds one robot from carried materials, beside the building. */
-export function buildRobot(state, id) {
-  const b = state.buildings.find(b => b.id === id && b.built);
-  const kind = b?.type === 'dock' ? 'hauler' : b?.type === 'roverbay' ? 'miner' : null;
-  if (!kind) return { ok: false, reason: 'Nothing to build here.' };
-  const name = kind === 'hauler' ? 'hauler' : 'mining rover';
-  if (state.robots.filter(r => r.kind === kind).length >= ROBOT_LIMIT[kind]) return { ok: false, reason: `The colony can run ${ROBOT_LIMIT[kind]} ${name}s for now.` };
-  if (!pay(state, ROBOT_COST[kind])) return { ok: false, reason: `A ${name} needs ${costText(ROBOT_COST[kind])}.` };
-  const robotId = 1 + Math.max(0, ...state.robots.map(r => r.id));
-  const cells = footprint(b.type, b.x, b.z, b.rotation), x = Math.max(...cells.map(c => c.x)) + 1, z = Math.min(...cells.map(c => c.z));
-  const robot = kind === 'hauler' ? createHauler(robotId, b.id) : createRover(robotId);
-  Object.assign(robot, { x: x * CELL_SIZE, z: z * CELL_SIZE });
+export const ROBOT_NAME = Object.freeze({ hauler: 'Hauler', miner: 'Mining rover' });
+/** How many more robots of `kind` the colony may start: running ones, those on the pad and those queued at bays all count. */
+export function robotRoom(state, kind) {
+  const pads = state.buildings.filter(b => DEFS[b.type].robot === kind).length;
+  const queued = state.buildings.reduce((n, b) => n + (b.type === 'roverbay' ? (b.queue ?? []).filter(q => q === kind).length : 0), 0);
+  return ROBOT_LIMIT[kind] - state.robots.filter(r => r.kind === kind).length - pads - queued;
+}
+/** A finished robot rolls out at world position (x, z). Haulers call the nearest dock home. */
+export function spawnRobot(state, kind, x, z) {
+  const id = 1 + Math.max(0, ...state.robots.map(r => r.id));
+  const docks = state.buildings.filter(b => b.type === 'dock' && b.built);
+  const dock = docks.sort((a, b) => Math.hypot(a.x * CELL_SIZE - x, a.z * CELL_SIZE - z) - Math.hypot(b.x * CELL_SIZE - x, b.z * CELL_SIZE - z))[0];
+  const robot = kind === 'hauler' ? createHauler(id, dock?.id ?? 0) : createRover(id);
+  Object.assign(robot, { x, z });
   state.robots.push(robot);
-  return { ok: true, reason: `${kind === 'hauler' ? 'Hauler' : 'Mining rover'} ${robotId} is ready.` };
+  return robot;
+}
+/** Where a robot bay sets down what it assembles: just past its corner. */
+export function bayExit(b) {
+  const cells = footprint(b.type, b.x, b.z, b.rotation);
+  return { x: (Math.max(...cells.map(c => c.x)) + 1) * CELL_SIZE, z: Math.min(...cells.map(c => c.z)) * CELL_SIZE };
 }
 /** What E does at a finished Phase E machine, for the on-screen hint; null when nothing. */
 export function machineAction(state, b) {
   if (b.type === 'fabricator') { const next = RECIPES[(RECIPES.indexOf(b.recipe) + 1) % RECIPES.length]; return { verb: `Switch to ${next === 'kit' ? 'satellite kit' : PARTS[next].name.toLowerCase()}` }; }
   if (b.type === 'assembler' && b.out.satellite >= 1) return { verb: 'Take the satellite' };
-  if (b.type === 'dock') return { verb: `Build a hauler · ${costText(ROBOT_COST.hauler)}` };
-  if (b.type === 'roverbay') return { verb: `Build a mining rover · ${costText(ROBOT_COST.miner)}` };
   if (b.type === 'xenolab') { const points = studyValue(state); return points ? { verb: `Study finds · +${points} research` } : null; }
   return null;
 }
@@ -171,7 +177,6 @@ export function studyFinds(state, id) {
   state.research.bank += points;
   return { ok: true, reason: `Studied · +${points} research points. Spend them in research (T).` };
 }
-export const costText = cost => Object.entries(cost).map(([item, n]) => `${n} ${item}`).join(' and ');
 export function createHauler(id, home) {
   return { id, kind: 'hauler', home, x: 0, z: 0, facing: 0, task: 'idle', charge: 1, cargo: 0, load: null, target: null, job: null };
 }

@@ -7,7 +7,7 @@ import * as inv from './inventory.js';
 import { LIFE, STARTING, ensureLifeState, hunger, lifeDemand, roomStatus, stepLife, useLife, STATIONS, isStation } from './life.js';
 import { CROPS, RECIPES as DISHES, isGrower, restoreBuffs } from './farm.js';
 import { createRover, ensureBuildingState, productionDemand, stepProduction, MINING_RADIUS, MAX_MINING_AREAS, REGOLITH_PER_CELL, ROVER, PROCESSOR_INPUT_CAP, PROCESSOR_OUTPUT_CAP, BELT_SPACING, MELT, FAB, ASSEMBLY, RECIPES, KIT, cycleRecipe, robotTopology } from './production.js';
-import { createResearch, createShip, buildRobot, lockedReason, restoreResearch, restoreShip, spaceDemand, stepSpace, studyFinds, touchesPad, REACTOR_POWER } from './space.js';
+import { createResearch, createShip, robotRoom, spawnRobot, ROBOT_LIMIT, ROBOT_NAME, lockedReason, restoreResearch, restoreShip, spaceDemand, stepSpace, studyFinds, touchesPad, REACTOR_POWER } from './space.js';
 import { restoreDelve } from './delve.js';
 import { restorePeril } from './peril.js';
 import { restoreInfest } from './infest.js';
@@ -97,6 +97,9 @@ export function validatePlacement(state, type, x, z, rotation = 0) {
   const locked = lockedReason(state, type);
   if (locked) return { ok: false, reason: locked };
   if (DEFS[type].nearPad && !touchesPad({ type, x, z, rotation })) return { ok: false, reason: 'Place the tank right beside the landing pad.' };
+  const robot = DEFS[type].robot;
+  if (robot && robotRoom(state, robot) < 1) return { ok: false, reason: `The colony can run ${ROBOT_LIMIT[robot]} ${ROBOT_NAME[robot].toLowerCase()}s for now.` };
+  if (robot === 'hauler' && !state.buildings.some(b => b.type === 'dock' && b.built)) return { ok: false, reason: 'Build a robot dock first: haulers recharge there.' };
   const reason = geometryReason(state, type, x, z, rotation);
   if (reason) return { ok: false, reason };
   if (DEFS[type].layer !== 'interior') {
@@ -153,6 +156,11 @@ export function construct(state, id, dt) {
   b.progress = next;
   b.built = b.progress >= 1;
   if (b.built) delete b.paid;
+  if (b.built && DEFS[b.type].robot) {
+    state.buildings.splice(state.buildings.indexOf(b), 1);
+    const robot = spawnRobot(state, DEFS[b.type].robot, cx, cz);
+    return { ok: true, reason: `${ROBOT_NAME[robot.kind]} ${robot.id} is ready.` };
+  }
   ensureState(b);
   return { ok: true, reason: b.built ? 'Construction complete.' : 'Constructing…' };
 }
@@ -251,7 +259,6 @@ export function interact(state, id) {
     inv.add(state.inventory, 'satellite', 1); b.out.satellite -= 1;
     return { ok: true, reason: 'Satellite collected. Carry it to the Starship.' };
   }
-  if (b.type === 'dock' || b.type === 'roverbay') return buildRobot(state, id);
   if (b.type === 'xenolab') return studyFinds(state, id);
   if (b.type === 'goovat' || b.type === 'bioreactor') return useVat(state, b);
   return useLife(state, b);

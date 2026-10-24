@@ -1,11 +1,11 @@
 import { DEFS } from './sim.js';
 import { ITEM_INFO } from './defs.js';
 import { count } from './inventory.js';
-import { hunger, bedOf, readyCount, stationJobs, STATIONS } from './life.js';
+import { hunger, bedOf, readyCount, stationJobs, STATIONS, jobName } from './life.js';
 import { BUFFS, CROPS, RECIPES, cropsFor, isGrower } from './farm.js';
 import { infested } from './goo.js';
 import { ARMORY, WEAPONS } from './arms.js';
-import { TECHS } from './space.js';
+import { TECHS, ROBOT_LIMIT, ROBOT_TYPE, ROBOT_NAME } from './space.js';
 import { robotStatus, lampLevel } from './building-status.js';
 import { areaKind, remainingRegolith, MAX_MINING_AREAS } from './production.js';
 import { available, canPay, crates, ledger, usedSlots, CRATE_SLOTS } from './storage.js';
@@ -22,7 +22,7 @@ const TOOLS = {
   dismantle: { name: 'Dismantle', key: 'z', description: 'Click or drag over structures and blueprints to take them down. Materials are returned.' },
 };
 // Palette sections, in menu order.
-const GROUPS = [['Power & industry', ['solar', 'battery', 'rtg', 'fuelcell', 'thermal', 'hopper', 'conveyor', 'processor', 'melter', 'storage']], ['Rooms', ['habitat', 'greenhouse', 'airlock']], ['Fittings', ['growbed', 'hydrorack', 'verticalfarm', 'mushroomtray', 'galley', 'mill', 'armory', 'recycler']], ['Space', ['fabricator', 'assembler', 'electrolyser', 'tank', 'dock', 'roverbay']], ['Deep', ['xenolab', 'reactor', 'goovat', 'bioreactor']], ['Tools', ['mine', 'dismantle']]];
+const GROUPS = [['Power & industry', ['solar', 'battery', 'rtg', 'fuelcell', 'thermal', 'hopper', 'conveyor', 'processor', 'melter', 'storage']], ['Rooms', ['habitat', 'greenhouse', 'airlock']], ['Fittings', ['growbed', 'hydrorack', 'verticalfarm', 'mushroomtray', 'galley', 'mill', 'armory', 'recycler']], ['Space', ['fabricator', 'assembler', 'electrolyser', 'tank']], ['Robots', ['hauler', 'rover', 'dock', 'roverbay']], ['Deep', ['xenolab', 'reactor', 'goovat', 'bioreactor']], ['Tools', ['mine', 'dismantle']]];
 const svg = (paths, width = 1.5) => `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
 const number = (value) => Math.round(Number(value) || 0).toLocaleString();
 const costText = def => def.cost ? Object.entries(def.cost).map(([item, n]) => `${n} ${ITEM_INFO[item]?.name.toLowerCase() ?? item}`).join(', ') : 'Free';
@@ -94,9 +94,9 @@ export function createUI(root, callbacks = {}) {
         <div class="crate-actions"><button type="button" data-action="store-all" title="Everything except weapons, ammo, flares and food">Store all</button><button type="button" data-action="take-all">Take all</button><button type="button" data-action="close-store" aria-label="Close" title="Close (Esc)">×</button></div>
       </div>
       <div class="ledger-side">
-        <header><strong>Base stock</strong><small class="ledger-summary"></small><button type="button" class="ledger-close" data-action="close-store" aria-label="Close" title="Close (Esc)">×</button></header>
-        <div class="ledger-rows"></div>
-        <p class="ledger-flow">Every crate counts as one store. Building, crafting and cooking use your pockets first, then crate stock while you're within 30 m of a crate. Haulers carry crate stock to fabricators, assemblers and the Starship; belts and haulers drop surplus in the nearest crate with room.</p>
+        <header title="Every crate counts as one store. Building, crafting and cooking use your pockets first, then crate stock while you're within 30 m of a crate. Haulers carry crate stock to fabricators, assemblers and the Starship; belts and haulers drop surplus in the nearest crate with room."><strong>Base stock</strong><span class="lcd ledger-summary"></span><button type="button" class="ledger-close" data-action="close-store" aria-label="Close" title="Close (Esc)">×</button></header>
+        <div class="stock-grid"></div>
+        <div class="stock-detail" hidden></div>
       </div>
     </section>
     <div class="notification" role="status" aria-live="polite" hidden></div>`;
@@ -118,7 +118,7 @@ export function createUI(root, callbacks = {}) {
   const robotsPanel = root.querySelector('.robots-panel'), robotsToggle = root.querySelector('.robots-toggle');
   const setRobots = open => { robotsPanel.hidden = !open; robotsToggle.setAttribute('aria-expanded', String(open)); if (open) { menu.hidden = true; toggle.setAttribute('aria-expanded', 'false'); robotsKey = ''; robotsAt = 0; if (storeOpen) setStore(false); } };
   const setOpen = open => { menu.hidden = !open; toggle.setAttribute('aria-expanded', String(open)); if (open) { setRobots(false); if (storeOpen) setStore(false); } };
-  let robotsKey = '', robotsAt = 0, stationKey = '', buffsKey = '';
+  let robotsKey = '', robotsAt = 0, stationKey = '', buffsKey = '', menuKey = '';
   const store = root.querySelector('.store-panel'), crateSlots = [...root.querySelectorAll('[data-crate-slot]')], stockToggle = root.querySelector('.stock-toggle');
   let storeOpen = false, crateId = null, ledgerKey = '', ledgerAt = 0;
   const setStore = (open, id = null) => {
@@ -134,7 +134,6 @@ export function createUI(root, callbacks = {}) {
     el.querySelector('strong').textContent = slot && slot.count > 1 ? slot.count : '';
     el.title = slot ? `${ITEM_INFO[slot.item].name} × ${slot.count}` : 'Empty';
   };
-  const place = list => list.map(({ tag, n, role }) => `<span>${tag}${role ? ` ${role === 'input' ? 'in' : 'out'}` : ''} <b>${number(n)}</b></span>`).join('');
   function renderStore(state) {
     const crate = crateId != null ? state.buildings.find(b => b.id === crateId && b.built && b.slots) : null;
     if (crateId != null && !crate) { setStore(false); return; }
@@ -147,14 +146,24 @@ export function createUI(root, callbacks = {}) {
     const rows = ledger(state), all = crates(state), used = all.reduce((s, b) => s + usedSlots(b), 0);
     const key = JSON.stringify(rows) + used + all.length;
     if (key === ledgerKey) return; ledgerKey = key;
-    store.querySelector('.ledger-summary').textContent = all.length ? `${all.length} crate${all.length > 1 ? 's' : ''} · ${used} / ${all.length * CRATE_SLOTS} slots` : 'No crates yet';
-    store.querySelector('.ledger-rows').innerHTML = rows.length ? rows.map(r => {
-      const moving = [r.belts && `<span>belts <b>${r.belts}</b></span>`, ...r.robots.map(m => `<span>${m.kind === 'hauler' ? 'Hauler' : 'Rover'} ${m.id} <b>${m.n}</b>${m.to ? ` → ${m.to}` : ''}</span>`)].filter(Boolean).join('');
-      return `<div class="ledger-row" data-item="${r.item}">${icon(r.item)}<div><header><strong>${ITEM_INFO[r.item].name}</strong>${r.stored ? `<b title="Held in crates">${number(r.stored)}<small>stored</small></b>` : '<b class="none">none stored</b>'}</header>
-        <p class="ledger-where">${place(r.crates)}${r.pockets ? `<span class="pockets">pockets <b>${number(r.pockets)}</b></span>` : ''}</p>
-        ${r.machines.length ? `<p class="ledger-machines" title="Held inside machines">${place(r.machines)}</p>` : ''}${moving ? `<p class="ledger-moving" title="On the move">${moving}</p>` : ''}</div></div>`;
-    }).join('') : '<p class="robots-empty">Nothing stored yet.</p>';
+    store.querySelector('.ledger-summary').innerHTML = all.length ? `${used}<small>/${all.length * CRATE_SLOTS}</small>` : '–';
+    store.querySelector('.ledger-summary').title = `${all.length} crate${all.length === 1 ? '' : 's'} · slots used`;
+    ledgerRows = new Map(rows.map(r => [r.item, r]));
+    store.querySelector('.stock-grid').innerHTML = rows.length ? rows.map(r => `<button type="button" class="stock-tile${r.stored || r.pockets ? '' : ' pockets-only'}${r.item === stockFocus ? ' focus' : ''}" data-stock="${r.item}" aria-label="${ITEM_INFO[r.item].name}">${icon(r.item)}<span class="lcd">${number(r.stored + r.pockets + r.machines.reduce((n, m) => n + m.n, 0) + r.belts + r.robots.reduce((n, m) => n + m.n, 0))}</span>${r.belts || r.robots.length ? '<i class="stock-moving"></i>' : ''}</button>`).join('') : `<p class="stock-empty">${svg('<path d="M4 8l8-4 8 4v8l-8 4-8-4z"/><path d="M4 8l8 4 8-4M12 12v8"/>', 1.4)}</p>`;
+    renderStockDetail();
   }
+  // Where the hovered item is: crates, pockets, inside machines, and on the move.
+  let ledgerRows = new Map(), stockFocus = null;
+  function renderStockDetail() {
+    const detail = store.querySelector('.stock-detail'), r = ledgerRows.get(stockFocus);
+    if (!r) { detail.hidden = true; return; }
+    const chip = (label, n, cls = '') => `<span class="${cls}">${label}<b>${number(n)}</b></span>`;
+    const moving = [r.belts && chip(svg('<path d="M3 9h18M3 15h18M7 9l-2 6M13 9l-2 6M19 9l-2 6"/>', 1.4), r.belts, 'moving'), ...r.robots.map(m => chip(`${m.kind === 'hauler' ? 'H' : 'R'}${m.id}`, m.n, 'moving'))];
+    detail.innerHTML = `<strong>${ITEM_INFO[r.item].name}</strong><div>${[...r.crates.map(c => chip(c.tag, c.n, 'crate')), r.pockets && chip(svg('<path d="M6 7h12l-1 13H7z"/><path d="M9 7a3 3 0 0 1 6 0"/>', 1.4), r.pockets, 'pockets'), ...r.machines.map(m => chip(m.tag, m.n, 'machine')), ...moving].filter(Boolean).join('')}</div>`;
+    detail.hidden = false;
+  }
+  store.addEventListener('pointerover', event => { const tile = event.target.closest('[data-stock]'); const next = tile?.dataset.stock ?? (event.target.closest('.stock-detail') ? stockFocus : null); if (next === stockFocus) return; stockFocus = next; store.querySelectorAll('.stock-tile.focus').forEach(t => t.classList.toggle('focus', t.dataset.stock === stockFocus)); tile?.classList.add('focus'); renderStockDetail(); });
+  store.addEventListener('pointerleave', () => { stockFocus = null; store.querySelectorAll('.stock-tile.focus').forEach(t => t.classList.remove('focus')); renderStockDetail(); });
   const station = root.querySelector('.station'), buffs = root.querySelector('.buffs');
   const icon = item => `<img src="${ITEM_ICON_URLS[item]}" alt="" aria-hidden="true" draggable="false">`;
   const clock = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
@@ -178,19 +187,20 @@ export function createUI(root, callbacks = {}) {
       const ids = st.recipes.filter(id => b.type === 'armory' || st.known(state, id)), known = id => st.known(state, id), has = id => canPay(state, st.input(id));
       key = `${b.id}|${ids.map(id => `${id}${known(id)}${has(id)}`)}|${jobs}|${ready}`;
       if (key === stationKey) return;
-      const label = id => `${ITEM_INFO[id].name}${st.makes(id) > 1 ? ` ×${st.makes(id)}` : ''}`;
+      const label = id => `${jobName(id)}${st.makes(id) > 1 ? ` ×${st.makes(id)}` : ''}`, art = id => st.robots ? pic(`build/${ROBOT_TYPE[id]}`) : icon(id);
       const effect = id => {
         if (b.type === 'armory') return known(id) ? (WEAPONS[id] ? 'Weapon' : 'Ammo') : 'Needs research';
         if (b.type === 'mill') return 'Ground';
+        if (st.robots) return `${state.robots.filter(r => r.kind === id).length} / ${ROBOT_LIMIT[id]}`;
         const buff = RECIPES[id].buff;
         return id === 'medkit' ? 'Heals suit' : buff ? (Object.keys(buff).length === Object.keys(BUFFS).length ? 'All four effects' : Object.keys(buff).map(k => BUFFS[k].name).join(' · ')) : 'Filling';
       };
-      const note = jobs.length ? `${st.verb} ${ITEM_INFO[jobs[0]].name.toLowerCase()}${jobs.length > 1 ? ` · ${jobs.length - 1} queued` : ''}${jobs.length >= st.queue ? ' · queue full' : ''}`
+      const note = jobs.length ? `${st.verb} ${jobName(jobs[0]).toLowerCase()}${jobs.length > 1 ? ` · ${jobs.length - 1} queued` : ''}${jobs.length >= st.queue ? ' · queue full' : ''}`
         : ready ? 'Your pack is full: press E to collect' : ids.length ? `Click to make · ${st.time}s each` : 'Research crops to grind';
       html = `<header><strong>${DEFS[b.type].name}</strong><small>${note}</small>${close}</header>
         <div class="station-options">${ids.map(id => {
           const inputs = Object.entries(st.input(id)), queued = jobs.filter(j => j === id).length;
-          return `<button type="button" data-make="${id}" data-station="${b.id}" class="${!known(id) ? 'locked' : has(id) ? '' : 'missing'}${jobs[0] === id ? ' working' : ''}" ${known(id) ? '' : 'disabled'} title="${label(id)}: ${inputs.map(([item, n]) => `${n} ${ITEM_INFO[item].name.toLowerCase()}`).join(' + ')}${known(id) ? '' : ` · research ${TECHS[ARMORY[id]?.tech]?.name ?? 'it'} first`}">${icon(id)}<span>${label(id)}</span><small class="station-inputs">${inputs.map(([item, n]) => `${n > 1 ? `<b>${n}</b>` : ''}${icon(item)}`).join('')}</small><em>${effect(id)}</em>${queued ? `<b class="station-count">${queued}</b>` : ''}${jobs[0] === id ? '<i class="station-progress"></i>' : ''}</button>`;
+          return `<button type="button" data-make="${id}" data-station="${b.id}" class="${!known(id) ? 'locked' : has(id) ? '' : 'missing'}${jobs[0] === id ? ' working' : ''}" ${known(id) ? '' : 'disabled'} title="${label(id)}: ${inputs.map(([item, n]) => `${n} ${ITEM_INFO[item].name.toLowerCase()}`).join(' + ')}${known(id) ? '' : ` · research ${TECHS[ARMORY[id]?.tech]?.name ?? 'it'} first`}">${art(id)}<span>${label(id)}</span><small class="station-inputs">${inputs.map(([item, n]) => `${n > 1 ? `<b>${n}</b>` : ''}${icon(item)}`).join('')}</small><em>${effect(id)}</em>${queued ? `<b class="station-count">${queued}</b>` : ''}${jobs[0] === id ? '<i class="station-progress"></i>' : ''}</button>`;
         }).join('')}</div>`;
     }
     stationKey = key; station.innerHTML = html; station.hidden = false;
@@ -202,25 +212,40 @@ export function createUI(root, callbacks = {}) {
     buffsKey = key;
     buffs.innerHTML = active.map(([id, t]) => `<span class="buff" data-buff="${id}" title="${BUFFS[id].name}"><i></i>${BUFFS[id].name}<small>${clock(t)}</small></span>`).join('');
   }
-  // Rows are rebuilt only when rovers or zones come and go, so an open zone picker is never torn down mid-choice.
+  // Bays are rebuilt only when robots, zones or limits change, so a hovered chip stays put; lamps, charge and cargo update in place.
+  const HUMANOID_BAYS = 3;
+  const humanoid = svg('<circle cx="12" cy="5" r="2.6"/><path d="M8.5 9.5h7l1 6h-2l-.5 6.5h-4L9.5 15.5h-2z"/>', 1.4);
+  let robotsState = null;
   function renderRobots(state) {
-    const areas = state.miningAreas ?? [], key = state.robots.map(r => r.id).join() + '|' + areas.map(a => a.id).join();
-    const miners = state.robots.filter(r => r.kind === 'miner'), haulers = state.robots.filter(r => r.kind === 'hauler');
+    robotsState = state;
+    const areas = state.miningAreas ?? [], miners = state.robots.filter(r => r.kind === 'miner'), haulers = state.robots.filter(r => r.kind === 'hauler');
+    const key = `${state.robots.map(r => r.id)}|${areas.map(a => a.id)}|${areas.length >= MAX_MINING_AREAS}`;
     if (key !== robotsKey) {
       robotsKey = key;
-      robotsPanel.innerHTML = `${haulers.length ? `<h3>Haulers</h3>${haulers.map(r => `<div class="robot-row" data-robot="${r.id}"><i class="robot-dot"></i><div><strong>Hauler ${r.id}</strong><small data-field="status"></small></div></div>`).join('')}` : ''}<h3>Rovers</h3>${miners.map(r => `<div class="robot-row" data-robot="${r.id}"><i class="robot-dot"></i><div><strong>Rover ${r.id}</strong><small data-field="status"></small></div><select data-assign="${r.id}" aria-label="Rover ${r.id} zone"><option value="">Auto</option>${areas.map(a => `<option value="${a.id}">Zone ${a.id}</option>`).join('')}</select></div>`).join('')}
-        <h3>Mining zones</h3>${areas.map(a => `<div class="zone-row" data-zone="${a.id}"><span class="zone-tag">${a.id}</span><div><strong>Zone ${a.id}</strong><small data-field="zone"></small></div><button type="button" data-remove-zone="${a.id}" aria-label="Remove zone ${a.id}" title="Remove zone">×</button></div>`).join('') || '<p class="robots-empty">No zones yet. Rovers wait until you mark one.</p>'}
-        <button type="button" class="zone-add" data-build="mine" ${areas.length >= MAX_MINING_AREAS ? 'disabled' : ''}>Mark a zone<kbd>M</kbd></button>`;
+      const bay = (r, tag) => `<div class="bay" data-robot="${r.id}"><kbd>${tag}${r.id}</kbd><i class="bay-lamp"></i>${pic(`build/${ROBOT_TYPE[r.kind]}`, 'bay-art')}<span class="bay-cargo"></span><i class="bay-charge"><i></i></i>${r.kind === 'miner' ? `<button type="button" class="bay-zone" data-cycle="${r.id}" title="Mining zone: click to change"></button>` : ''}</div>`;
+      const spare = (kind, n) => Array.from({ length: Math.max(0, n) }, () => `<button type="button" class="bay spare" data-build="${ROBOT_TYPE[kind]}" title="Build a ${ROBOT_NAME[kind].toLowerCase()}">${svg('<path d="M12 6v12M6 12h12"/>', 1.6)}</button>`).join('');
+      const fleet = (kind, list, tag) => `<section class="fleet"><header><b>${ROBOT_NAME[kind]}s</b><span class="lcd">${list.length}<small>/${ROBOT_LIMIT[kind]}</small></span></header><div class="bays">${list.map(r => bay(r, tag)).join('')}${spare(kind, ROBOT_LIMIT[kind] - list.length)}</div></section>`;
+      robotsPanel.innerHTML = `${fleet('hauler', haulers, 'H')}${fleet('miner', miners, 'R')}
+        <section class="fleet humanoids" title="Humanoid robots are on their way"><header><b>Humanoids</b><span class="lcd">–</span></header><div class="bays">${Array.from({ length: HUMANOID_BAYS }, () => `<div class="bay reserved">${humanoid}</div>`).join('')}</div></section>
+        <section class="fleet"><header><b>Zones</b><span class="lcd">${areas.length}<small>/${MAX_MINING_AREAS}</small></span></header><div class="zones">${areas.map(a => `<div class="zone" data-zone="${a.id}"><span class="zone-tag">${a.id}</span><span class="zone-kind"></span><span class="lcd" data-field="left"></span><button type="button" data-remove-zone="${a.id}" aria-label="Remove zone ${a.id}" title="Remove zone">${svg('<path d="M7 7l10 10M17 7 7 17"/>', 1.8)}</button></div>`).join('')}<button type="button" class="zone spare" data-build="mine" ${areas.length >= MAX_MINING_AREAS ? 'disabled' : ''} title="Mark a mining zone (M)">${svg('<path d="M12 6v12M6 12h12"/>', 1.6)}<kbd>M</kbd></button></div></section>`;
     }
     for (const r of state.robots) {
-      const row = robotsPanel.querySelector(`[data-robot="${r.id}"]`), status = robotStatus(r, state);
-      row.dataset.level = lampLevel(status);
-      row.querySelector('[data-field=status]').textContent = `${status?.text ?? 'Ready'} · ${Math.round(r.charge * 100)}%${r.cargo >= 1 ? ` · ${Math.floor(r.cargo)} ${r.load ?? 'regolith'}` : ''}`;
-      const select = row.querySelector('select'); if (select && document.activeElement !== select) select.value = String(r.area ?? '');
+      const el = robotsPanel.querySelector(`[data-robot="${r.id}"]`), status = robotStatus(r, state);
+      if (!el) continue;
+      el.dataset.level = lampLevel(status);
+      el.title = `${ROBOT_NAME[r.kind]} ${r.id} · ${status?.text ?? 'Ready'} · ${Math.round(r.charge * 100)}%`;
+      el.querySelector('.bay-charge i').style.width = `${Math.round(r.charge * 100)}%`;
+      const cargo = r.cargo >= 1 ? `${ITEM_ICON_URLS[r.load ?? 'regolith'] ? icon(r.load ?? 'regolith') : ''}<b>${Math.floor(r.cargo)}</b>` : '';
+      const box = el.querySelector('.bay-cargo'); if (box.dataset.k !== cargo) { box.dataset.k = cargo; box.innerHTML = cargo; }
+      const zone = el.querySelector('.bay-zone'); if (zone) zone.textContent = r.area != null ? String(r.area) : 'A';
     }
     for (const a of areas) {
-      const kind = areaKind(state, a.id), left = Math.round(remainingRegolith(state, a.id)), crew = state.robots.filter(r => r.area === a.id).length;
-      robotsPanel.querySelector(`[data-zone="${a.id}"] [data-field=zone]`).textContent = kind && left ? `${kind === 'ice' ? 'Ice' : 'Regolith'} · ${left} left${crew ? ` · ${crew} assigned` : ''}` : 'Exhausted';
+      const el = robotsPanel.querySelector(`[data-zone="${a.id}"]`), kind = areaKind(state, a.id), left = Math.round(remainingRegolith(state, a.id));
+      const k = `${kind}|${left}`; if (el.dataset.k === k) continue; el.dataset.k = k;
+      el.classList.toggle('exhausted', !left);
+      el.querySelector('.zone-kind').innerHTML = kind ? icon(kind === 'ice' ? 'ice' : 'regolith') : '';
+      el.querySelector('[data-field=left]').textContent = left ? number(left) : '0';
+      el.title = `Zone ${a.id} · ${kind && left ? `${kind === 'ice' ? 'ice' : 'regolith'}, ${left} left` : 'exhausted'} · ${state.robots.filter(r => r.area === a.id).length} rovers assigned`;
     }
   }
   // Dragging a stack: hotbar and crate slots are both sources and targets. A drop on empty panel
@@ -277,6 +302,11 @@ export function createUI(root, callbacks = {}) {
     if (button.dataset.action === 'stock') { setStore(!(storeOpen && crateId == null)); button.blur(); return; }
     if (button.dataset.build) { callbacks.onSelect?.(button.dataset.build); setOpen(false); setRobots(false); }
     else if (button.dataset.removeZone) callbacks.onRemoveZone?.(Number(button.dataset.removeZone));
+    else if (button.dataset.cycle && robotsState) {
+      const r = robotsState.robots.find(o => o.id === Number(button.dataset.cycle)), options = [null, ...(robotsState.miningAreas ?? []).map(a => a.id)];
+      if (r) callbacks.onAssign?.(r.id, options[(options.indexOf(r.area ?? null) + 1) % options.length]);
+      button.blur();
+    }
     else if (button.dataset.action === 'robots') setRobots(robotsPanel.hidden);
     else if (button.dataset.action === 'orbit') callbacks.onOrbit?.();
     else if (button.dataset.action === 'replay') speak(spoken.text);
@@ -373,13 +403,11 @@ export function createUI(root, callbacks = {}) {
       for (const item of items) {
         const active = item.dataset.build === selected; item.setAttribute('aria-pressed', String(active)); item.classList.toggle('selected', active);
         const def = TOOLS[item.dataset.build]; item.classList.toggle('unaffordable', !canPay(state, def.cost ?? {}));
-        const locked = view.locked?.[item.dataset.build];
-        if (item.classList.contains('locked') !== !!locked) {
-          item.classList.toggle('locked', !!locked);
-          item.querySelector('kbd').innerHTML = locked ? pic('icons/lock') : def.key?.toUpperCase() ?? '';
-          item.title = locked ?? `${def.description}${def.cost ? ` · ${costText(def)}` : ''}`;
-        }
+        // Technology stays out of the menu until it is unlocked.
+        const locked = !!view.locked?.[item.dataset.build];
+        if (item.hidden !== locked) { item.hidden = locked; menuKey = ''; }
       }
+      if (!menuKey) { menuKey = 'shown'; for (const h of menu.querySelectorAll('h3')) { let n = h.nextElementSibling, any = false; while (n && n.tagName !== 'H3') { any ||= !n.hidden; n = n.nextElementSibling; } h.hidden = !any; } }
       const goal = view.objective;
       panel.hidden = !goal || state.player.cave != null;
       if (goal) {
