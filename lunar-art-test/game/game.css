@@ -276,7 +276,13 @@ body[data-research=open] .game-ui, body[data-research=open] .building-status-lay
 /* Console kit: the icons, gauges, rack trays and work-order tag are Blender renders (assets/ui, built by
    blender/build_ui_kit.py), set on plain dark glass panels. */
 .game-ui { --ink:#2b2f33;--lcd:#8fe6ff;--mono:ui-monospace,"SF Mono",Menlo,monospace;--glass:rgba(14,18,22,.66); }
-.resource-bar { top:14px;left:16px;max-width:calc(100% - 380px);gap:12px;padding:6px 14px 6px 8px;border:0;border-radius:12px;background:var(--glass);backdrop-filter:blur(8px); }
+.hud-top { position:absolute;top:14px;left:16px;display:flex;align-items:center;flex-wrap:wrap;gap:10px 20px;max-width:calc(100% - 380px);pointer-events:none; }
+.hud-top>* { pointer-events:auto; }
+.resource-bar { position:static;max-width:none;gap:12px;padding:6px 14px 6px 8px;border:0;border-radius:12px;background:var(--glass);backdrop-filter:blur(8px); }
+.vitals { display:flex;align-items:center;gap:18px;font-size:11px; }
+.vitals>span { display:inline-flex;align-items:center;white-space:nowrap; }
+.vitals strong { text-shadow:0 1px 2px #000,0 0 6px #000c; }
+.vitals .plates,.vitals .tube { filter:drop-shadow(0 2px 3px #000b); }
 .readout { gap:4px!important; }
 .readout-art { width:46px;height:46px;margin:-4px 0;object-fit:contain;filter:drop-shadow(0 2px 3px #000a); }
 .lcd { display:inline-flex;align-items:baseline;gap:4px;font:600 14px/1 var(--mono);color:var(--lcd);text-shadow:0 0 6px #4fd2ff88; }

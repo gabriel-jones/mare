@@ -37,13 +37,17 @@ const PLATES = 5, TYPE_MS = 22, LINGER_MS = 9000;
 export function createUI(root, callbacks = {}) {
   root.classList.add('game-ui');
   root.innerHTML = `
+    <div class="hud-top">
     <div class="resource-bar" aria-label="Colony resources">
       <span class="readout" title="Oxygen reserve: fills rooms; vented from regolith processing">${pic('icons/oxygen', 'readout-art')}<span class="lcd"><strong data-value="oxygen">0</strong></span></span>
       <span class="readout" title="Water reserve: grow beds drink it; recyclers reclaim it">${pic('icons/water', 'readout-art')}<span class="lcd"><strong data-value="water">0</strong></span></span>
       <span class="readout power-resource" title="Power generation / demand">${pic('icons/power', 'readout-art')}<span class="lcd"><strong data-value="power">0</strong><small>kW</small></span></span>
       <span class="readout" title="Battery charge">${pic('icons/battery', 'readout-art')}<span class="lcd"><strong data-value="battery">0 / 0</strong><small>kJ</small></span></span>
+    </div>
+    <div class="vitals" aria-label="Suit and food">
       <span class="readout health-resource" title="Suit integrity. Vents and toxic pools wear it down; it recovers on the surface. At zero you black out.">${pic('icons/suit', 'readout-art')}<span class="plates">${'<i data-state="whole"></i>'.repeat(PLATES)}</span><strong data-value="health">100%</strong></span>
       <span class="readout food-resource" title="How fed you are. Hungry below 35%: slower walking and building.">${pic('icons/food', 'readout-art')}<span class="tube"><i></i></span><strong data-value="food">100%</strong></span>
+    </div>
     </div>
     <div class="buffs" aria-label="Meal effects"></div>
     <section class="objective" aria-label="Ship AI" aria-live="polite">
