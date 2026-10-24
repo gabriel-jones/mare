@@ -354,7 +354,7 @@ body[data-research=open] .game-ui, body[data-research=open] .building-status-lay
 .hotbar .slot-icon { inset:10px 7px 13px; }
 .hotbar .slot strong { right:8px;bottom:12px; }
 @media(max-width:1320px) { .game-ui .hotbar .slot,.game-ui .hotbar .slot:hover { width:54px;height:62px; } .hotbar::before,.hotbar::after { height:62px;width:14px; } }
-@media(max-width:900px) { .game-ui .hotbar .slot,.game-ui .hotbar .slot:hover { width:46px;height:53px; } .hotbar::before,.hotbar::after { height:53px;width:13px; } }.blueprint-tip { position:fixed;left:0;top:0;z-index:6;min-width:220px;max-width:320px;padding:9px 11px 8px;border:1px solid var(--line);border-radius:5px;background:rgba(14,18,22,.9);backdrop-filter:blur(8px);box-shadow:0 6px 18px #0009;color:#e3dccd;font-size:12px;pointer-events:none;will-change:transform; }
+@media(max-width:900px) { .game-ui .hotbar .slot,.game-ui .hotbar .slot:hover { width:46px;height:53px; } .hotbar::before,.hotbar::after { height:53px;width:13px; } }.blueprint-tip { position:fixed;left:0;top:0;z-index:6;min-width:220px;max-width:320px;padding:9px 11px 8px;border:1px solid var(--line);border-radius:5px;background:rgba(14,18,22,.95);box-shadow:0 6px 18px #0009;color:#e3dccd;font-size:12px;pointer-events:none;will-change:transform; }
 .blueprint-tip header { display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:6px; }
 .blueprint-tip header strong { font-size:13px;color:#f1ebdf; }
 .blueprint-tip header span { color:#7fd3ea;font-size:11px;white-space:nowrap; }

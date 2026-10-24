@@ -95,13 +95,13 @@ function nearbyStation(){
 }
 /** The unbuilt blueprint under the cursor, with what each material still owes against what can be reached. */
 function blueprintTip(){
- if(selectedType||!hover||!pointerIn||!aimClient||state.player.cave!=null)return null;
+ if(selectedType||!hover||!pointerIn||state.player.cave!=null)return null;
  const b=state.buildings.find(b=>!b.built&&footprint(b.type,b.x,b.z,b.rotation).some(c=>c.x===hover.x&&c.z===hover.z));if(!b)return null;
  const reach=inReach(state),items=Object.entries(DEFS[b.type].cost??{}).map(([item,total])=>{
   const owed=b.paid?Math.max(0,total-(b.paid[item]??0)):0,have=available(state,item);
   return {item,total,owed,have,short:owed>have,away:reach?0:baseCount(state,item)};
  });
- return {id:b.id,type:b.type,progress:b.progress,items,x:aimClient.x,y:aimClient.y};
+ return {id:b.id,type:b.type,progress:b.progress,items};
 }
 function view(){
  const nearest=state.player.cave==null?nearestBlueprint(state,DEFS,100):null,c=nearest?buildingCenter(nearest,DEFS):null;
@@ -357,7 +357,7 @@ async function start(){
   if(window.debugGame)window.game={world,get state(){return state;}};
   orbit=createOrbitView({onReturn:()=>{notify(recallShip(state).reason);orbit.close();},onClose:()=>{keys.clear();canvas.focus({preventScroll:true});}});
   research=createResearchView({onResearch:id=>notify(selectResearch(state,id).reason),onClose:()=>{keys.clear();canvas.focus({preventScroll:true});}});
-  canvas.addEventListener('pointermove',e=>{pointerIn=true;aimClient={x:e.clientX,y:e.clientY};reticle.move(e.clientX,e.clientY);point(e);});
+  canvas.addEventListener('pointermove',e=>{pointerIn=true;aimClient={x:e.clientX,y:e.clientY};reticle.move(e.clientX,e.clientY);ui.moveTip(e.clientX,e.clientY);point(e);});
   canvas.addEventListener('pointerenter',()=>{pointerIn=true;});
   canvas.addEventListener('pointerleave',()=>{pointerIn=false;if(beltPath||paintPath||erasing)return;hover=null;world.clearGhost();});
   canvas.addEventListener('pointerdown',e=>{

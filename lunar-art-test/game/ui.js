@@ -101,7 +101,14 @@ export function createUI(root, callbacks = {}) {
     </section>
     <div class="notification" role="status" aria-live="polite" hidden></div>`;
   const fields = Object.fromEntries([...root.querySelectorAll('[data-value]')].map(el => [el.dataset.value, el]));
-  const menu = root.querySelector('.build-menu'), toggle = root.querySelector('.build-toggle'), tools = root.querySelector('.selection-tools'), label = root.querySelector('.selected-name'), reasonLabel = root.querySelector('.selected-reason'), blueprintTip = root.querySelector('.blueprint-tip'), notice = root.querySelector('.notification'), hint = root.querySelector('.context-hint'); let tipKey = '';
+  const menu = root.querySelector('.build-menu'), toggle = root.querySelector('.build-toggle'), tools = root.querySelector('.selection-tools'), label = root.querySelector('.selected-name'), reasonLabel = root.querySelector('.selected-reason'), blueprintTip = root.querySelector('.blueprint-tip'), notice = root.querySelector('.notification'), hint = root.querySelector('.context-hint'); let tipKey = '', tipSize = { w: 0, h: 0 }, tipAt = { x: 0, y: 0 };
+  // Follows the pointer from its own move events; measured only when its contents change.
+  function placeTip(x = tipAt.x, y = tipAt.y) {
+    tipAt = { x, y };
+    if (blueprintTip.hidden) return;
+    const { w, h } = tipSize, left = x + 20 + w > innerWidth - 8 ? x - 14 - w : x + 20, top = y + 20 + h > innerHeight - 8 ? y - 14 - h : y + 20;
+    blueprintTip.style.transform = `translate(${Math.round(left)}px,${Math.round(top)}px)`;
+  }
   const rotateButton = root.querySelector('[data-action=rotate]'), foodMeter = root.querySelector('.tube i'), food = root.querySelector('.food-resource'), plates = [...root.querySelectorAll('.plates i')], health = root.querySelector('.health-resource');
   const items = [...root.querySelectorAll('[data-build]')], slots = [...root.querySelectorAll('[data-slot]')];
   const panel = root.querySelector('.objective'), panelMessage = panel.querySelector('.objective-message'), panelTask = panel.querySelector('.objective-task'), panelStep = panel.querySelector('.objective-step'), panelDistance = panel.querySelector('.objective-distance'), orderImage = panel.querySelector('.order-art'), pips = panel.querySelector('.pips');
@@ -285,6 +292,7 @@ export function createUI(root, callbacks = {}) {
     openCrate(id) { setStore(true, id); },
     closeStore() { setStore(false); },
     get crateId() { return crateId; },
+    moveTip: placeTip,
     update(state, view = {}) {
       const selected = view.selectedType || null;
       root.querySelector('.construction').dataset.underground = String(state.player.cave != null);
@@ -335,10 +343,9 @@ export function createUI(root, callbacks = {}) {
           const rows = tip.items.map(i => `<li class="${i.owed === 0 ? 'done' : i.short ? 'short' : 'ok'}"><img src="${ITEM_ICON_URLS[i.item]}" alt="" aria-hidden="true" draggable="false"><span>${name(i.item)}</span><b>${i.owed === 0 ? 'Supplied' : `${number(i.owed)} more`}</b><small>${i.owed === 0 ? '' : `${number(i.have)} on hand${i.away ? ` · ${number(i.away)} in crates out of range` : ''}`}</small></li>`).join('');
           const foot = short.length ? `Missing ${short.map(i => name(i.item).toLowerCase()).join(', ')}${away ? '. Carry it from the crates, or build within their range.' : '.'}` : 'Hold <kbd>E</kbd> within 5 m to build.';
           blueprintTip.innerHTML = `<header><strong>${DEFS[tip.type].name}</strong><span>Blueprint · ${Math.floor(tip.progress * 100)}%</span></header><ul>${rows}</ul><p class="${short.length ? 'missing' : ''}">${foot}</p>`;
+          tipSize = { w: blueprintTip.offsetWidth, h: blueprintTip.offsetHeight };
+          placeTip();
         }
-        const w = blueprintTip.offsetWidth, h = blueprintTip.offsetHeight;
-        const x = tip.x + 20 + w > innerWidth - 8 ? tip.x - 14 - w : tip.x + 20, y = tip.y + 20 + h > innerHeight - 8 ? tip.y - 14 - h : tip.y + 20;
-        blueprintTip.style.transform = `translate(${Math.round(x)}px,${Math.round(y)}px)`;
       } else tipKey = '';
       renderStation(state, selected ? null : view.station);
       renderBuffs(state);
