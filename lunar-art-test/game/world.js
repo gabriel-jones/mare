@@ -462,7 +462,7 @@ export async function createWorld(canvas, initialState) {
         o.tread.offset.y=(o.tread.offset.y+o.beltSpeed*dt)%1;
       }
       if(o.heater&&b.built){
-        const on=(b.type==='processor'?processorReady(b):melterReady(state,b))&&state.power.powered!==false?1:0;o.heat=(o.heat??0)+(on-(o.heat??0))*Math.min(1,dt*(on?1.5:.6));
+        const on=(b.type==='processor'?processorReady(b):melterReady(state,b))&&state.power.powered!==false?1:0;o.heat=(o.heat??0)+(on-(o.heat??0))*Math.min(1,dt*(on?1.5:3));
         o.heater.traverse(n=>{if(n.isMesh)n.material.emissiveIntensity=(n.material.userData.baseEmission||0)*o.heat*(.85+.15*Math.sin(state.time*9+b.id));});
       }
       if(o.kiln&&b.built){
