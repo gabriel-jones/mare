@@ -202,8 +202,12 @@ export function hardParts({mode='studio',sight=null,toCave=null},keep){
  const maw=mode==='studio'?keep(new THREE.MeshStandardMaterial({color:'#080404',roughness:.25})):keep(new THREE.MeshBasicMaterial({color:'#000000',fog:false}));
  return {bone,maw};
 }
-export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=null,viewDir=null,girth=0,abdomen=null,lite=false}={}){
+/** Crawler `c` as seen from inside a holder scaled by `s` about the origin: what a view of a bigger or smaller one walks. */
+export const scaled=(c,s)=>s===1?c:Object.assign(Object.create(c),{x:c.x/s,z:c.z/s,speed:(c.speed??0)/s});
+export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=null,viewDir=null,girth=0,abdomen=null,lite=false,size=1}={}){
  const root=new THREE.Group(),time={value:0},owned=[];parent.add(root);
+ // The big ones carry their weight: slower darts, twitches and steps than a cave crawler's.
+ const heavy=Math.sqrt(Math.max(1,size));
  const keep=x=>(owned.push(x),x);
  const sag={value:new THREE.Vector3()},pulse={value:0};
  const heat={value:0},char={value:0};
@@ -319,8 +323,8 @@ export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=n
   lastState=state;
   // Stop-start: it freezes, then darts to catch up, like a spider crossing a floor.
   const fast=state==='skitter'||state==='flee'||state==='evade'||state==='emerge';
-  goT-=dt;if(goT<=0){go=!go;goT=go?(fast?.05+Math.random()*.09:.07+Math.random()*.14):(fast?.03+Math.random()*.07:.08+Math.random()*.32);}
-  const glide=state==='lunge'||state==='thrown'?30:state==='grab'?14:dead?6:go?24:.6;
+  goT-=dt;if(goT<=0){go=!go;goT=heavy*(go?(fast?.05+Math.random()*.09:.07+Math.random()*.14):(fast?.03+Math.random()*.07:.08+Math.random()*.32));}
+  const glide=state==='lunge'||state==='thrown'?30:state==='grab'?14:dead?6:go?24/heavy:.6*heavy;
   const k=1-Math.exp(-dt*glide);pos.x+=(tx-pos.x)*k;pos.z+=(tz-pos.z)*k;
   vel.set((pos.x-last.x)/Math.max(dt,1e-4),0,(pos.z-last.z)/Math.max(dt,1e-4));last.copy(pos);
   let yawDiff=c.facing-pose.yaw;yawDiff=Math.atan2(Math.sin(yawDiff),Math.cos(yawDiff));pose.yaw+=yawDiff*(1-Math.exp(-dt*(go?14:3)));
@@ -328,7 +332,7 @@ export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=n
   jerk.t-=dt;
   if(jerk.t<=0){
    const r=()=>Math.random()*2-1,big=seize>.05,amount=big?seize:state==='grab'?1.6:state==='shriek'?.6:1;
-   jerk.t=big?.035+Math.random()*.09:state==='grab'?.03+Math.random()*.07:(state==='stalk'||state==='close'?.08+Math.random()*.4:.12+Math.random()*.6);
+   jerk.t=big?.035+Math.random()*.09:state==='grab'?.03+Math.random()*.07:heavy*(state==='stalk'||state==='close'?.08+Math.random()*.4:.12+Math.random()*.6);
    Object.assign(jerk.want,big?{yaw:r()*.5*amount,pitch:r()*.55*amount,roll:r()*.8*amount,y:Math.random()*.22*amount,open:Math.random()*amount}:
     {yaw:r()*.16*amount,pitch:r()*.1*amount,roll:r()*.08*amount,y:r()*.035*amount,open:Math.random()<.12?.15+Math.random()*.2:0});
   }
@@ -420,7 +424,7 @@ export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=n
      const tap=twitch&&gap<limit&&Math.random()<.45;
      leg.from.copy(leg.foot);leg.to.copy(tap?leg.foot:want);if(twitch&&gap<limit&&!tap)leg.to.add(new THREE.Vector3((Math.random()-.5)*.35,0,(Math.random()-.5)*.35));
      if(!tap)leg.to.addScaledVector(vel,.1);leg.step=.001;
-     const quick=fast||state==='lunge';leg.duration=tap?.05+Math.random()*.03:quick?.05+Math.random()*.03:.06+Math.random()*.05;leg.lift=tap?.08+Math.random()*.12:quick?.3:.2+Math.random()*.15;
+     const quick=fast||state==='lunge';leg.duration=heavy*(tap?.05+Math.random()*.03:quick?.05+Math.random()*.03:.06+Math.random()*.05);leg.lift=tap?.08+Math.random()*.12:quick?.3:.2+Math.random()*.15;
     }
    }
    const length=solve(leg,toParent(leg.hip,new THREE.Vector3()));

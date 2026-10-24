@@ -38,6 +38,8 @@ export function createCrawler(x,z,rng=Math.random){
  */
 export const KINDS=Object.freeze({
  brood:Object.freeze({size:.55,hp:10,pace:1.5,might:.3,burst:0,belly:.25}),
+ // The cave crawler itself, the yardstick for the rest.
+ crawler:Object.freeze({size:1,hp:CRAWLER.hp,pace:1,might:.8,burst:0,belly:0}),
  drone:Object.freeze({size:1.9,hp:80,pace:.95,might:1.1,burst:1,belly:.45}),
  brute:Object.freeze({size:2.5,hp:170,pace:.78,might:1.6,burst:4,belly:.75}),
  matron:Object.freeze({size:3.2,hp:300,pace:.62,might:2.2,burst:7,belly:1}),
@@ -51,6 +53,9 @@ export function asKind(c,kind){const k=KINDS[kind];return Object.assign(c,{kind,
 export const sizeOf=c=>c.size??1;
 const paceOf=c=>c.pace??1;
 export const radiusOf=c=>CRAWLER.radius*sizeOf(c);
+/** A big one leaps for longer, and only from as far as that leap carries it: it never springs at what it can't reach. */
+const lungeTimeOf=c=>CRAWLER.lungeTime*Math.sqrt(Math.max(1,sizeOf(c)));
+const lungeFrom=c=>sizeOf(c)>1?Math.min(CRAWLER.lungeRange[1]*Math.sqrt(sizeOf(c)),.9*(CRAWLER.lungeSpeed*paceOf(c)*lungeTimeOf(c)+CRAWLER.reach*sizeOf(c))):CRAWLER.lungeRange[1]*Math.sqrt(sizeOf(c));
 /** Where it can be hit: a centipede is a line of points along its body (none while it is underground), a crawler one. */
 export const partsOf=c=>c.body??[c];
 /** Its nearest hittable point to (x, z), with the distance, or null when none of it is above ground. */
@@ -117,6 +122,25 @@ function moveToward(c,env,goal,speed,dt){
  if(walkable(env.cave,nx,nz)){c.x=nx;c.z=nz;}else if(walkable(env.cave,nx,c.z))c.x=nx;else if(walkable(env.cave,c.x,nz))c.z=nz;
  c.speed=step/Math.max(dt,1e-6);turn(c,Math.atan2(dx,dz),dt*8);
 }
+/** Walks the cave-shaped grid `cave` toward `goal` the shortest way round, at its stalking pace. */
+export function closeIn(c,cave,goal,dt,rng=Math.random){
+ const env={cave,player:{x:goal.x,z:goal.z,facing:0,lamp:false}};
+ c.think-=dt;if(c.think<=0||!c.goal){c.goal=choose(c,env,{ring:0},rng);c.think=.22;}
+ moveToward(c,env,Math.hypot(goal.x-c.x,goal.z-c.z)<CAVE_CELL*.75?goal:c.goal,CRAWLER.speed.stalk,dt);
+}
+/**
+ * A big one's abdomen splits as it dies: `n` brood scatter out behind it, already hunting. Returns them; the caller
+ * adds them to its list.
+ */
+export function spill(c,n,rng=Math.random){
+ const out=[],size=sizeOf(c),back=size*.35,x=c.x-Math.sin(c.facing)*back,z=c.z-Math.cos(c.facing)*back;
+ for(let i=0;i<n;i++){
+  const a=c.facing+Math.PI+(i/n-.5)*2.6+(rng()-.5)*.5,r=(1.4+rng()*2)*size*.5,b=asKind(createCrawler(x,z,rng),'brood');
+  Object.assign(b,{state:'emerge',t:-rng()*.35,facing:a,patience:0,emergeTo:{x:x+Math.sin(a)*r,z:z+Math.cos(a)*r}});
+  out.push(b);
+ }
+ return out;
+}
 function turn(c,target,k){let d=target-c.facing;d=Math.atan2(Math.sin(d),Math.cos(d));c.facing+=d*Math.min(1,k);}
 function enter(c,state,rng){c.state=state;c.t=0;c.think=0;if(state==='stalk')c.patience=between(rng,CRAWLER.patience);if(state!=='grab')c.escape=0;}
 
@@ -141,7 +165,7 @@ export function stepCrawler(c,env,dt,rng=Math.random){
  const lit=exposure(env,c.x,c.z),inFlare=(env.flares??[]).some(f=>Math.hypot(c.x-f.x,c.z-f.z)<f.r);
  const sees=lineVisible(cave,cellOf(c.x),cellOf(c.z),cellOf(player.x),cellOf(player.z));
  c.burn=Math.max(0,Math.min(1.5,c.burn+(lit>.05?lit*CRAWLER.burnRate:-CRAWLER.burnCool)*dt));c.evadeCool=Math.max(0,c.evadeCool-dt);
- const inRange=sees&&d>=CRAWLER.lungeRange[0]&&d<=CRAWLER.lungeRange[1]*Math.max(1,Math.sqrt(sizeOf(c)));
+ const inRange=sees&&d>=CRAWLER.lungeRange[0]&&d<=lungeFrom(c);
  const think=want=>{c.think-=dt;if(c.think<=0||!c.goal){c.goal=choose(c,env,want,rng);c.think=.22;}};
  switch(c.state){
   case 'lurk':
@@ -179,7 +203,7 @@ export function stepCrawler(c,env,dt,rng=Math.random){
     const fromBehind=(Math.sin(player.facing)*(c.x-player.x)+Math.cos(player.facing)*(c.z-player.z))/(hd||1)<.1;
     if(fromBehind||!player.lamp){enter(c,'grab',rng);events.push({type:'grab',damage:CRAWLER.grabDamage*.5});}
     else{enter(c,'slash',rng);events.push({type:'slash',damage:CRAWLER.slashDamage,short:CRAWLER.shortTime});}
-   }else if(blocked||c.t>=CRAWLER.lungeTime){enter(c,'recover',rng);events.push({type:'miss'});}
+   }else if(blocked||c.t>=lungeTimeOf(c)){enter(c,'recover',rng);events.push({type:'miss'});}
    break;}
   case 'recover':
    c.speed=0;turn(c,toPlayer,dt*3);
@@ -220,7 +244,7 @@ export function stepCrawler(c,env,dt,rng=Math.random){
   case 'flee':
    // A short retreat: light doesn't keep it running, only standing in a flare or the flames does.
    think({away:true});moveToward(c,env,c.goal,CRAWLER.speed.flee,dt);
-   if(c.t>=CRAWLER.fleeTime&&!inFlare){enter(c,'stalk',rng);c.patience*=.5;}break;
+   if(c.t>=CRAWLER.fleeTime/Math.sqrt(Math.max(1,sizeOf(c)))&&!inFlare){enter(c,'stalk',rng);c.patience*=.5;}break;
   case 'emerge':{
    // Squeezing out of a nest's burrow toward the floor in front of it, then straight onto the hunt.
    c.speed=0;if(c.t<0||!c.emergeTo)break;

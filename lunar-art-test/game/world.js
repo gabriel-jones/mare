@@ -27,7 +27,7 @@ import { createAndroidView } from './android-view.js';
 import { ALARM_RED, createAlarmView } from './alarm-view.js';
 import { raidAlert } from './raid.js';
 import { createHeadlamp } from './headlamp.js';
-import { createCrawlerView } from './crawler-view.js';
+import { createCrawlerView, scaled } from './crawler-view.js';
 import { createCentipedeView } from './centipede-view.js';
 import { createBurrowFx } from './burrow-fx.js';
 import { SHAPE } from './centipede.js';
@@ -344,16 +344,16 @@ export async function createWorld(canvas, initialState, options = {}) {
   function updateSurfaceHunt(dt,underground){
     surfaceFx.visible=!underground;gooView.update(state,dt);
     const brood=underground?[]:state.brood??[];
-    // Hatchlings are a smaller brood: each view sits in a holder scaled about the hatchling, so its legs stay planted.
-    // Raiders are full-grown, bar the hatchlings that join later raids.
+    // Each crawler is drawn at its own size: the view walks a world shrunk (or grown) about the origin by the same
+    // factor, so its feet stay planted and its strides scale with its legs.
     for(const c of brood)if(c.kind==='centipede'&&!broodViews.has(c)&&crawlerGLTF){const holder=new THREE.Group();surfaceFx.add(holder);const view=createCentipedeView(crawlerGLTF,holder,{style:SHAPE.style,freak:SHAPE.freak,groundAt:onSurfaceFx,clip:false});broodViews.set(c,{holder,view,scale:1,update:(c,dt)=>view.update(c,dt),dispose:()=>{view.dispose();holder.removeFromParent();}});}
-    for(const c of brood)if(c.kind!=='centipede'&&!broodViews.has(c)&&crawlerGLTF){const scale=c.raider?c.size??(c.small?HATCHLING:1):HATCHLING,holder=new THREE.Group();holder.scale.setScalar(scale);surfaceFx.add(holder);const view=createCrawlerView(crawlerGLTF,holder,{mode:'studio',girth:c.raider?KINDS[c.kind]?.belly??0:0,lite:scale<1});broodViews.set(c,{holder,view,scale,update:(c,dt,ctx)=>{holder.position.set(c.x*(1-scale),broodGround(c.x,c.z)-surfaceFx.position.y,c.z*(1-scale));view.update(c,dt,ctx);},dispose:()=>{view.dispose();holder.removeFromParent();}});}
+    for(const c of brood)if(c.kind!=='centipede'&&!broodViews.has(c)&&crawlerGLTF){const scale=c.raider?c.size??(c.small?HATCHLING:1):HATCHLING,holder=new THREE.Group();holder.scale.setScalar(scale);surfaceFx.add(holder);const view=createCrawlerView(crawlerGLTF,holder,{mode:'studio',girth:c.raider?KINDS[c.kind]?.belly??0:0,lite:scale<1,size:scale});broodViews.set(c,{holder,view,scale,update:(c,dt,ctx)=>{holder.position.set(0,broodGround(c.x,c.z)-surfaceFx.position.y,0);view.update(scaled(c,scale),dt,ctx);},dispose:()=>{view.dispose();holder.removeFromParent();}});}
     for(const [c,v] of broodViews)if(!brood.includes(c)){v.dispose();broodViews.delete(c);}
     if(underground)return;
     surfaceFx.position.y=smoothedGround??0;
     for(const f of state.flares??[])if(f.cave==null&&f.age!=null&&f.age<FLARE.release&&!thrownOnSurface.has(f)){thrownOnSurface.add(f);actor?.throwFlare();}
     surfaceFlares.update(state,dt,{root:surfaceFx,actor});
-    for(const [c,v] of broodViews){const at=c.aimAt??state.player;v.update(c,dt,{player:{x:c.x+(at.x-c.x)/v.scale,z:c.z+(at.z-c.z)/v.scale}});}
+    for(const [c,v] of broodViews){const at=c.aimAt??state.player;v.update(c,dt,{player:{x:at.x/v.scale,z:at.z/v.scale}});}
     surfaceBurrows.update(brood.filter(c=>c.kind==='centipede'),dt);
   }
   const suitMaterials=[];actor?.root.traverse(o=>{if(o.isMesh)for(const m of (Array.isArray(o.material)?o.material:[o.material]))if(!suitMaterials.some(x=>x.material===m))suitMaterials.push({material:m,color:m.color.clone(),environment:m.envMapIntensity});});let suitUnderground=false;

@@ -10,6 +10,7 @@ import { CELL_SIZE, DEFS } from './defs.js';
 import { RAID, MAX_RAIDERS, buildingHp, damageBuilding, launchRaid, mend, raidAlert, raiders, stepRaid, stepRaiders, waveSize } from './raid.js';
 import { WEAPONS } from './arms.js';
 import { hitChance, threats } from './android.js';
+import { LADDER } from './roster.js';
 
 function build(state, type, x, z, rotation = 0) {
   const r = placeBlueprint(state, type, x, z, rotation);
@@ -42,7 +43,8 @@ test('raids arm once alien work is built and the first comes out of a cave mouth
   for (let t = 2; t < 79; t += .5) tick(s, .5);
   assert.equal(s.brood?.length ?? 0, 0, 'nothing comes by day');
   for (let t = 79; t < 79 + RAID.delay[1] + 3; t += .25) tick(s, .25);
-  assert.equal(s.brood.length, 1, 'one raider on the first night');
+  assert.equal(s.brood.length, 3, 'a small first raid: two brood and a crawler');
+  assert.deepEqual(s.brood.map(c => c.kind).sort(), ['brood', 'brood', 'crawler']);
   const c = s.brood[0], caves = terrainData(s.seed).caves;
   assert.equal(c.raider, true);
   assert.ok(caves.some(m => Math.hypot(m.x - c.x, m.z - c.z) < 8), 'at a cave mouth');
@@ -50,13 +52,38 @@ test('raids arm once alien work is built and the first comes out of a cave mouth
 });
 
 test('raids grow, and bigger raiders join as they go on', () => {
-  assert.deepEqual(waveSize(1), { drone: 1, brute: 0, centipede: 0, matron: 0 });
-  assert.deepEqual(waveSize(3), { drone: 2, brute: 0, centipede: 0, matron: 0 });
-  assert.deepEqual(waveSize(5), { drone: 3, brute: 1, centipede: 0, matron: 0 });
+  assert.deepEqual(waveSize(1), { matron: 0, centipede: 0, brute: 0, drone: 0, crawler: 1, brood: 2 });
+  assert.deepEqual(waveSize(3), { matron: 0, centipede: 0, brute: 0, drone: 1, crawler: 1, brood: 3 });
+  assert.deepEqual(waveSize(5), { matron: 0, centipede: 0, brute: 1, drone: 2, crawler: 2, brood: 4 });
   assert.equal(waveSize(7).centipede, 1, 'the first centipede on the seventh raid');
+  assert.equal(waveSize(7).brood, 0, 'by then the big ones bring their own brood');
   assert.ok(waveSize(10).matron >= 1 && waveSize(10).brute >= 2);
   const most = waveSize(99);
-  assert.ok(most.drone <= RAID.maxDrones && most.brute <= RAID.maxBrutes && most.matron <= RAID.maxMatrons && most.centipede <= RAID.maxCentipedes);
+  for (const [k, n] of Object.entries(most)) assert.ok(n <= LADDER[k].most, k);
+});
+
+test('a raid built in the lab sends exactly what was asked for', () => {
+  const { s } = colony();
+  s.time = NIGHT; tick(s, 0);
+  launchRaid(s, 3, 0, randomStream(5), { centipede: 2, matron: 1, brood: 5 });
+  const sent = s.raid.spawns.reduce((n, p) => ({ ...n, [p.kind]: (n[p.kind] ?? 0) + 1 }), {});
+  assert.deepEqual(sent, { matron: 1, brood: 5, centipede: 2 });
+  assert.ok(s.raid.spawns.filter(p => p.kind === 'centipede').every(p => p.pack == null), 'centipedes keep to no pack');
+});
+
+test('raiders tear at a structure blow after blow, and wreck it', () => {
+  const { s } = colony(), rng = randomStream(17);
+  s.time = NIGHT; tick(s, 0); s.player = { ...s.player, x: 60, z: 60 };
+  const c = asKind(createCrawler(0, 24, rng), 'drone'); Object.assign(c, { raider: true, state: 'march' }); s.brood = [c];
+  let strikes = 0, wrecks = 0, back = 0, last = null;
+  for (let t = 0; t < 40; t += 1 / 30) {
+    for (const e of stepRaiders(s, 1 / 30, [], rng)) { if (e.type === 'strike') strikes++; if (e.type === 'wreck') wrecks++; }
+    if (last && c.mauling) back += Math.hypot(c.x - last.x, c.z - last.z);
+    last = { x: c.x, z: c.z };
+  }
+  assert.ok(strikes >= 10, `strikes ${strikes}`);
+  assert.ok(wrecks >= 1, 'a structure falls');
+  assert.ok(back < .5, 'it holds its ground while it tears, no darting back and forth');
 });
 
 test('the bigger the raider, the taller, tougher, harder-hitting and slower it is', () => {

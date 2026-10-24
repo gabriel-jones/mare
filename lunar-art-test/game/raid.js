@@ -1,31 +1,37 @@
 import { CELL_SIZE, DEFS, footprint } from './defs.js';
 import { caveKey } from './caves.js';
 import { terrainData } from './terrain.js';
-import { KINDS, asKind, createCrawler, hurtCrawler, stepCrawler } from './crawler.js';
+import { KINDS, asKind, closeIn, createCrawler, hurtCrawler, spill, stepCrawler } from './crawler.js';
 import { SHAPE, burrow, createCentipede, huntCentipede, stepCentipede } from './centipede.js';
 import { GOO } from './goo.js';
+import { LADDER, ROSTER_KINDS, roster, rosterCount } from './roster.js';
 
 /**
  * Raids. Once the colony has built something alien (a xeno lab, a resonance reactor or a goo vat) the crawlers come
- * for it at night: most nights a pack squeezes out of a cave mouth, gathers, and marches on the base together, one
- * drone at first and more as the raids go on, with brutes and then matrons (see KINDS) in later waves; a big one
- * killed bursts into a spill of fast, weak brood. In later raids a second pack comes from another cave, and centipedes
- * (centipede.js) tunnel out of the caves on their own and come up among the defenders. Raiders claw at the nearest structure, but turn on the
- * player or an android that comes close, and on whoever shoots them. A structure clawed to nothing collapses back to
- * a half-built blueprint: it stops working until it is rebuilt (no new materials), and a damaged one can be patched
- * up with E or by an android. At dawn the survivors run for the caves.
+ * for it at night: most nights a pack squeezes out of a cave mouth, gathers, and marches on the base together. Wave n
+ * is level n of the roster (roster.js): a few brood and a crawler at first, then drones, brutes, centipedes and matrons
+ * (see KINDS) as the raids go on; a big one killed bursts into a spill of fast, weak brood. In later raids a second pack
+ * comes from another cave, and centipedes (centipede.js) tunnel out of the caves on their own and come up among the
+ * defenders. Raiders go for the nearest structure, rear and tear at it blow after blow, but turn on the player or an
+ * android that comes close, and on whoever shoots them. A structure torn to nothing collapses back to a half-built
+ * blueprint: it stops working until it is rebuilt (no new materials), and a damaged one can be patched up with E or by
+ * an android. At dawn the survivors run for the caves.
  *
  * `state.raid`: { wave: raids so far, night: the last night considered, quiet: quiet nights in a row,
  *   spawns: [{ t: seconds until it emerges, cave, kind, pack }] }. Raiders live in `state.brood` with `raider: true`.
  */
 export const RAID = Object.freeze({
   alien: Object.freeze(['xenolab', 'reactor', 'goovat']),
-  chance: .7, delay: [6, 22], stagger: .45, packGap: 5, maxDrones: 4, maxBrutes: 2, maxMatrons: 2, maxCentipedes: 2, live: 30, lead: 2.5,
+  chance: .7, delay: [6, 22], stagger: .45, packGap: 5, live: 30, lead: 2.5,
   aggro: 10, grudge: 10, grudgeRange: 30, engage: 14, base: 22, retarget: 3,
-  march: 3.6, charge: 6.5, bite: 12, claw: .6, mend: 20,
+  march: 3.6, charge: 6.5, bite: 12, mend: 20,
+  // Tearing at a structure: a rear of `windup` (longer for the big ones), then a blow of `maul` times its might.
+  maul: 10, windup: .5, blow: .4, slam: 1.5,
+  // Most of one kind a raid built in the lab may send.
+  most: 8,
 });
 export const MAX_RAIDERS = RAID.live;
-const MAX_SPAWNS = RAID.maxDrones + RAID.maxBrutes + RAID.maxMatrons + RAID.maxCentipedes;
+const MAX_SPAWNS = Math.max(ROSTER_KINDS.reduce((n, k) => n + LADDER[k].most, 0), RAID.most * ROSTER_KINDS.length);
 /** News for the player: raids sighted, structures wrecked, raiders gone. Drained by the game each frame. */
 export const raidNews = [];
 
@@ -40,17 +46,9 @@ export const buildingHp = type => Math.min(300, 60 + 40 * footprint(type, 0, 0, 
 export const raiders = state => (state.brood ?? []).filter(c => c.raider);
 /** Raiders still up and on the move: what the alarm lights answer. */
 export const raidAlert = state => raiders(state).some(c => c.state !== 'dead' && !c.gone);
-/** Raid make-up for wave `n` (1-based): drones from the first, brutes from the fifth, a centipede from the seventh
- * (two from the twelfth), matrons from the tenth. */
-export function waveSize(n) {
-  return {
-    drone: Math.min(RAID.maxDrones, 1 + Math.floor((n - 1) / 2)),
-    brute: n >= 5 ? Math.min(RAID.maxBrutes, 1 + Math.floor((n - 5) / 3)) : 0,
-    centipede: n >= 7 ? Math.min(RAID.maxCentipedes, 1 + Math.floor((n - 7) / 5)) : 0,
-    matron: n >= 10 ? Math.min(RAID.maxMatrons, 1 + Math.floor((n - 10) / 4)) : 0,
-  };
-}
-const waveCount = w => w.drone + w.brute + w.matron + w.centipede;
+/** Raid make-up for wave `n` (1-based): level n of the roster. */
+export const waveSize = n => roster(n);
+const waveCount = rosterCount;
 const mightOf = c => KINDS[c.kind]?.might ?? (c.small ? .6 : 1);
 const alienBuilt = state => state.buildings.some(b => b.built && RAID.alien.includes(b.type));
 
@@ -58,14 +56,18 @@ function mouth(state, cave) {
   const c = terrainData(state.seed).caves[cave], dx = Math.sin(c.angle), dz = Math.cos(c.angle);
   return { c, dx, dz, inside: { x: c.x + dx * 2, z: c.z + dz * 2 }, outside: { x: c.x - dx * 5, z: c.z - dz * 5 } };
 }
-function launch(state, rng, start = between(rng, RAID.delay)) {
-  const raid = state.raid, size = waveSize(++raid.wave), caves = terrainData(state.seed).caves.length;
+function launch(state, rng, start = between(rng, RAID.delay), make = null) {
+  const raid = state.raid, size = make ?? waveSize(raid.wave + 1), caves = terrainData(state.seed).caves.length;
+  raid.wave++;
   const first = Math.floor(rng() * caves), second = (first + 1 + Math.floor(rng() * (caves - 1))) % caves;
-  // Biggest first, dealt between the packs so each has its share; each pack squeezes out in a quick run.
-  const kinds = ['matron', 'brute', 'drone', 'centipede'].flatMap(k => Array(size[k]).fill(k)), split = raid.wave >= 5 && kinds.length > 2;
+  // Biggest first, dealt between the packs so each has its share; each pack squeezes out in a quick run. Centipedes
+  // keep to no pack: each tunnels out on its own, one from each cave in turn.
+  const count = k => Math.max(0, Math.min(RAID.most, Math.floor(size[k] ?? 0)));
+  const kinds = ROSTER_KINDS.filter(k => k !== 'centipede').flatMap(k => Array(count(k)).fill(k)), split = raid.wave >= 5 && kinds.length > 2;
   const packs = [[], []];
   kinds.forEach((kind, i) => packs[split ? i % 2 : 0].push(kind));
   raid.spawns = packs.flatMap((list, p) => list.map((kind, i) => ({ t: start + p * RAID.packGap + i * RAID.stagger, cave: p ? second : first, kind, pack: raid.wave * 2 + p })));
+  for (let i = 0; i < count('centipede'); i++) raid.spawns.push({ t: start + RAID.packGap * (i + .5), cave: i % 2 ? second : first, kind: 'centipede', pack: null });
   raid.quiet = 0;
 }
 function emerge(state, s, rng) {
@@ -81,11 +83,14 @@ function emerge(state, s, rng) {
   (state.brood ??= []).push(c);
 }
 
-/** Sends raid `wave` out of the caves `delay` seconds from now, whatever the hour. For the art-direction page. */
-export function launchRaid(state, wave, delay = 0, rng = Math.random) {
+/**
+ * Sends raid `wave` out of the caves `delay` seconds from now, whatever the hour. `make` ({kind: count}, see roster.js)
+ * overrides the wave's make-up. For the art-direction page.
+ */
+export function launchRaid(state, wave, delay = 0, rng = Math.random, make = null) {
   state.raid ??= { wave: 0, night: cycleOf(state.time), quiet: 0, spawns: [] };
   state.raid.wave = Math.max(0, wave - 1); state.raid.night = cycleOf(state.time);
-  launch(state, rng, delay);
+  launch(state, rng, delay, make);
   return state.raid;
 }
 
@@ -109,7 +114,7 @@ export function stepRaid(state, dt, rng = Math.random) {
     raid.night = cycle;
     if (!raid.wave || raid.quiet >= 1 || rng() < RAID.chance) {
       launch(state, rng);
-      const w = waveSize(raid.wave), big = w.matron ? ', a matron among them' : w.brute ? ', brutes among them' : '';
+      const w = waveSize(raid.wave), big = w.matron ? ', a matron among them' : w.brute ? ', brutes among them' : w.drone ? ', drones among them' : '';
       const crawlers = waveCount(w) - w.centipede, under = w.centipede ? ` The ground is trembling: something long is tunnelling from the caves.` : '';
       raidNews.push(raid.wave === 1 ? 'Movement at a cave mouth. Something is coming.' : `Raid! ${crawlers} crawlers are gathering at the caves${big}.${under}`);
     } else raid.quiet++;
@@ -248,7 +253,7 @@ export function stepRaiders(state, dt, fires = [], rng = Math.random) {
       continue;
     }
     const near = o => Math.hypot(o.x - c.x, o.z - c.z);
-    const locked = ['shriek', 'lunge', 'slash'].includes(c.state);
+    const locked = !c.mauling && ['shriek', 'lunge', 'slash'].includes(c.state);
     let prey = locked && c.prey != null ? (c.prey === 'player' ? (surface ? p : null) : androids.find(r => r.id === c.prey)) : null;
     if (!prey && !(locked && c.target)) {
       const reach = c.grudge > 0 ? RAID.grudgeRange : RAID.aggro;
@@ -257,12 +262,14 @@ export function stepRaiders(state, dt, fires = [], rng = Math.random) {
     c.prey = prey ? (prey === p ? 'player' : prey.id) : null;
     if (!prey) {
       const b = c.target && state.buildings.find(b => b.id === c.target.id);
-      if (!b?.built || (c.retarget = (c.retarget ?? 0) - dt) <= 0 && !locked) { c.target = pickTarget(state, grid, c); c.retarget = RAID.retarget; }
+      if (!b?.built || (c.retarget = (c.retarget ?? 0) - dt) <= 0 && !locked && !c.mauling) { c.target = pickTarget(state, grid, c); c.retarget = RAID.retarget; c.mauling = false; }
     }
     const goal = prey ? { x: prey.x, z: prey.z } : c.target?.point;
-    if (!goal) { c.retreat = nearestCave(state, c); continue; }
-    c.aimAt = prey ? goal : c.target.edge;
+    if (!goal) { c.retreat = nearestCave(state, c); c.mauling = false; continue; }
+    c.aimAt = prey ? goal : c.target.point.edge;
     const d = near(goal);
+    if (prey && c.mauling) { c.mauling = false; enter(c, 'stalk'); }
+    if (!prey && c.state !== 'march' && maul(state, c, grid, dt, rng, events)) continue;
     if (['lurk', 'stalk', 'close'].includes(c.state) && d > RAID.engage) enterMarch(c);
     if (c.state === 'march') {
       c.t += dt;
@@ -271,8 +278,9 @@ export function stepRaiders(state, dt, fires = [], rng = Math.random) {
         c.mustered = true;
       }
       const g = c.pack != null && packs.get(c.pack), ahead = g && g.n > 1 ? ((c.x - g.x / g.n) * (goal.x - c.x) + (c.z - g.z / g.n) * (goal.z - c.z)) / (d || 1) : 0;
-      if (d <= RAID.engage && openAt(grid, c.x, c.z) && inBox(grid, c.x, c.z)) { c.state = 'stalk'; c.t = 0; c.patience = 0; c.goal = null; }
-      else if (!march(c, goal, dt, grid, ahead > RAID.lead && !prey ? .35 : 1) && inBox(grid, c.x, c.z)) { c.state = 'stalk'; c.t = 0; c.goal = null; }
+      // In among the base it closes on a person to strike, or walks up to a structure to tear at it.
+      if (d <= (prey ? RAID.engage : 2) && openAt(grid, c.x, c.z) && inBox(grid, c.x, c.z)) { c.state = prey ? 'stalk' : 'close'; c.t = 0; c.patience = 0; c.goal = null; }
+      else if (!march(c, goal, dt, grid, ahead > RAID.lead && !prey ? .35 : 1) && inBox(grid, c.x, c.z)) { c.state = prey ? 'stalk' : 'close'; c.t = 0; c.goal = null; }
       c.anim = 'stalk';
       continue;
     }
@@ -286,7 +294,7 @@ export function stepRaiders(state, dt, fires = [], rng = Math.random) {
         if (e.type === 'grab') { c.state = 'flee'; c.t = 0; c.goal = null; }
         if (prey === p) { p.health = Math.max(0, (p.health ?? 100) - damage); p.calm = 0; events.push({ type: 'bite', crawler: c, android: null }); }
         else if (prey) { if ((prey.hp = Math.max(0, prey.hp - damage)) <= 0) Object.assign(prey, { down: true, task: 'down', job: null, next: null }); events.push({ type: 'bite', crawler: c, android: prey.id }); }
-        else if (target) { const wrecked = damageBuilding(state, target, damage * RAID.claw); events.push({ type: wrecked ? 'wreck' : 'strike', crawler: c, building: target.id }); if (wrecked) c.target = null; }
+        else if (target) { const wrecked = damageBuilding(state, target, damage); events.push({ type: wrecked ? 'wreck' : 'strike', crawler: c, building: target.id, x: c.target.point.edge.x, z: c.target.point.edge.z, damage }); if (wrecked) c.target = null; }
       } else if (e.type !== 'drag' && e.type !== 'hurt') events.push({ ...e, crawler: c });
     }
   }
@@ -318,30 +326,56 @@ function raidCentipede(state, c, grid, people, dt, rng, events) {
     if (!c.target) { c.retreat = nearestCave(state, c); return; }
   }
   const at = prey ?? c.target.point;
-  c.aimAt = prey ? { x: prey.x, z: prey.z } : c.target.edge;
+  c.aimAt = prey ? { x: prey.x, z: prey.z } : c.target.point.edge;
   for (const e of huntCentipede(c, dt, { prey: { x: at.x, z: at.z, invulnerable: prey === p && (p.y ?? 0) > .6 }, open, rng })) {
     if (e.type !== 'strike') { events.push({ ...e, crawler: c }); continue; }
     if (prey === p) { p.health = Math.max(0, (p.health ?? 100) - e.damage); p.calm = 0; events.push({ type: 'bite', crawler: c, android: null }); }
     else if (prey) { if ((prey.hp = Math.max(0, prey.hp - e.damage)) <= 0) Object.assign(prey, { down: true, task: 'down', job: null, next: null }); events.push({ type: 'bite', crawler: c, android: prey.id }); }
     else {
-      const target = state.buildings.find(b => b.id === c.target.id), wrecked = damageBuilding(state, target, e.damage * RAID.claw * 1.5);
-      events.push({ type: wrecked ? 'wreck' : 'strike', crawler: c, building: target?.id });
+      const target = state.buildings.find(b => b.id === c.target.id), damage = e.damage * RAID.slam, wrecked = damageBuilding(state, target, damage);
+      events.push({ type: wrecked ? 'wreck' : 'strike', crawler: c, building: target?.id, x: c.target.point.edge.x, z: c.target.point.edge.z, damage, slam: true });
       if (wrecked) c.target = null;
     }
   }
 }
+/**
+ * At a structure: it walks up to the structure's open side, then rears and tears at it, blow after blow, until it
+ * falls. Returns false while the crawler is caught up in something of its own (a flinch, a flight from fire) for
+ * stepCrawler to play out.
+ */
+function maul(state, c, grid, dt, rng, events) {
+  if (!['close', 'shriek', 'slash', 'stalk', 'lurk', 'recover'].includes(c.state)) { c.mauling = false; return false; }
+  const t = c.target, b = t && state.buildings.find(b => b.id === t.id);
+  if (!b?.built) { c.mauling = false; return false; }
+  const size = c.size ?? 1, goal = t.point, d = Math.hypot(goal.x - c.x, goal.z - c.z);
+  if (c.mauling && d > .8 + .3 * size) c.mauling = false;
+  if (!c.mauling) {
+    if (d > .35) {
+      if (c.state !== 'close') enter(c, 'close');
+      c.t += dt;
+      if (!march(c, goal, dt, grid)) closeIn(c, grid, goal, dt, rng);
+      return true;
+    }
+    c.mauling = true; enter(c, 'shriek');
+  }
+  c.speed = 0; c.t += dt;
+  let turn = Math.atan2(t.point.edge.x - c.x, t.point.edge.z - c.z) - c.facing; turn = Math.atan2(Math.sin(turn), Math.cos(turn)); c.facing += turn * Math.min(1, dt * 6);
+  if (c.state === 'shriek' && c.t >= RAID.windup * Math.sqrt(Math.max(1, size))) {
+    enter(c, 'slash');
+    const damage = RAID.maul * mightOf(c), wrecked = damageBuilding(state, b, damage);
+    events.push({ type: wrecked ? 'wreck' : 'strike', crawler: c, building: b.id, x: t.point.edge.x, z: t.point.edge.z, damage });
+    if (wrecked) { c.target = null; c.mauling = false; }
+  } else if (c.state === 'slash' && c.t >= RAID.blow) enter(c, 'shriek');
+  else if (c.state !== 'shriek' && c.state !== 'slash') enter(c, 'shriek');
+  return true;
+}
 /** A big raider's abdomen splits as it dies: its brood scatter out and go straight for whoever is nearest. */
 function burst(state, c, rng) {
   const room = MAX_RAIDERS - raiders(state).filter(o => o.state !== 'dead').length, n = Math.min(KINDS[c.kind].burst, Math.max(0, room));
-  for (let i = 0; i < n; i++) {
-    const a = c.facing + Math.PI + (i / n - .5) * 2.6 + (rng() - .5) * .5, r = (1.4 + rng() * 2) * (c.size ?? 1) * .5;
-    const back = (c.size ?? 1) * .35, x = c.x - Math.sin(c.facing) * back, z = c.z - Math.cos(c.facing) * back;
-    const b = asKind(createCrawler(x, z, rng), 'brood');
-    Object.assign(b, { raider: true, state: 'emerge', t: -rng() * .35, facing: a, grudge: RAID.grudge, emergeTo: { x: x + Math.sin(a) * r, z: z + Math.cos(a) * r } });
-    state.brood.push(b);
-  }
+  for (const b of spill(c, n, rng)) state.brood.push(Object.assign(b, { raider: true, grudge: RAID.grudge }));
   return n;
 }
+function enter(c, state) { c.state = state; c.t = 0; c.goal = null; c.think = 0; }
 function enterMarch(c) { c.state = 'march'; c.t = 0; c.goal = null; c.speed = 0; }
 
 const finite = n => typeof n === 'number' && Number.isFinite(n);
@@ -351,5 +385,5 @@ export function restoreRaid(state, raw) {
   if (!r || !Number.isInteger(r.wave) || r.wave < 0 || r.wave > 1e5 || !Number.isInteger(r.night) || !Number.isInteger(r.quiet) || r.quiet < 0 || !Array.isArray(r.spawns) || r.spawns.length > Math.max(MAX_SPAWNS, 10)
     || !r.spawns.every(s => finite(s?.t) && s.t >= -1 && s.t <= 120 && Number.isInteger(s.cave) && s.cave >= 0 && s.cave <= 2 && (KINDS[s.kind] || typeof s.small === 'boolean') && (s.pack == null || Number.isInteger(s.pack)))) throw new Error('Invalid raid.');
   // Saves from before raider sizes spawned plain adults and hatchlings: they come back as drones and brood.
-  state.raid = { wave: r.wave, night: r.night, quiet: Math.min(r.quiet, 10), spawns: r.spawns.map(s => ({ t: s.t, cave: s.cave, kind: KINDS[s.kind] ? s.kind : s.small ? 'brood' : 'drone', pack: s.pack ?? r.wave * 2 })) };
+  state.raid = { wave: r.wave, night: r.night, quiet: Math.min(r.quiet, 10), spawns: r.spawns.map(s => ({ t: s.t, cave: s.cave, kind: KINDS[s.kind] ? s.kind : s.small ? 'brood' : 'drone', pack: s.kind === 'centipede' ? null : s.pack ?? r.wave * 2 })) };
 }
