@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Raids • art direction</title>
+<base href="../">
+<link rel="stylesheet" href="./game.css">
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#090f1a}#game{display:block;position:fixed;inset:0;width:100%;height:100%;outline:none;touch-action:none}
+#raid-lab{position:fixed;left:12px;bottom:12px;z-index:60;width:248px;padding:10px 12px 12px;border-radius:10px;background:#0b1118e6;border:1px solid #ff3b2a55;color:#e1e8e9;font:12px/1.35 system-ui;box-shadow:0 6px 24px #0008}
+#raid-lab h2{margin:0 0 6px;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#ff6a55}
+#raid-lab .row{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0}
+#raid-lab button,#raid-lab select{font:inherit;color:#e1e8e9;background:#17212b;border:1px solid #2c3a46;border-radius:6px;padding:3px 7px;cursor:pointer}
+#raid-lab button:hover{border-color:#ff6a55}#raid-lab button.on{background:#4a1612;border-color:#ff3b2a}
+#raid-lab .note{color:#9fb0b8;margin:4px 0 6px;min-height:2.6em}
+#raid-lab .readout{font:11px ui-monospace,monospace;color:#c9d4d8;white-space:pre;margin-top:6px}
+#raid-lab .fold{float:right;background:none;border:none;color:#9fb0b8;padding:0}
+#raid-lab.min>*:not(h2){display:none}
+</style>
+<script type="importmap">{"imports":{"three":"../node_modules/three/build/three.module.js","three/addons/":"../node_modules/three/examples/jsm/"}}</script>
+<script>
+// The real game against empty, in-memory storage: it never reads or writes the colony saves.
+(()=>{const mem=new Map();
+ const store={getItem:k=>mem.has(k)?mem.get(k):null,setItem:(k,v)=>{mem.set(k,String(v));},removeItem:k=>{mem.delete(k);},clear:()=>mem.clear(),key:i=>[...mem.keys()][i]??null,get length(){return mem.size;}};
+ Object.defineProperty(window,'localStorage',{value:store,configurable:true});
+ window.sandboxed=window.localStorage===store;window.bootErrors=[];window.debugGame=true;
+ addEventListener('error',e=>bootErrors.push(String(e.error?.stack||e.message)));addEventListener('unhandledrejection',e=>bootErrors.push(String(e.reason?.stack||e.reason)));})();
+</script>
+</head>
+<body>
+<canvas id="game" tabindex="0"></canvas>
+<div id="ui"></div>
+<div id="boot" style="position:fixed;inset:0;display:grid;place-content:center;background:#0b1118;color:#e1e8e9;font:14px system-ui;z-index:100">Preparing lunar landing…</div>
+<aside id="raid-lab">
+ <h2>Raid lab <button class="fold" title="Fold">–</button></h2>
+ <div class="row" data-scenarios></div>
+ <div class="note" data-note></div>
+ <div class="row">
+  <select data-wave title="Raid size">
+   <option value="1">Wave 1 · 1</option><option value="3">Wave 3 · 2+1</option><option value="5">Wave 5 · 3+2</option><option value="7">Wave 7 · 4+3</option><option value="9" selected>Wave 9 · 5+4</option><option value="11">Wave 11 · 6+4</option>
+  </select>
+  <button data-act="raid">Raid now</button>
+ </div>
+ <div class="row">
+  <button data-act="dusk">Dusk</button><button data-act="dawn">Dawn</button>
+ </div>
+ <div class="row">
+  <button data-act="heal">Heal all</button><button data-act="clear">Clear raiders</button><button data-act="repair">Repair base</button>
+ </div>
+ <div class="readout" data-readout></div>
+</aside>
+<script type="module">
+if(!window.sandboxed){document.body.innerHTML='<p style="color:#fff">Storage sandbox failed; not starting.</p>';throw new Error('no sandbox');}
+const params=new URLSearchParams(location.search);
+if(!params.has('sandbox')){params.set('sandbox','1');history.replaceState(null,'',`?${params}`);}
+const id=params.get('scenario')??'first';
+const {SCENARIOS,makeSave,DUSK,DAWN}=await import('./art-direction/raid-scenarios.js');
+const save=makeSave(id);
+for(const key of ['lunar-frontier.sandbox','lunar-frontier.phase-a.v1'])localStorage.setItem(key,save);
+await import('./main.js');
+const raid=await import('./raid.js');
+
+const lab=document.querySelector('#raid-lab'),canvas=document.querySelector('#game');
+lab.querySelector('[data-scenarios]').innerHTML=Object.entries(SCENARIOS).map(([k,s])=>`<button data-scenario="${k}" class="${k===id?'on':''}">${s.name}</button>`).join('');
+lab.querySelector('[data-note]').textContent=SCENARIOS[id]?.note??'';
+const state=()=>window.game?.state;
+const DAY=240,cycle=t=>Math.floor((t-DAY/3)/DAY);
+const acts={
+ raid(s){if(raid.raidAlert(s)||s.raid?.spawns?.length)s.brood=(s.brood??[]).filter(c=>!c.raider);if(Math.max(0,Math.sin(s.time/DAY*Math.PI*2+Math.PI/3))>0)s.time=(cycle(s.time)+1)*DAY+DUSK;raid.launchRaid(s,Number(lab.querySelector('[data-wave]').value),1.5);},
+ dusk(s){s.time=(cycle(s.time)+1)*DAY+DUSK;},
+ dawn(s){const c=cycle(s.time),dawn=c*DAY+DAWN;s.time=s.time<dawn-2?dawn-2:(c+1)*DAY+DAWN-2;},
+ heal(s){s.player.health=100;for(const r of s.robots)if(r.kind==='android')Object.assign(r,{down:false,reported:false,hp:60,charge:Math.max(r.charge,.8),job:null,next:null,task:'idle'});},
+ clear(s){s.brood=(s.brood??[]).filter(c=>!c.raider);if(s.raid)s.raid.spawns=[];},
+ repair(s){for(const b of s.buildings){delete b.hp;if(b.wreck){Object.assign(b,{built:true,progress:1});delete b.paid;delete b.wreck;}}},
+};
+lab.addEventListener('click',e=>{
+ const b=e.target.closest('button');if(!b)return;
+ if(b.classList.contains('fold')){lab.classList.toggle('min');b.textContent=lab.classList.contains('min')?'+':'–';return;}
+ if(b.dataset.scenario){params.set('scenario',b.dataset.scenario);location.search=`?${params}`;return;}
+ const s=state();if(s&&acts[b.dataset.act])acts[b.dataset.act](s,b);
+ canvas.focus({preventScroll:true});
+});
+setInterval(()=>{const s=state();if(!s)return;
+ const raiders=raid.raiders(s).filter(c=>c.state!=='dead'),light=Math.max(0,Math.sin(s.time/DAY*Math.PI*2+Math.PI/3));
+ const phase=(s.time%DAY+DAY)%DAY,toDawn=phase<DAWN?DAWN-phase:DAY-phase+DAWN;
+ lab.querySelector('[data-readout]').textContent=[
+  `${light>0?'Day':'Night'} · ${light>0?'dusk':'dawn'} in ${Math.round(light>0?((DUSK-phase+DAY)%DAY):toDawn)}s`,
+  `Wave ${s.raid?.wave??0} · ${raiders.length} raiders${s.raid?.spawns?.length?` · ${s.raid.spawns.length} coming`:''}`,
+  `At base ${raiders.filter(c=>c.near).length} · fleeing ${raiders.filter(c=>c.retreat!=null).length}`,
+  `Alarm ${raid.raidAlert(s)&&s.power.powered!==false?'ON':'off'} · power ${s.power.powered!==false?'on':'OUT'}`,
+  `Damaged ${s.buildings.filter(b=>b.hp!=null).length} · wrecked ${s.buildings.filter(b=>b.wreck).length}`,
+  `You ${Math.round(s.player.health??100)} hp · androids ${s.robots.filter(r=>r.kind==='android').map(r=>r.down?'down':`${Math.round(r.hp)}`).join(' ')}`,
+ ].join('\n');
+},250);
+</script>
+</body>
+</html>
