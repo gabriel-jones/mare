@@ -19,20 +19,25 @@ export function terrainData(seed){
   if(Math.hypot(x,z)<19||caves.some(c=>{const p=local(c,x,z);return Math.abs(p.side)<7&&p.depth>-16&&p.depth<7;}))continue;
   const shelf=i<27;boulders.push({x,z,radius:shelf?1.6+random()*1.7:.45+random()*1.25,height:shelf?2.8+random()*3.5:.55+random()*1.7,angle:random()*6.28,variant:i%3});
  }
- // The mission crater replaces whatever random craters and rocks fell where it sits. Filtering
+ // The ice craters replace whatever random craters and rocks fell where they sit. Filtering
  // afterwards keeps the random stream, and so the rest of the landscape, unchanged.
- const site=missionSite();
- const clear=(x,z,r)=>Math.hypot(x-site.x,z-site.z)>site.radius+r;
+ const site=missionSite(),ice=iceDeposits();
+ const clear=(x,z,r)=>ice.every(d=>Math.hypot(x-d.x,z-d.z)>d.radius+r);
  // Small pocks are drawn after the boulders so those keep their places, and stay out past the ring where
  // colonies have usually built.
  for(let i=0;i<70;i++){const x=(random()-.5)*236,z=(random()-.5)*236,r=2.6+random()**2*3.4;if(Math.hypot(x,z)>36&&clear(x,z,r+4))addCrater(x,z,r,.35+r*.16);}
- const data={hills,craters:[...craters.filter(c=>clear(c.x,c.z,c.radius+4)),{x:site.x,z:site.z,radius:site.radius,depth:site.depth,aspect:1,angle:0}],caves,boulders:boulders.filter(b=>clear(b.x,b.z,b.radius+3)),site};
+ const data={hills,craters:[...craters.filter(c=>clear(c.x,c.z,c.radius+4)),...ice.map(d=>({...d,aspect:1,angle:0}))],caves,boulders:boulders.filter(b=>clear(b.x,b.z,b.radius+3)),site};
  cache.set(seed,data);return data;
 }
 /** The first expedition: a shadowed crater east of the landing site, holding an old robotic lander and water ice. */
 export function missionSite(){return {x:62,z:-14,radius:13,depth:2.2,lander:{x:58.5,z:-17,radius:1.7,angle:.6}};}
-/** Grid cells (2 m) whose floor holds ice: the permanently shadowed middle of the mission crater. */
-export function iceAt(x,z){const s=missionSite();return Math.hypot(x*2-s.x,z*2-s.z)<s.radius*.55&&Math.hypot(x*2-s.lander.x,z*2-s.lander.z)>s.lander.radius+1.2;}
+// Further shadowed craters out on the plains, well past where colonies build, each holding its own ice.
+const DEPOSITS=Object.freeze([{x:-58,z:8,radius:8,depth:1.9},{x:10,z:64,radius:9,depth:2},{x:-22,z:-76,radius:8,depth:1.8},{x:96,z:12,radius:9.5,depth:2.1}]);
+/** Every ice-bearing crater, the mission crater first. */
+let deposits=null;
+export function iceDeposits(){if(!deposits){const s=missionSite();deposits=Object.freeze([{x:s.x,z:s.z,radius:s.radius,depth:s.depth},...DEPOSITS]);}return deposits;}
+/** Grid cells (2 m) whose floor holds ice: the permanently shadowed middle of each deposit crater. */
+export function iceAt(x,z){const l=missionSite().lander;return iceDeposits().some(d=>Math.hypot(x*2-d.x,z*2-d.z)<d.radius*.55)&&Math.hypot(x*2-l.x,z*2-l.z)>l.radius+1.2;}
 const CRATER_DEPTH=1.7;
 export function heightAt(seed,x,z){
  const data=terrainData(seed),clearing=smooth(17,25,Math.hypot(x,z)),pad=smooth(9,14,Math.hypot(x,z+10));

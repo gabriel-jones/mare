@@ -13,6 +13,7 @@ import { airlockOf, habitatLayout, isRoom } from './habitat.js';
 import { surfaceHeightAt as heightAt, terrainData } from './terrain.js';
 import { melterReady, processorReady, PROCESSOR_INPUT_CAP } from './production.js';
 import { createExpeditionView } from './expedition-view.js';
+import { createIceView } from './ice-view.js';
 import { createTerrainView } from './terrain-view.js';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -369,7 +370,7 @@ export async function createWorld(canvas, initialState) {
   function resize(){const r=canvas.getBoundingClientRect(),width=Math.max(1,r.width),height=Math.max(1,r.height);renderer.setSize(width,height,false);const aspect=width/height;camera.left=-viewHeight*aspect/2;camera.right=viewHeight*aspect/2;camera.top=viewHeight/2;camera.bottom=-viewHeight/2;camera.updateProjectionMatrix();}
   function zoom(e){e.preventDefault();viewHeight=THREE.MathUtils.clamp(viewHeight*Math.exp(e.deltaY*.001),20,180);resize();}
   canvas.addEventListener('wheel',zoom,{passive:false});
-  const expedition=createExpeditionView(scene,models,itemModels);let encounterState=null;
+  const expedition=createExpeditionView(scene,models,itemModels),iceView=createIceView(scene);let encounterState=null;
   // The crawler at the crash site: full size, on the crater floor under it. It claws at the lander's bay while prying.
   const meetHolder=new THREE.Group();scene.add(meetHolder);let meetView=null,meetCrawler=null;
   const bay=landerBay(),pryAt={x:bay.x,z:bay.z};
@@ -498,7 +499,7 @@ export async function createWorld(canvas, initialState) {
         if(o.fill){const f=Math.min(1,b.inv.regolith/PROCESSOR_INPUT_CAP);o.fill.visible=f>0;o.fill.scale.set(.6+.4*f,Math.max(.05,f),.6+.4*f);}
       }
     }
-    expedition.update(state,dt);updateEncounter(dt,underground);
+    expedition.update(state,dt);iceView.update(state);updateEncounter(dt,underground);
     lampClock+=dt;lamps.update(lampClock,daylight);
     updateLights(daylight);
     productionView.update(state,dt,daylight);for(const [id,view] of productionView.rovers)if(view.display)groundMarks.drive(state.seed,id,view.display.x,view.display.z,.73);groundMarks.update();logistics.update(state.player.cave==null?storageCrates(state).map(crateCentre):[],logisticsShown,dt);buildFx.update(dt);portLinks.update(state,structures,dt,state.time);groundPads.update(state,padBase);pipes.update(state);
@@ -522,7 +523,7 @@ export async function createWorld(canvas, initialState) {
     renderer.compileAsync(view.root,camera,scene).catch(()=>{});view.root.visible=false;
     caveViews.set(key,view);return view;
   }
-  function dispose(){disposed=true;logistics.dispose();buildFx.dispose();portLinks.dispose();pipes.dispose();groundPads.dispose();groundMarks.dispose();headlamp.dispose();meetView?.dispose();gooView.dispose();broodViews.forEach(v=>v.dispose());surfaceFx.removeFromParent();lamps.dispose();caveViews.forEach(v=>v.dispose());vignette.remove();expedition.dispose();productionView.dispose();habitatView.dispose();statusLayer.remove();terrainView.dispose();grid.geometry.dispose();grid.material.dispose();combat?.dispose();actor?.dispose();reflection.dispose();canvas.removeEventListener('wheel',zoom);for(const o of structures.values()){o.ownedMaterials?.forEach(m=>m.dispose());scene.remove(o.ports);}geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());itemModels?.dispose();renderer.dispose();}
+  function dispose(){disposed=true;logistics.dispose();buildFx.dispose();portLinks.dispose();pipes.dispose();iceView.dispose();groundPads.dispose();groundMarks.dispose();headlamp.dispose();meetView?.dispose();gooView.dispose();broodViews.forEach(v=>v.dispose());surfaceFx.removeFromParent();lamps.dispose();caveViews.forEach(v=>v.dispose());vignette.remove();expedition.dispose();productionView.dispose();habitatView.dispose();statusLayer.remove();terrainView.dispose();grid.geometry.dispose();grid.material.dispose();combat?.dispose();actor?.dispose();reflection.dispose();canvas.removeEventListener('wheel',zoom);for(const o of structures.values()){o.ownedMaterials?.forEach(m=>m.dispose());scene.remove(o.ports);}geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());itemModels?.dispose();renderer.dispose();}
   resize();update(initialState,1);
   return {renderer,scene,camera,actor,update,pick,aim,setGhost,clearGhost,setLogistics:shown=>{logisticsShown=shown;},setZones:shown=>productionView.setZones(shown),resize,dispose};
 }

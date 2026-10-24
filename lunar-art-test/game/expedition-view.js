@@ -1,12 +1,11 @@
 import * as THREE from 'three';
-import { surfaceHeightAt as heightAt, missionSite, iceAt } from './terrain.js';
-import { REGOLITH_PER_CELL } from './production.js';
+import { surfaceHeightAt as heightAt, missionSite } from './terrain.js';
 import { objective } from './mission.js';
 import { encounterTrail } from './encounter.js';
 import { createInfestationMaterials } from './infestation.js';
 
 // Presentation for the crater mission: the derelict lander (clawed open and webbed in silk), the trail the
-// crawler left from it to the caves, the crater's ice and the objective waypoint.
+// crawler left from it to the caves, and the objective waypoint.
 export function createExpeditionView(scene, models, itemModels = null) {
   const root = new THREE.Group(); scene.add(root);
   const geometries = [], materials = [];
@@ -61,14 +60,6 @@ export function createExpeditionView(scene, models, itemModels = null) {
     thread = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), pts.length * 3, .022, 4), kit.byRole.Silk); thread.renderOrder = 2; root.add(thread);
   }
 
-  // Ice: pale patches on the shadowed floor that shrink as the rover digs them out.
-  const iceMat = own(materials, new THREE.MeshStandardMaterial({ color: '#8ea9ba', roughness: .42, metalness: .1, emissive: '#2b5a75', emissiveIntensity: .16, polygonOffset: true, polygonOffsetFactor: -3 }));
-  const iceCells = [];
-  for (let x = Math.floor((site.x - site.radius) / 2); x <= Math.ceil((site.x + site.radius) / 2); x++) for (let z = Math.floor((site.z - site.radius) / 2); z <= Math.ceil((site.z + site.radius) / 2); z++) if (iceAt(x, z)) iceCells.push({ x, z, key: `${x},${z}` });
-  const iceGeo = own(geometries, new THREE.CylinderGeometry(.5, .56, .07, 7));
-  const ice = new THREE.InstancedMesh(iceGeo, iceMat, iceCells.length); ice.receiveShadow = true; root.add(ice);
-  let iceKey = '';
-
   // Waypoint: a tall beam over the objective and a chevron at the player's feet pointing to it.
   const beamMat = own(materials, new THREE.MeshBasicMaterial({ color: '#7fe3ff', transparent: true, opacity: .22, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
   const beam = new THREE.Mesh(own(geometries, new THREE.CylinderGeometry(.45, .45, 40, 18, 1, true)), beamMat); root.add(beam);
@@ -85,22 +76,10 @@ export function createExpeditionView(scene, models, itemModels = null) {
     coreLight.position.set(site.lander.x + Math.sin(site.lander.angle) * .2, heightAt(seed, site.lander.x, site.lander.z) + 1.4, site.lander.z + 1.2);
     layTrail();
   }
-  function updateIce(state) {
-    const key = iceCells.map(c => Math.round(state.mined?.[c.key] ?? 0)).join(',');
-    if (key === iceKey) return; iceKey = key;
-    iceCells.forEach((c, i) => {
-      const left = 1 - Math.min(1, (state.mined?.[c.key] ?? 0) / REGOLITH_PER_CELL), size = left > 0 ? .45 + 1.05 * left : 0;
-      const h = Math.abs(Math.sin(c.x * 12.9898 + c.z * 78.233) * 43758.5453) % 1, ox = (h - .5) * .5, oz = ((h * 7.3) % 1 - .5) * .5;
-      dummy.position.set(c.x * 2 + ox, heightAt(seed, c.x * 2 + ox, c.z * 2 + oz) + .02, c.z * 2 + oz); dummy.rotation.set(0, h * 6.28, 0); dummy.scale.set(size * (.8 + h * .4), 1, size * (1.2 - h * .4));
-      dummy.updateMatrix(); ice.setMatrixAt(i, dummy.matrix);
-    });
-    ice.instanceMatrix.needsUpdate = true;
-  }
   let time = 0;
   function update(state, dt) {
     time += dt;
-    if (seed !== state.seed) { place(state); iceKey = ''; }
-    updateIce(state);
+    if (seed !== state.seed) place(state);
     const salvaged = (state.mission?.salvage ?? 0) >= 1;
     if (core) core.visible = !salvaged;
     coreLight.intensity = salvaged ? 0 : 2 + Math.sin(time * 2.3) * .6;

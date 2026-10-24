@@ -5,7 +5,7 @@ import { ensureBuildingState, miningCells } from './production.js';
 import { count, createInventory, add } from './inventory.js';
 import { STEPS, SHIP, objective, missionAction, salvage, installCore, processorUnlocked } from './mission.js';
 import { createEncounter, stepEncounter, encounterTrail, ENCOUNTER } from './encounter.js';
-import { missionSite, iceAt, terrainBlocked } from './terrain.js';
+import { missionSite, iceAt, iceDeposits, terrainBlocked, terrainData } from './terrain.js';
 import { ports } from './defs.js';
 
 function build(state, type, x, z, rotation = 0) {
@@ -107,6 +107,14 @@ test('a rover left holding regolith with no hopper tips it out and goes on to mi
 test('ice sits in the shadowed middle of the crater and the lander blocks walking', () => {
   assert.equal(iceAt(Math.round(site.x / 2), Math.round(site.z / 2)), true);
   assert.equal(iceAt(0, 0), false);
+  for (const d of iceDeposits()) {
+    assert.equal(iceAt(Math.round(d.x / 2), Math.round(d.z / 2)), true, `ice at ${d.x},${d.z}`);
+    const data = terrainData(1847);
+    assert.ok(data.craters.some(c => c.x === d.x && c.z === d.z), 'each deposit sits in its own crater');
+    assert.ok(data.caves.every(c => Math.hypot(c.x - d.x, c.z - d.z) > d.radius + 13), 'deposits stay clear of cave mouths');
+    assert.ok(Math.hypot(d.x, d.z) > 55, 'deposits lie beyond the colony ring');
+  }
+  assert.ok(iceDeposits().length >= 5);
   assert.equal(terrainBlocked(createState().seed, site.lander.x, site.lander.z), true);
   assert.match(validatePlacement(createState(), 'storage', Math.round(site.lander.x / 2), Math.round(site.lander.z / 2)).reason, /lander|steep|uneven/);
 });
