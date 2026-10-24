@@ -11,11 +11,13 @@ import { habitatLayout } from './habitat.js';
 import { createAndroid, freePad } from './space.js';
 import { mend } from './raid.js';
 import { surfaceHeightAt } from './terrain.js';
+import { FENCE, TURRET, fouled, scrape } from './defense.js';
 
 /**
  * Androids: humanoid workers that do the colony's chores in a fixed order of priority. They take up arms from the
  * armory (or a crate) while hatchlings are loose, then put them back; get a downed android back on its feet;
- * build blueprints, carrying the materials over from the crates; patch up raid damage; feed bioreactors; carry finished goods from stations
+ * build blueprints, carrying the materials over from the crates; keep turrets loaded with rounds; patch up raid damage;
+ * scrape black goo off fouled fences; feed bioreactors; carry finished goods from stations
  * to the crates; harvest ripe crops (the plot replants itself); and keep stations crafting up to each recipe's stock
  * target. Each docks at its own charging pad. Unlike the wheeled robots they walk into rooms, through the airlocks.
  *
@@ -221,6 +223,20 @@ function mendJob(state, r) {
   const b = nearest(r, state.buildings.filter(b => b.built && b.hp != null && !claimed(state, r, `mend:${b.id}`) && !isStuck(state, r, b.id)));
   return b && job('mend', b);
 }
+/** A turret running low gets rounds from the crates, the emptiest first. */
+function stockJob(state, r) {
+  const low = state.buildings.filter(b => b.type === 'turret' && b.built && (b.ammo ?? 0) < TURRET.restock && !claimed(state, r, `stock:${b.id}`) && !isStuck(state, r, b.id)).sort((a, b) => (a.ammo ?? 0) - (b.ammo ?? 0));
+  for (const b of low) {
+    const crate = crateWith(state, r, 'rounds');
+    if (crate) return { ...job('fetch', crate, { item: 'rounds', n: Math.min(ITEM_INFO.rounds.stack, TURRET.cap - (b.ammo ?? 0)), tag: `stock:${b.id}` }), next: job('deliver', b, { item: 'rounds', tag: `stock:${b.id}` }) };
+  }
+  return null;
+}
+/** A fence segment fouled with goo, shorted or burning, nearest first. */
+function cleanJob(state, r) {
+  const b = nearest(r, state.buildings.filter(b => fouled(b) && !claimed(state, r, `clean:${b.id}`) && !isStuck(state, r, b.id)));
+  return b && job('clean', b);
+}
 function feedJob(state, r) {
   for (const b of state.buildings) {
     if (b.type !== 'bioreactor' || !b.built || !b.fed || b.stock > BIO.cap - 2 || claimed(state, r, `feed:${b.id}`) || isStuck(state, r, b.id)) continue;
@@ -291,7 +307,7 @@ function plan(state, r) {
     }
     if (r.weapon && !loose && (r.calm ?? 0) >= ANDROID.calm) { const crate = crateFor(state, r, r.weapon); if (crate) return job('disarm', crate, { tag: `disarm:${r.id}` }); }
     if (r.carry) { const crate = crateFor(state, r, r.carry.item); return crate ? job('stow', crate, { tag: `stow:${r.id}` }) : null; }
-    return rescueJob(state, r) ?? buildJob(state, r) ?? mendJob(state, r) ?? feedJob(state, r) ?? collectJob(state, r) ?? harvestJob(state, r) ?? craftJob(state, r) ?? (pad ? job('charge', pad) : null);
+    return rescueJob(state, r) ?? stockJob(state, r) ?? buildJob(state, r) ?? mendJob(state, r) ?? cleanJob(state, r) ?? feedJob(state, r) ?? collectJob(state, r) ?? harvestJob(state, r) ?? craftJob(state, r) ?? (pad ? job('charge', pad) : null);
   };
   const next = choose();
   if (!next) return;
@@ -335,6 +351,7 @@ function act(state, r, dt, powered, hooks) {
     case 'deliver': {
       if (!r.carry || r.carry.item !== j.item) return 'done';
       if (b.type === 'bioreactor') { const n = Math.min(r.carry.n, BIO.cap - b.stock); if (n > 0) { Object.assign(b, { stock: b.stock + n, fed: true, starve: 0 }); r.carry.n -= n; } }
+      else if (b.type === 'turret' && b.built) { const n = Math.min(r.carry.n, TURRET.cap - (b.ammo ?? 0)); if (n > 0) { b.ammo = (b.ammo ?? 0) + n; r.carry.n -= n; } }
       else if (!b.built && b.paid) { const n = Math.min(r.carry.n, (DEFS[b.type].cost[j.item] ?? 0) - (b.paid[j.item] ?? 0)); if (n > 0) { b.paid[j.item] = (b.paid[j.item] ?? 0) + n; r.carry.n -= n; } }
       if (r.carry.n <= 0) r.carry = null;
       return 'done';
@@ -395,6 +412,11 @@ function act(state, r, dt, powered, hooks) {
       r.kit = true;
       return 'done';
     }
+    case 'clean':
+      if (!fouled(b)) return 'done';
+      if ((j.t += dt) < FENCE.clean) return 'working';
+      scrape(b);
+      return 'done';
     case 'mend':
       if (!b.built) return 'done';
       return mend(b, dt, ANDROID.mend) ? 'done' : 'working';

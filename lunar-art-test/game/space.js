@@ -30,6 +30,8 @@ export const TECHS = Object.freeze({
   railgun: { name: 'Railgun', branch: 'energy', cost: 30, requires: ['arc'], description: 'Hold to charge, let go to fire a slug through every crawler in line. One power cell a shot; needs rare earth to build.' },
   rifle: { name: 'Semi-auto rifle', branch: 'arms', cost: 18, requires: ['smg'], description: 'Twelve rounds, harder hits and a longer reach. Crafted at an armory.' },
   flamethrower: { name: 'Flamethrower', branch: 'arms', cost: 28, requires: ['rifle'], description: 'Burns crawlers, silk, nests and goo up close, on fuel refined from black goo. Lets you scrape nests (E).' },
+  turret: { name: 'Sentry turret', branch: 'arms', cost: 24, requires: ['smg'], description: 'A powered twin-cannon turret that fires on raiders by itself. It eats rounds; androids keep it loaded.' },
+  fence: { name: 'Electric fence', branch: 'energy', cost: 16, requires: ['katana'], description: 'Lines of live wire that shock crawlers and hold them off. Goo from the dead shorts it out.' },
   roverbay: { name: 'Robot bay', branch: 'industry', cost: 24, description: 'A bay that assembles haulers and rovers on its own.' },
   androids: { name: 'Androids', branch: 'industry', cost: 36, requires: ['roverbay'], description: 'An android foundry and charging pads. Androids build, carry, harvest, keep stations stocked and take up arms when the brood comes.' },
   reactor: { name: 'Resonance reactor', branch: 'deep', cost: 40, schematic: true, hint: 'Needs a schematic from deep in the caves', description: 'Steady power from a rare-earth lattice, day and night.' },

@@ -10,9 +10,10 @@ import { CELL_SIZE } from '../defs.js';
 import { asKind, createCrawler } from '../crawler.js';
 import { launchRaid } from '../raid.js';
 import { SHAPE, createCentipede } from '../centipede.js';
+import { TURRET } from '../defense.js';
 
 const DUSK = 81, DAWN = 200;
-const TECHS = ['reactor', 'androids', 'containment', 'smg', 'rifle', 'railgun', 'katana'];
+const TECHS = ['reactor', 'androids', 'containment', 'smg', 'rifle', 'railgun', 'katana', 'turret', 'fence'];
 
 /** Places and finishes `type` at the nearest clear square to (x, z). */
 function put(s, type, x, z, rotation = 0) {
@@ -67,6 +68,24 @@ function atBase(s, kinds) {
   });
 }
 
+/**
+ * Turrets on three sides, loaded, and a ring of live fence around the base where the ground allows. Works on a live
+ * colony too (the lab's Add defences button); returns how many of each went up.
+ */
+export function fortify(s) {
+  for (const t of ['turret', 'fence']) if (!s.research.done.includes(t)) s.research.done.push(t);
+  const turrets = [[-12, 5], [11, 4], [2, 11], [-2, -1]].map(([x, z]) => { try { const b = put(s, 'turret', x, z); b.ammo = TURRET.cap; return b; } catch { return null; } }).filter(Boolean);
+  let fences = 0;
+  const ring = [];
+  for (let x = -14; x <= 14; x++) ring.push([x, -4], [x, 15]);
+  for (let z = -3; z <= 14; z++) ring.push([-14, z], [14, z]);
+  for (const [x, z] of ring) {
+    const r = placeBlueprint(s, 'fence', x, z, 0);
+    if (!r.ok) continue;
+    const b = s.buildings.find(b => b.id === r.id); payInFull(s, b); b.progress = 1; b.built = true; delete b.paid; fences++;
+  }
+  return { turrets: turrets.length, fences };
+}
 export const SCENARIOS = {
   first: { name: 'First raid', note: 'Dusk falls; two brood and a crawler leave a cave. Two armed androids.', make() { const s = colony({ crew: ['rifle', 'smg'] }); s.time = DUSK; launchRaid(s, 1, 4); return s; } },
   pack: { name: 'First brute', note: 'Fifth raid: four brood, two crawlers, two drones and a brute in two packs. Two armed androids.', make() { const s = colony({ crew: ['rifle', 'smg'] }); s.time = DUSK; launchRaid(s, 5, 3); return s; } },
@@ -76,6 +95,7 @@ export const SCENARIOS = {
   dark: { name: 'Lights out', note: 'No reactor and flat batteries: the base is dark, no alarm lights.', make() { const s = colony({ reactor: false, crew: ['rifle'] }); s.time = DUSK; launchRaid(s, 4, 3); return s; } },
   siege: { name: 'Holed up', note: 'You are inside the habitat, out of reach: the raiders tear at the base around you.', make() { const s = colony(); s.time = DUSK + 10; s.player = { ...s.player, x: -8, z: 7 }; atBase(s, ['drone', 'drone', 'brute']); s.raid = { wave: 4, night: 0, quiet: 0, spawns: [] }; return s; } },
   matron: { name: 'Matron', note: 'Tenth raid: a matron leads crawlers, drones and brutes, with a centipede. Kill her and her brood pour out. Three androids.', make() { const s = colony({ crew: ['railgun', 'rifle', 'katana'] }); s.time = DUSK; launchRaid(s, 10, 3); return s; } },
+  fort: { name: 'Fortified', note: 'Fifth raid against four loaded turrets and a ring of live fence. One unarmed android keeps the turrets stocked and scrapes the wires.', make() { const s = colony({ crew: [null] }); fortify(s); s.time = DUSK; launchRaid(s, 5, 3); return s; } },
   dawn: { name: 'Dawn breaks', note: 'Raiders at the base ten seconds before sunrise: they run for the caves.', make() { const s = colony({ crew: ['rifle'] }); s.time = DAWN - 10; atBase(s, ['drone', 'drone', 'brute', 'brood']); s.raid = { wave: 5, night: 0, quiet: 0, spawns: [] }; return s; } },
 };
 export const makeSave = id => serialize((SCENARIOS[id] ?? SCENARIOS.first).make());

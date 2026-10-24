@@ -51,7 +51,14 @@ def android_figure(p):
         else: o.scale = [v * 1.9 for v in o.scale]
 
 
+def fence_run(p):
+    building('fence')(p)
+    for o in list(bpy.context.scene.objects):
+        if o.name.split('.')[0].startswith(('Span1', 'Span3')): bpy.data.objects.remove(o, do_unlink=True)
+
+
 TECHS.append(('androids', android_figure))
+TECHS += [('turret', building('turret')), ('fence', fence_run)]
 TECHS += [('pistol', item('pistol')), ('smg', item('smg')), ('katana', item('katana')), ('rifle', item('rifle')), ('flamethrower', item('flamethrower')), ('arc', item('arc')), ('railgun', item('railgun'))]
 
 

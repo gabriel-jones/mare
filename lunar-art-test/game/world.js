@@ -29,6 +29,7 @@ import { raidAlert } from './raid.js';
 import { createHeadlamp } from './headlamp.js';
 import { createCrawlerView, scaled } from './crawler-view.js';
 import { createRaidFx } from './raid-fx.js';
+import { createDefenseFx } from './defense-fx.js';
 import { createCentipedeView } from './centipede-view.js';
 import { createBurrowFx } from './burrow-fx.js';
 import { SHAPE } from './centipede.js';
@@ -70,7 +71,7 @@ export async function createWorld(canvas, initialState, options = {}) {
   renderer.toneMapping=THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure=1.12;
   const loader=new GLTFLoader();
-  const assetNames=['starship','launchpad','solar','battery','hopper','habitat-kit','conveyor','conveyor-corner','processor','storage','growbed','hydrorack','verticalfarm','mushroomtray','mill','goovat','armory','galley','recycler','melter','fabricator','assembler','electrolyser','tank','dock','roverbay','foundry','chargepad','xenolab','reactor','fuelcell','thermal','rtg','bioreactor','lander','rover','hauler','rock-a','rock-b','rock-c','cave-mouth'];
+  const assetNames=['starship','launchpad','solar','battery','hopper','habitat-kit','conveyor','conveyor-corner','processor','storage','growbed','hydrorack','verticalfarm','mushroomtray','mill','goovat','armory','galley','recycler','melter','fabricator','assembler','electrolyser','tank','dock','roverbay','foundry','chargepad','xenolab','reactor','fuelcell','thermal','rtg','bioreactor','turret','fence','lander','rover','hauler','rock-a','rock-b','rock-c','cave-mouth'];
   const [loaded,itemModels]=await Promise.all([
     Promise.all(assetNames.map(name=>loader.loadAsync(`./assets/${siteV2&&name==='launchpad'?padFile:name}.glb`).then(g=>[name,g.scene]).catch(e=>{console.error('Asset failed:',name,e);return [name,null];}))),
     loadItemLibrary(loader),
@@ -117,7 +118,7 @@ export async function createWorld(canvas, initialState, options = {}) {
     const sources=[],dark=1-daylight;
     if(state.power.powered!==false&&dark>0){
       for(const b of state.buildings){
-        const p=b.built&&b.type!=='conveyor'&&!DEFS[b.type].layer&&structures.get(b.id)?.root.position;
+        const p=b.built&&b.type!=='conveyor'&&b.type!=='fence'&&!DEFS[b.type].layer&&structures.get(b.id)?.root.position;
         if(p)sources.push({x:p.x,y:p.y+2.6,z:p.z,power:11,color:workHex});
       }
       for(const l of habitatView.lights())sources.push({x:l.x,y:l.y,z:l.z,power:l.greenhouse?10:15,color:l.greenhouse?0xffb0dc:0xffcf8c});
@@ -340,7 +341,7 @@ export async function createWorld(canvas, initialState, options = {}) {
   // The brood walks the ground itself: each holder rides the terrain (or a room floor) under its crawler.
   const broodGround=(x,z)=>habitatView.floorAt(state,x,z)??heightAt(state.seed,x,z);
   const gooView=createGooView(scene,broodGround);
-  const raidFx=createRaidFx(scene,{groundAt:broodGround});
+  const raidFx=createRaidFx(scene,{groundAt:broodGround}),defenseFx=createDefenseFx(scene,{groundAt:broodGround});
   // Centipedes walk the ground in surfaceFx's space; the terrain itself hides whatever of them is dug in.
   const onSurfaceFx=(x,z)=>broodGround(x,z)-surfaceFx.position.y,surfaceBurrows=createBurrowFx(surfaceFx,{groundAt:onSurfaceFx});
   function updateSurfaceHunt(dt,underground){
@@ -382,6 +383,7 @@ export async function createWorld(canvas, initialState, options = {}) {
     if(template){
       const root=template.clone(true),part=name=>{let found=null;root.traverse(n=>{if(!found&&n.name.replace(/\.?\d{3}$/,'')===name)found=n;});return found;};
       if(type==='conveyor'&&turn<0)root.scale.x=-1;
+      if(type==='turret'||type==='fence'){const o={root,roof:null,emits:false};defenseFx.rig(o,type,part);return o;}
       const oldTray=part('MealTray'),tray=itemModels&&oldTray?itemModels.replace(root,oldTray,'meal',.57):oldTray;
       // Ripe produce shows as the crop's own item model, laid where each grower holds it.
       const crops=RIPE_SPOTS[type]&&itemModels?new THREE.Group():null;
@@ -567,11 +569,12 @@ export async function createWorld(canvas, initialState, options = {}) {
     const ids=new Set(state.buildings.map(b=>b.id));for(const [id,o] of structures)if(!ids.has(id)){buildFx.clear(o);scene.remove(o.root,o.ports);o.ownedMaterials?.forEach(m=>m.dispose());o.tread?.dispose();structures.delete(id);}
     const turns=beltTurns(state),slopes=beltSlopes(state,turns,(x,z)=>heightAt(state.seed,x,z)),obstructs=b=>Math.hypot(b.x*2-state.player.x,b.z*2-state.player.z)<8&&playerObstructs(state,b);
     habitatView.update(state,dt,{player:renderPose,powered:state.power.powered!==false,obstructs});
+    const fenceFrame=defenseFx.frame(state);
     const bedCells=new Set(state.buildings.filter(b=>b.type==='growbed').map(b=>`${b.x},${b.z}`));
     for(const b of state.buildings){
       let o=structures.get(b.id);const turn=b.type==='conveyor'?turns.get(b.id)??0:0;
       if(o&&(o.type!==b.type||o.rotation!==b.rotation||o.turn!==turn)){buildFx.clear(o);scene.remove(o.root,o.ports);o.ownedMaterials.forEach(m=>m.dispose());o.tread?.dispose();structures.delete(b.id);o=null;}
-      if(!o){o=buildModel(b.type,turn);o.type=b.type;o.rotation=b.rotation;o.turn=turn;o.ports=new THREE.Group();portArrows(o.ports,b);o.ports.visible=portsShown;scene.add(o.ports);o.ownedMaterials=[];const clones=new Map();o.root.traverse(n=>{if(n.isMesh){n.castShadow=true;n.receiveShadow=true;const copy=m=>{if(!clones.has(m.uuid)){const c=m.clone();c.userData.baseEmission=c.emissiveIntensity;c.userData.baseColor=c.color.clone();c.userData.baseEmissive=c.emissive.clone();clones.set(m.uuid,c);o.ownedMaterials.push(c);o.tread??=ownTread(c,tread);}return clones.get(m.uuid);};n.material=Array.isArray(n.material)?n.material.map(copy):copy(n.material);}});o.statusHeight??=new THREE.Box3().setFromObject(o.root).max.y;o.lamp=lamps.attach(o.root,b.type);structures.set(b.id,o);scene.add(o.root);}
+      if(!o){o=buildModel(b.type,turn);o.type=b.type;o.rotation=b.rotation;o.turn=turn;o.ports=new THREE.Group();portArrows(o.ports,b);o.ports.visible=portsShown;scene.add(o.ports);o.ownedMaterials=[];const clones=new Map();o.root.traverse(n=>{if(n.isMesh){n.castShadow=true;n.receiveShadow=true;const copy=m=>{if(!clones.has(m.uuid)){const c=m.clone();c.userData.baseEmission=c.emissiveIntensity;c.userData.baseColor=c.color.clone();c.userData.baseEmissive=c.emissive.clone();clones.set(m.uuid,c);o.ownedMaterials.push(c);o.tread??=ownTread(c,tread);}return clones.get(m.uuid);};n.material=Array.isArray(n.material)?n.material.map(copy):copy(n.material);}});o.statusHeight??=new THREE.Box3().setFromObject(o.root).max.y;o.lamp=lamps.attach(o.root,b.type==='fence'?null:b.type);structures.set(b.id,o);scene.add(o.root);}
       o.root.visible=true;
       const def=DEFS[b.type],w=b.rotation%2?def.d:def.w,d=b.rotation%2?def.w:def.d;
       const bx=(b.x+(w-1)/2)*2,bz=(b.z+(d-1)/2)*2;
@@ -619,8 +622,9 @@ export async function createWorld(canvas, initialState, options = {}) {
         o.kiln.rotation.z-=dt*1.4*o.spin;o.root.position.y+=Math.sin(state.time*47+b.id)*.008*o.spin;
         if(o.fill){const f=Math.min(1,b.inv.regolith/PROCESSOR_INPUT_CAP);o.fill.visible=f>0;o.fill.scale.set(.6+.4*f,Math.max(.05,f),.6+.4*f);}
       }
+      if(o.head||o.spans)defenseFx.pose(o,b,dt,state,fenceFrame.cells,fenceFrame.dead.has(b));
     }
-    if(!underground)raidFx.update(state,structures,camera,renderer.domElement.height,dt);
+    if(!underground){raidFx.update(state,structures,camera,renderer.domElement.height,dt);defenseFx.update(state,structures,camera,renderer.domElement.height,dt);}
     expedition.update(state,dt);iceView.update(state);updateEncounter(dt,underground);
     lampClock+=dt;lamps.update(lampClock,daylight,updateLights(daylight,dt));
     productionView.update(state,dt,daylight);androidView?.update(state,dt);for(const [id,view] of productionView.rovers)if(view.display)groundMarks.drive(state.seed,id,view.display.x,view.display.z,.73);groundMarks.update();logistics.update(state.player.cave==null?storageCrates(state).map(crateCentre):[],logisticsShown,dt);buildFx.update(dt);portLinks.update(state,structures,dt,state.time);groundPads.update(state,padBase);pipes.update(state);
@@ -646,7 +650,7 @@ export async function createWorld(canvas, initialState, options = {}) {
     renderer.compileAsync(view.root,camera,scene).catch(()=>{});view.root.visible=false;
     caveViews.set(key,view);return view;
   }
-  function dispose(){disposed=true;logistics.dispose();buildFx.dispose();portLinks.dispose();pipes.dispose();iceView.dispose();groundPads.dispose();groundMarks.dispose();headlamp.dispose();meetView?.dispose();gooView.dispose();broodViews.forEach(v=>v.dispose());surfaceBurrows.dispose();raidFx.dispose();surfaceFx.removeFromParent();lamps.dispose();alarmView.dispose();caveViews.forEach(v=>v.dispose());vignette.remove();expedition.dispose();productionView.dispose();androidView?.dispose();habitatView.dispose();statusLayer.remove();terrainView.dispose();grid.geometry.dispose();grid.material.dispose();combat?.dispose();actor?.dispose();reflection.dispose();canvas.removeEventListener('wheel',zoom);for(const o of structures.values()){o.ownedMaterials?.forEach(m=>m.dispose());scene.remove(o.ports);}geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());itemModels?.dispose();renderer.dispose();}
+  function dispose(){disposed=true;logistics.dispose();buildFx.dispose();portLinks.dispose();pipes.dispose();iceView.dispose();groundPads.dispose();groundMarks.dispose();headlamp.dispose();meetView?.dispose();gooView.dispose();broodViews.forEach(v=>v.dispose());surfaceBurrows.dispose();raidFx.dispose();defenseFx.dispose();surfaceFx.removeFromParent();lamps.dispose();alarmView.dispose();caveViews.forEach(v=>v.dispose());vignette.remove();expedition.dispose();productionView.dispose();androidView?.dispose();habitatView.dispose();statusLayer.remove();terrainView.dispose();grid.geometry.dispose();grid.material.dispose();combat?.dispose();actor?.dispose();reflection.dispose();canvas.removeEventListener('wheel',zoom);for(const o of structures.values()){o.ownedMaterials?.forEach(m=>m.dispose());scene.remove(o.ports);}geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());itemModels?.dispose();renderer.dispose();}
   resize();update(initialState,1);
-  return {renderer,scene,camera,actor,update,pick,aim,raided:events=>raidFx.apply(events,state,structures,state.player),setGhost,clearGhost,setLogistics:shown=>{logisticsShown=shown;},setZones:shown=>productionView.setZones(shown),setPorts,resize,dispose};
+  return {renderer,scene,camera,actor,update,pick,aim,raided:events=>raidFx.apply(events,state,structures,state.player),defended:events=>defenseFx.apply(events,state,structures),setGhost,clearGhost,setLogistics:shown=>{logisticsShown=shown;},setZones:shown=>productionView.setZones(shown),setPorts,resize,dispose};
 }

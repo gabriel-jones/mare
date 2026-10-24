@@ -4,6 +4,7 @@ import { lootAction, takeLoot } from './delve.js';
 import { stepPeril, dropAction, recoverDrop, craftFlares, throwFlare, flareNow, FLARE, HURT_TEXT, BLACKOUT } from './peril.js';
 import { sampleAction, takeSample, stepBrood, vatAction } from './goo.js';
 import { buildingHp, damagedNear, mend, raidNews, stepRaiders } from './raid.js';
+import { defenseAction, stepDefenses } from './defense.js';
 import {DEFS,createState,validatePlacement,placeBlueprint,construct,tick,serialize,deserialize,cancelBlueprint,deconstruct,collectStorage,setMiningArea,miningAreaReason,removeMiningArea,assignRover,rotateBelt,playerObstructs,interact,removalCheck,PROCESSOR_LOCKED,grantStarterAndroid} from './sim.js';
 import {STARTER_ANDROID,androidNews,wreckAction,repairWreck,setStockTarget} from './android.js';
 import {DIRS,ITEM_INFO,footprint} from './defs.js';
@@ -91,7 +92,7 @@ function nearbyUse(){
  let best=null,distance=2.8;const rooms=habitatLayout(state.buildings),plots=new Map();
  for(const b of state.buildings){
   if(!b.built)continue;
-  const action=b.type==='storage'?{verb:ui?.crateId===b.id?'Close crate':'Open crate'}:machineAction(state,b)??lifeAction(state,b)??vatAction(state,b);
+  const action=b.type==='storage'?{verb:ui?.crateId===b.id?'Close crate':'Open crate'}:machineAction(state,b)??lifeAction(state,b)??vatAction(state,b)??defenseAction(state,b);
   if(!action||!sameRoom(b,rooms))continue;
   const d=reachOf(b,plots);
   if(d<distance){best={building:b,...action};distance=d;}
@@ -162,7 +163,7 @@ function paintLine(){
 function placePaint(){
  let placed=0,reason='';
  for(const c of paintLine()){if(!c.valid){reason||=c.reason;continue;}const r=placeBlueprint(state,selectedType,c.x,c.z,0);if(r.ok){placed++;targetId=r.id;}else reason||=r.reason;}
- notify(placed?`${placed} ${DEFS[selectedType].name.toLowerCase()} square${placed>1?'s':''} · walk over and hold E to build`:reason);
+ notify(placed?`${placed} ${DEFS[selectedType].name.toLowerCase()} ${DEFS[selectedType].unit??'square'}${placed>1?'s':''} · walk over and hold E to build`:reason);
  paintPath=null;refreshGhost();
 }
 /** Over a grower or workstation with no tool out, the pointer says what a click does: harvest a ripe plot, pick a
@@ -262,7 +263,7 @@ function refreshGhost(){
  }
  if(DEFS[selectedType].paint){
   const line=paintLine(),valid=line.filter(c=>c.valid).length,blocked=line.find(c=>!c.valid);placeOk=valid>0;
-  placementReason=paintPath?`${valid} square${valid===1?'':'s'}${blocked?` · ${line.length-valid} blocked`:''} · release to place`:blocked?blocked.reason:'Click or drag to paint squares';
+  const unit=DEFS[selectedType].unit??'square';placementReason=paintPath?`${valid} ${unit}${valid===1?'':'s'}${blocked?` · ${line.length-valid} blocked`:''} · release to place`:blocked?blocked.reason:DEFS[selectedType].unit?'Click or drag a line of fence':'Click or drag to paint squares';
   world?.setGhost(selectedType,hover.x,hover.z,0,valid>0,line);return;
  }
  const valid=validatePlacement(state,selectedType,hover.x,hover.z,rotation),underfoot=valid.ok&&!DEFS[selectedType].walkable&&playerObstructs(state,{type:selectedType,x:hover.x,z:hover.z,rotation,built:false});
@@ -338,6 +339,8 @@ function fixedUpdate(dt){
   // Raids go on at the base while the player is underground.
   world.raided(stepRaiders(state,dt,fires));
  }
+ // Turrets and fences fight on whether or not anything is loose, and while the player is underground.
+ world.defended(stepDefenses(state,dt,state.power.powered!==false));
  updatePortals(dt);
  updatePeril(dt);
  if((state.player.y??0)>0||jumpVelocity>0){jumpVelocity-=1.62*dt;state.player.y=Math.max(0,(state.player.y??0)+jumpVelocity*dt);if(state.player.y===0)jumpVelocity=0;}

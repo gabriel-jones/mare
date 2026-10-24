@@ -57,6 +57,9 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#090f1a}#ga
  <div class="row">
   <button data-act="heal">Heal all</button><button data-act="clear">Clear raiders</button><button data-act="repair">Repair base</button>
  </div>
+ <div class="row">
+  <button data-act="fortify" title="Turrets and a fence ring, on this colony">Add defences</button><button data-act="load">Load turrets</button><button data-act="foul" title="Goo the fences right to the edge of a short">Foul fences</button>
+ </div>
  <div class="readout" data-readout></div>
 </aside>
 <script type="module">
@@ -66,7 +69,8 @@ const params=new URLSearchParams(location.search);
 const here=()=>`${location.pathname}?${params}`;
 if(!params.has('sandbox')){params.set('sandbox','1');history.replaceState(null,'',here());}
 let id=params.get('scenario')??'first';
-const {SCENARIOS,makeSave,DUSK,DAWN}=await import('./art-direction/raid-scenarios.js');
+const {SCENARIOS,makeSave,DUSK,DAWN,fortify}=await import('./art-direction/raid-scenarios.js');
+const {TURRET,FENCE,scrape}=await import('./defense.js');
 const save=makeSave(id);
 for(const key of ['lunar-frontier.sandbox','lunar-frontier.phase-a.v1'])localStorage.setItem(key,save);
 await import('./main.js');
@@ -116,7 +120,10 @@ const acts={
  dawn(s){const c=cycle(s.time),dawn=c*DAY+DAWN;s.time=s.time<dawn-2?dawn-2:(c+1)*DAY+DAWN-2;},
  heal(s){s.player.health=100;for(const r of s.robots)if(r.kind==='android')Object.assign(r,{down:false,reported:false,hp:60,charge:Math.max(r.charge,.8),job:null,next:null,task:'idle'});},
  clear(s){s.brood=(s.brood??[]).filter(c=>!c.raider);if(s.raid)s.raid.spawns=[];},
- repair(s){for(const b of s.buildings){delete b.hp;if(b.wreck){Object.assign(b,{built:true,progress:1});delete b.paid;delete b.wreck;}}},
+ repair(s){for(const b of s.buildings){delete b.hp;if(b.type==='fence')scrape(b);if(b.wreck){Object.assign(b,{built:true,progress:1});delete b.paid;delete b.wreck;}}},
+ fortify(s){const r=fortify(s);lab.querySelector('[data-note]').textContent=`Added ${r.turrets} turrets and ${r.fences} fence segments.`;},
+ load(s){for(const b of s.buildings)if(b.type==='turret'&&b.built)b.ammo=TURRET.cap;},
+ foul(s){for(const b of s.buildings)if(b.type==='fence'&&b.built)b.foul=FENCE.short*.85;},
 };
 lab.addEventListener('click',e=>{
  const b=e.target.closest('button');if(!b)return;
@@ -135,6 +142,7 @@ setInterval(()=>{const s=state();if(!s)return;
   `At base ${raiders.filter(c=>c.near).length} · fleeing ${raiders.filter(c=>c.retreat!=null).length}`,
   `Alarm ${raid.raidAlert(s)&&s.power.powered!==false?'ON':'off'} · power ${s.power.powered!==false?'on':'OUT'}`,
   `Damaged ${s.buildings.filter(b=>b.hp!=null).length} · wrecked ${s.buildings.filter(b=>b.wreck).length}`,
+  `Turrets ${s.buildings.filter(b=>b.type==='turret'&&b.built).map(b=>b.ammo??0).join(' ')||'none'} · fence ${s.buildings.filter(b=>b.type==='fence'&&b.built).length}${s.buildings.some(b=>b.short)?` (${s.buildings.filter(b=>b.short).length} shorted)`:''}`,
   `You ${Math.round(s.player.health??100)} hp · androids ${s.robots.filter(r=>r.kind==='android').map(r=>r.down?'down':`${Math.round(r.hp)}`).join(' ')}`,
  ].join('\n');
 },250);

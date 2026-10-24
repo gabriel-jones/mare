@@ -8,6 +8,7 @@ import { CROPS, isGrower } from './farm.js';
 import { GOO, gooOn } from './goo.js';
 import { BIO, FUELCELL, RTG_POWER, THERMAL } from './power.js';
 import { buildingHp } from './raid.js';
+import { FENCE, TURRET, fenceRuns } from './defense.js';
 
 const roomCache={state:null,time:-1,result:null};
 function roomsOf(state){
@@ -49,6 +50,21 @@ export function buildingStatus(building,state){
   if(!building.fed)return {text:'Unfed',read:'PRESS E WITH BLACK GOO',tone:'inactive'};
   if(building.stock<1)return {text:`Breach in ${Math.ceil(BIO.starveAfter-building.starve)}s`,read:'CULTURE STARVING · FEED IT GOO',tone:'warning'};
   return {text:`${BIO.power} kW`,read:`DIGESTING · GOO ${building.stock} / ${BIO.cap}${building.stock<=1?' · FEED SOON':''}`,tone:building.stock<=1?'low':'charge',fill:building.stock/BIO.cap};
+ }
+ if(building.type==='turret'){
+  const ammo=building.ammo??0,read=`ROUNDS ${ammo} / ${TURRET.cap}`;
+  if(state.power.powered===false)return noPower;
+  if(ammo<1)return {text:'No rounds',read:'PRESS E WITH ROUNDS · ANDROIDS RESTOCK IT',tone:'warning'};
+  if(building.target)return {text:'Engaging',read,tone:ammo<TURRET.cap*.25?'low':'charge',fill:ammo/TURRET.cap};
+  return {text:ammo<TURRET.cap*.25?'Low on rounds':'Watching',read,tone:ammo<TURRET.cap*.25?'low':'inactive',fill:ammo/TURRET.cap};
+ }
+ if(building.type==='fence'){
+  const foul=building.foul??0;
+  if(building.fire>0)return {text:'On fire',read:'GOO BURNING ON THE WIRES · PRESS E',tone:'warning'};
+  if(building.short)return {text:'Shorted',read:'GOO ACROSS THE WIRES · PRESS E TO SCRAPE',tone:'warning'};
+  if(state.power.powered===false)return noPower;
+  if(fenceRuns(state).find(r=>r.segments.includes(building))?.dead)return {text:'Dead',read:'A SHORT DOWN THE LINE',tone:'low',fill:foul/FENCE.short};
+  return foul>=.5?{text:`Fouled ${Math.round(foul/FENCE.short*100)}%`,read:'GOO ON THE WIRES · PRESS E TO SCRAPE',tone:'low',fill:foul/FENCE.short}:{text:'Live',read:`${FENCE.power} KW · SHOCKS ON CONTACT`,tone:'charge'};
  }
  if(building.type==='xenolab')return {text:'Studying',read:`RESEARCH BANK ${Math.floor(state.research.bank)} PTS`,tone:'inactive'};
  if(building.type==='hopper'){

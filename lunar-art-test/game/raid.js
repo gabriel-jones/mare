@@ -173,6 +173,14 @@ function pickTarget(state, grid, c) {
   return null;
 }
 
+/** Turns raider `c` on structure `b` (a defence that stung it), unless it is busy with a person or `b` is walled in. */
+export function provoke(state, c, b) {
+  if (c.prey != null || c.retreat != null || c.kind === 'centipede' || c.target?.id === b.id) return false;
+  const point = strikePoint(raidGrid(state), b, c);
+  if (!point) return false;
+  c.target = { id: b.id, point }; c.retarget = RAID.retarget * 2; c.mauling = false;
+  return true;
+}
 /** Claws land on a structure. At nothing left it collapses to a half-built blueprint, already paid for. */
 export function damageBuilding(state, b, n) {
   if (!b?.built) return false;

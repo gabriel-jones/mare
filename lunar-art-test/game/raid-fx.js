@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { buildingHp } from './raid.js';
+import { pointCloud } from './fx-points.js';
 
 /**
  * Raiders tearing at the base, drawn: every blow on a structure throws sparks, shrapnel and dust off it, flashes, and
@@ -22,34 +23,7 @@ export function createRaidFx(scene, { groundAt = () => 0 } = {}) {
   // Points: sparks (additive), dust and smoke (soft, dark), embers and flame (additive). Sizes are in metres; `pixels`
   // is how many screen pixels a metre spans under the (orthographic) camera.
   const pixels = { value: 20 };
-  function cloud(n, { additive, color, size, grow = 0 }) {
-    const pos = new Float32Array(n * 3), vel = new Float32Array(n * 3), life = new Float32Array(n), max = new Float32Array(n), alpha = new Float32Array(n), scale = new Float32Array(n);
-    const geo = keep(new THREE.BufferGeometry());
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('aAlpha', new THREE.BufferAttribute(alpha, 1)); geo.setAttribute('aScale', new THREE.BufferAttribute(scale, 1));
-    const mat = keep(new THREE.ShaderMaterial({
-      transparent: true, depthWrite: false, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
-      uniforms: { uColor: { value: new THREE.Color(color) }, uSize: { value: size }, uPixels: pixels },
-      vertexShader: 'uniform float uSize;uniform float uPixels;attribute float aAlpha;attribute float aScale;varying float vA;void main(){vA=aAlpha;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);gl_PointSize=max(1.5,uSize*aScale*uPixels);}',
-      fragmentShader: `uniform vec3 uColor;varying float vA;void main(){float d=length(gl_PointCoord-.5);float a=smoothstep(.5,${additive ? '.05' : '.2'},d)*vA;if(a<.01)discard;gl_FragColor=vec4(uColor${additive ? '*(1.+.8*(1.-d*2.))' : ''},a);}`,
-    }));
-    const points = new THREE.Points(geo, mat); points.frustumCulled = false; root.add(points);
-    let next = 0;
-    return {
-      emit(x, y, z, vx, vy, vz, t, s = 1) { const k = next; next = (next + 1) % n; pos.set([x, y, z], k * 3); vel.set([vx, vy, vz], k * 3); life[k] = max[k] = t; scale[k] = s; },
-      update(dt, gravity, drag, floorAt) {
-        for (let i = 0; i < n; i++) {
-          if (life[i] <= 0) { alpha[i] = 0; continue; }
-          life[i] -= dt; const o = i * 3, k = life[i] / max[i];
-          vel[o + 1] -= gravity * dt; const d = Math.exp(-drag * dt); vel[o] *= d; vel[o + 1] *= d; vel[o + 2] *= d;
-          pos[o] += vel[o] * dt; pos[o + 1] += vel[o + 1] * dt; pos[o + 2] += vel[o + 2] * dt;
-          if (floorAt) { const f = floorAt(pos[o], pos[o + 2]); if (pos[o + 1] < f) { pos[o + 1] = f; vel[o + 1] *= -.3; vel[o] *= .5; vel[o + 2] *= .5; } }
-          scale[i] *= 1 + grow * dt;
-          alpha[i] = Math.min(1, k * 3) * Math.min(1, (1 - k) * 8 + (grow ? 0 : 1));
-        }
-        geo.attributes.position.needsUpdate = geo.attributes.aAlpha.needsUpdate = geo.attributes.aScale.needsUpdate = true;
-      },
-    };
-  }
+  const clouds = [], cloud = (n, opts) => { const c = pointCloud(root, pixels, n, opts); clouds.push(c); return c; };
   const sparks = cloud(420, { additive: true, color: '#ffb35c', size: .14 });
   const dust = cloud(260, { additive: false, color: '#6d6a64', size: .9, grow: 1.1 });
   const smoke = cloud(360, { additive: false, color: '#4a4b50', size: 1.2, grow: .55 });
@@ -170,6 +144,6 @@ export function createRaidFx(scene, { groundAt = () => 0 } = {}) {
   return {
     apply, update,
     get shake() { return shake; },
-    dispose() { root.removeFromParent(); for (const bar of bars.values()) bar.fill.material.dispose(); owned.forEach(x => x.dispose()); shardMesh.dispose(); },
+    dispose() { root.removeFromParent(); for (const bar of bars.values()) bar.fill.material.dispose(); owned.forEach(x => x.dispose()); clouds.forEach(c => c.dispose()); shardMesh.dispose(); },
   };
 }

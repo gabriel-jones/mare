@@ -13,6 +13,7 @@ import { restoreDelve } from './delve.js';
 import { restorePeril } from './peril.js';
 import { restoreInfest } from './infest.js';
 import { GOO, ensureVat, gooDemand, restoreGoo, stepGoo, useVat } from './goo.js';
+import { defenseDemand, restoreDefense, useDefense } from './defense.js';
 import { BIO, THERMAL, ensurePower, steadyGeneration, stepFuelCells, thermalCapacity } from './power.js';
 import { haulerDemand, restoreHauler, stepHaulers } from './hauler.js';
 import { buildingHp, restoreRaid, stepRaid } from './raid.js';
@@ -245,6 +246,7 @@ export function deconstruct(state, id) {
   if (isGrower(b) && b.grow >= 1) give(b.crop, CROPS[b.crop].yield);
   if (b.type === 'goovat') give('goo', Math.floor(b.stock ?? 0) + (b.seeded ? 1 : 0));
   if (b.type === 'bioreactor') give('goo', Math.floor(b.stock ?? 0));
+  if (b.type === 'turret') give('rounds', b.ammo ?? 0);
   const lost = receive(state, contents, b);
   state.buildings.splice(index, 1);
   return { ok: true, reason: `${DEFS[b.type].name} dismantled; materials returned${lost ? `, but ${lost} item${lost > 1 ? 's' : ''} didn't fit and were lost` : ''}.` };
@@ -275,6 +277,7 @@ export function interact(state, id) {
   }
   if (b.type === 'xenolab') return studyFinds(state, id);
   if (b.type === 'goovat' || b.type === 'bioreactor') return useVat(state, b);
+  if (b.type === 'turret' || b.type === 'fence') return useDefense(state, b);
   return useLife(state, b);
 }
 /** Turns an existing belt (blueprint or finished) to face `rotation`; items on it are kept. */
@@ -340,7 +343,7 @@ export function tick(state, dt) {
   if (dt > 0) { stepProduction(state, dt, powered); stepHaulers(state, dt, powered, robotTopology(state)); stepAndroids(state, dt, powered, androidHooks(state)); stepSpace(state, dt, powered); stepLife(state, dt, powered); stepGoo(state, dt, powered); stepRaid(state, dt); }
   stepMission(state);
   const daylight = daylightAt(state.time);
-  let generation = steadyGeneration(state), demand = productionDemand(state) + spaceDemand(state) + haulerDemand(state) + androidDemand(state) + lifeDemand(state, roomStatus(state)) + gooDemand(state), capacity = thermalCapacity(state);
+  let generation = steadyGeneration(state), demand = productionDemand(state) + spaceDemand(state) + haulerDemand(state) + androidDemand(state) + lifeDemand(state, roomStatus(state)) + gooDemand(state) + defenseDemand(state), capacity = thermalCapacity(state);
   for (const b of state.buildings) {
     if (!b.built) continue;
     if (b.type === 'solar') generation += 8 * daylight;
@@ -440,6 +443,7 @@ function restoreBuilding(raw) {
   }
   if (b.type === 'electrolyser') check('work', v => count(v, 1));
   if (b.type === 'tank') check('fuel', v => count(v, DEFS.tank.capacity));
+  restoreDefense(b, raw);
   return ensureState(b);
 }
 function restoreRobot(raw, index) {
