@@ -52,9 +52,10 @@ const RIPE_SPOTS={
   verticalfarm:[[-.4,1.7,1.2,.42],[.35,1.7,.2,.42],[-.2,1.7,-.9,.42],[.3,1.7,-1.5,.38]],
   mushroomtray:[[-.4,.86,.1,.32],[.42,.86,-.35,.32]],
 };
-/** `options.launchSite: 'v2'` swaps in a reworked pad (`options.pad` 'a', 'b' or 'c') and the new launch effects, for review. */
+/** The launch site is the painted-square pad with its fuelling tower and launch effects; `options.pad` 'b' or 'c' shows the
+ * other reviewed pads, and `options.launchSite: 'v1'` the original solid pad, for comparison. */
 export async function createWorld(canvas, initialState, options = {}) {
-  const siteV2 = options.launchSite === 'v2', padFile = `launchpad-v2${options.pad ?? 'a'}`;
+  const siteV2 = options.launchSite !== 'v1', padFile = `launchpad-v2${options.pad ?? 'a'}`;
   const renderer = new THREE.WebGLRenderer({canvas,antialias:true,alpha:false});
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
   renderer.shadowMap.enabled=true;renderer.localClippingEnabled=true;

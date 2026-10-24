@@ -31,7 +31,7 @@ Object.assign(state.player,{x:7,z:-1});
 tick(state,0);state.power.stored=state.power.capacity;
 const base=document.createElement('base');base.href='../';document.head.append(base);
 const pad=params.get('pad')||'a';document.querySelectorAll('[data-pad]').forEach(b=>b.setAttribute('aria-pressed',String(!current&&b.dataset.pad===pad)));
-const canvas=document.querySelector('canvas'),world=await createWorld(canvas,state,current?{}:{launchSite:'v2',pad});window.addEventListener('resize',world.resize);
+const canvas=document.querySelector('canvas'),world=await createWorld(canvas,state,current?{launchSite:'v1'}:{launchSite:'v2',pad});window.addEventListener('resize',world.resize);
 const zoomTo=h=>{const now=Number(canvas.dataset.viewHeight||48);canvas.dispatchEvent(new WheelEvent('wheel',{deltaY:Math.log(h/now)/.001,cancelable:true}));};
 let mode=params.get('play')||'loop',speed=1,phase='pad',clock=0;
 const ship=state.ship;
