@@ -1,0 +1,177 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Terrain lab • art review</title>
+<style>
+html,body{margin:0;height:100%;background:#090f1a;color:#e6e2d8;font:13px Inter,ui-sans-serif,sans-serif;overflow:hidden}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+.labels{position:fixed;inset:0;display:grid;pointer-events:none}
+.labels div{position:relative;border:1px solid #ffffff14}
+.labels b{position:absolute;left:10px;top:8px;padding:5px 9px;border-radius:8px;background:#0e1216cc;font-size:13px}
+.labels small{position:absolute;left:10px;bottom:8px;right:10px;padding:6px 9px;border-radius:8px;background:#0e1216cc;color:#b9c0c2;font-size:11px;line-height:1.4}
+.labels a{pointer-events:auto;position:absolute;right:10px;top:8px;padding:5px 9px;border-radius:8px;background:#0e1216cc;color:#8fe6ff;text-decoration:none;font-size:11px}
+</style>
+<script type="importmap">{"imports":{"three":"../../node_modules/three/build/three.module.js","three/addons/":"../../node_modules/three/examples/jsm/"}}</script>
+</head><body><canvas id="lab"></canvas><div class="labels"></div>
+<script type="module">
+// Standalone terrain study: the same 72 m patch (crater, hill, the level building clearing, a solar array, a crate and
+// the astronaut for scale) rendered six ways with the game's camera, sun and tone mapping. Never touches colony saves.
+// ?only=3 shows a single option full screen.
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
+
+const SIZE = 120, HALF = SIZE / 2;
+const hash = (i, j, s = 0) => { let n = Math.imul(i, 73856093) ^ Math.imul(j, 19349663) ^ Math.imul(s + 7, 83492791); n = Math.imul(n ^ (n >>> 13), 1274126177); return ((n ^ (n >>> 16)) >>> 0) / 4294967296; };
+const smooth = t => t * t * (3 - 2 * t), clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
+function noise(x, z, s = 0) {
+  const i = Math.floor(x), j = Math.floor(z), u = smooth(x - i), v = smooth(z - j);
+  const a = hash(i, j, s), b = hash(i + 1, j, s), c = hash(i, j + 1, s), d = hash(i + 1, j + 1, s);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+const fbm = (x, z, s = 0, o = 4) => { let t = 0, a = .5, f = 1; for (let k = 0; k < o; k++) { t += (noise(x * f, z * f, s + k) - .5) * a; a *= .5; f *= 2.03; } return t; };
+// The level clearing where the colony stands, like the game's starting area.
+const calm = (x, z) => smooth(clamp((Math.hypot(x - 1, z - 6) - 7) / 6));
+function crater(x, z, c) {
+  const d = Math.hypot(x - c.x, z - c.z) / c.r;
+  const bowl = d < 1 ? -c.depth * (1 - d * d) : 0, rim = c.rim * Math.exp(-(((d - 1) / .22) ** 2)), apron = d > 1 ? c.rim * .35 * Math.exp(-(d - 1) * 2.2) : 0;
+  return bowl + rim + apron;
+}
+const BIG = { x: 11, z: -7, r: 8 };
+const hill = (x, z) => Math.exp(-(((x + 13) / 9) ** 2) - (((z + 9) / 7) ** 2));
+const randomCraters = (n, seed) => Array.from({ length: n }, (_, k) => { const r = 1.2 + hash(k, 1, seed) ** 2 * 7; return { x: (hash(k, 2, seed) - .5) * 64, z: (hash(k, 3, seed) - .5) * 64, r, depth: r * .32, rim: r * .12 }; })
+  .filter(c => Math.hypot(c.x - 1, c.z - 6) > c.r + 7);
+
+const PALETTE = { dust: new THREE.Color('#9c968a'), stone: new THREE.Color('#655f70'), floor: new THREE.Color('#827c73') };
+const shared = {
+  height(x, z) { return (fbm(x * .035, z * .035, 3) * 1.6 + crater(x, z, { ...BIG, depth: 1.6, rim: .55 }) + Math.round(hill(x, z) * 4.5 / .9) * .9) * calm(x, z); },
+  color(f, c) { c.copy(PALETTE.dust).lerp(PALETTE.stone, clamp((1 - f.ny) * 3.2)); if (f.inBig) c.lerp(PALETTE.floor, .6); c.multiplyScalar(.94 + f.rand * .1); },
+};
+const MARE = new THREE.Color('#4d4a47'), HIGHLAND = new THREE.Color('#9a9386'), FLOOR = new THREE.Color('#5a5650'), EJECTA = new THREE.Color('#c9c2b4');
+function shadedColor(f, c) {
+  const mare = smooth(clamp((fbm(f.x * .05, f.z * .05, 11) + .02) * 7));
+  c.copy(HIGHLAND).lerp(MARE, mare * .85);
+  c.lerp(PALETTE.stone, clamp((1 - f.ny) * 2.4) * .6);
+  if (f.inBig) c.lerp(FLOOR, .65);
+  c.multiplyScalar(clamp(1 - f.cavity * 3 - Math.min(0, f.cavity) * 1.2, .45, 1.3) * (.93 + f.rand * .12));
+}
+const ejecta = (f, craters, c, amount) => { let halo = 0; for (const k of craters) { const d = Math.hypot(f.x - k.x, f.z - k.z) / k.r; if (d < .9) return c.lerp(FLOOR, amount * .7); if (d < 1.9) halo = Math.max(halo, 1 - (d - .9)); } c.lerp(EJECTA, halo * amount); };
+const OPTIONS = [
+  { name: '1 · Current: faceted maria', note: 'What ships now. Gentle relief under a steep camera and a strong sky fill, so most facets catch the same light.', ...shared },
+  {
+    name: '2 · Deep relief', note: 'Same look, about 2.5× the height: crater bowls 4 m deep with sharp raised rims, swelling ground and a proper hill. Finer 1.6 m facets.',
+    facet: 1.6,
+    height(x, z) { return (fbm(x * .03, z * .03, 3) * 4.2 + crater(x, z, { ...BIG, depth: 4.2, rim: 1.7 }) + crater(x, z, { x: -6, z: 22, r: 4, depth: 1.8, rim: .7 }) + hill(x, z) * 10) * calm(x, z); },
+    color: shared.color,
+  },
+  {
+    name: '3 · Shaded maria', note: 'Current shapes, read better: dark basalt mare against pale highland dust, hollows darkened and ridges lifted, weaker sky fill so the sun models every facet, and terrain casts shadows.',
+    height: shared.height, hemi: .45, sun: 3.9, selfShadow: true,
+    color: shadedColor,
+  },
+  {
+    name: '4 · Strata highlands', note: 'Stepped plateaus with flat dusty tops; every cliff face shows banded rock layers, so height reads as stripes even from straight above.',
+    facet: 1.4, hemi: .7, selfShadow: true,
+    height(x, z) {
+      const raw = (fbm(x * .028, z * .028, 5) * 9 + hill(x, z) * 7 + crater(x, z, { ...BIG, depth: 3, rim: 1 })) * calm(x, z), step = 1.6, k = Math.floor(raw / step), t = raw / step - k;
+      return (k + smooth(clamp((t - .72) / .28))) * step;
+    },
+    color(f, c) {
+      const steep = clamp((1 - f.ny) * 3.5);
+      const band = ['#8a8174', '#b1a898', '#665f67', '#9b8f7c'][((Math.floor(f.y / .55) % 4) + 4) % 4];
+      c.set('#a59e91').lerp(new THREE.Color(band), steep);
+      c.multiplyScalar(.95 + f.rand * .08);
+    },
+  },
+  {
+    name: '5 · Crater field', note: 'Current relief, but saturated with craters of every size, each with a bright ejecta halo, plus boulder fields and pebble scatter that break up every open patch.',
+    craters: randomCraters(46, 9), rocks: 140, selfShadow: true,
+    height(x, z) { let h = fbm(x * .035, z * .035, 3) * 1.4 + crater(x, z, { ...BIG, depth: 2.4, rim: .9 }) + hill(x, z) * 4; for (const c of this.craters) h += crater(x, z, c); return h * calm(x, z); },
+    color(f, c) { shared.color(f, c); ejecta(f, [BIG, ...this.craters], c, .55); },
+  },
+  {
+    name: '6 · Low camera, low sun', note: 'Today’s terrain from a lower 28° camera with a raking sun: relief, rims and the hill read from silhouette and long shadows. Changes how the whole game is framed.',
+    ...shared, camera: new THREE.Vector3(26, 19, 26), sunDir: new THREE.Vector3(-34, 12, 22), selfShadow: true, hemi: .7,
+  },
+  {
+    name: '7 · Mix: 2 + 3 + 5', note: 'Deep relief shapes with the shaded mare palette and a lighter crater field (dark floors, bright ejecta, boulders), at today’s camera and sun height. My pick.',
+    facet: 1.6, hemi: .5, sun: 3.9, selfShadow: true, craters: randomCraters(26, 4), rocks: 90,
+    height(x, z) { let h = fbm(x * .03, z * .03, 3) * 3.4 + crater(x, z, { ...BIG, depth: 3.8, rim: 1.5 }) + hill(x, z) * 8; for (const c of this.craters) h += crater(x, z, { ...c, depth: c.depth * 1.3, rim: c.rim * 1.3 }); return h * calm(x, z); },
+    color(f, c) { shadedColor(f, c); ejecta(f, [BIG, ...this.craters], c, .45); },
+  },
+];
+
+const only = Number(new URLSearchParams(location.search).get('only')) || 0;
+const shown = only ? [OPTIONS[only - 1]] : OPTIONS, cols = only ? 1 : 4, rows = only ? 1 : 2;
+const labels = document.querySelector('.labels');
+labels.style.gridTemplateColumns = `repeat(${cols},1fr)`; labels.style.gridTemplateRows = `repeat(${rows},1fr)`;
+labels.innerHTML = shown.map(o => `<div><b>${o.name}</b>${only ? '<a href="?">all options</a>' : `<a href="?only=${OPTIONS.indexOf(o) + 1}">full screen</a>`}<small>${o.note}</small></div>`).join('');
+
+function terrainMesh(o) {
+  const f = o.facet ?? 2.4, n = Math.ceil(SIZE / f), h = [];
+  for (let j = 0; j <= n; j++) for (let i = 0; i <= n; i++) {
+    const x = -HALF + i * f, z = -HALF + j * f;
+    h.push(o.height(x, z) + (hash(i, j, 77) - .5) * .16 * calm(x, z));
+  }
+  const H = (i, j) => h[clamp(j, 0, n) * (n + 1) + clamp(i, 0, n)];
+  const positions = [], colors = [], c = new THREE.Color(), a = new THREE.Vector3(), b = new THREE.Vector3(), d = new THREE.Vector3(), nrm = new THREE.Vector3();
+  const facet = (p) => {
+    a.subVectors(p[1], p[0]); b.subVectors(p[2], p[0]); nrm.crossVectors(a, b).normalize();
+    if (nrm.y < 0) { p = [p[0], p[2], p[1]]; nrm.negate(); }
+    const cx = (p[0].x + p[1].x + p[2].x) / 3, cz = (p[0].z + p[1].z + p[2].z) / 3, cy = (p[0].y + p[1].y + p[2].y) / 3;
+    const cavity = p.reduce((s, q) => s + q.cavity, 0) / 3;
+    o.color.call(o, { x: cx, y: cy, z: cz, ny: nrm.y, cavity, rand: hash(Math.round(cx * 7), Math.round(cz * 7), 5), inBig: Math.hypot(cx - BIG.x, cz - BIG.z) < BIG.r * .85 }, c);
+    for (const q of p) { positions.push(q.x, q.y, q.z); colors.push(c.r, c.g, c.b); }
+  };
+  const V = (i, j) => { const v = new THREE.Vector3(-HALF + i * f, H(i, j), -HALF + j * f); v.cavity = ((H(i + 1, j) + H(i - 1, j) + H(i, j + 1) + H(i, j - 1)) / 4 - H(i, j)) / f; return v; };
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const p00 = V(i, j), p10 = V(i + 1, j), p01 = V(i, j + 1), p11 = V(i + 1, j + 1);
+    if (hash(i, j, 911) < .5) { facet([p00, p10, p11]); facet([p00, p11, p01]); } else { facet([p00, p10, p01]); facet([p10, p11, p01]); }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3)); g.computeVertexNormals();
+  const mesh = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 1 }));
+  mesh.receiveShadow = true; mesh.castShadow = !!o.selfShadow;
+  // Same lattice interpolation the props stand on.
+  mesh.userData.heightAt = (x, z) => { const u = (x + HALF) / f, v = (z + HALF) / f, i = Math.floor(u), j = Math.floor(v), s = u - i, t = v - j; return H(i, j) * (1 - s) * (1 - t) + H(i + 1, j) * s * (1 - t) + H(i, j + 1) * (1 - s) * t + H(i + 1, j + 1) * s * t; };
+  return mesh;
+}
+
+const canvas = document.getElementById('lab');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.12; renderer.setScissorTest(true);
+const pmrem = new THREE.PMREMGenerator(renderer), room = new RoomEnvironment(), envMap = pmrem.fromScene(room, .02).texture;
+const loader = new GLTFLoader();
+const load = name => loader.loadAsync(`../assets/${name}.glb`).then(g => g.scene).catch(() => null);
+const [solar, storage, astronaut, rockA, rockB] = await Promise.all(['solar', 'storage', 'astronaut-v3', 'rock-a', 'rock-b'].map(load));
+
+const views = shown.map(o => {
+  const scene = new THREE.Scene(); scene.background = new THREE.Color('#090f1a'); scene.environment = envMap; scene.environmentIntensity = .3;
+  const ground = terrainMesh(o); scene.add(ground);
+  const at = ground.userData.heightAt;
+  const sunDir = (o.sunDir ?? new THREE.Vector3(-25, 50, -30)).clone().normalize();
+  const sun = new THREE.DirectionalLight('#ffe4bc', o.sun ?? 3.28); sun.position.copy(sunDir).multiplyScalar(70); sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -60, right: 60, top: 60, bottom: -60, near: 1, far: 160 }); sun.shadow.normalBias = .12;
+  scene.add(sun, new THREE.HemisphereLight('#b3cbed', '#272a3d', o.hemi ?? 1.15));
+  const place = (model, x, z, ry = 0, s = 1) => { if (!model) return; const m = model.isSkinnedMesh || model.getObjectByProperty('isSkinnedMesh', true) ? cloneSkinned(model) : model.clone(true); m.position.set(x, at(x, z), z); m.rotation.y = ry; m.scale.setScalar(s); m.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } }); scene.add(m); };
+  place(solar, 3, 4); place(solar, 7, 4); place(storage, -3, 7); place(astronaut, 1, 9, .6);
+  place(rockA, 9, 15, .4, .6); place(rockB, -14, 3, 1.1, .5); place(rockA, 24, 6, 2, .4);
+  if (o.rocks) for (let k = 0; k < o.rocks; k++) { const x = (hash(k, 4, 3) - .5) * 64, z = (hash(k, 5, 3) - .5) * 64; if (calm(x, z) < .5) continue; place(k % 2 ? rockA : rockB, x, z, k, .08 + hash(k, 6, 3) ** 3 * .5); }
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, .1, 600);
+  camera.position.copy(o.camera ?? new THREE.Vector3(26, 34, 26)).normalize().multiplyScalar(160); camera.lookAt(0, 0, 0);
+  return { scene, camera };
+});
+room.dispose();
+
+function frame() {
+  const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false);
+  const pw = w / cols, ph = h / rows, viewHeight = only ? 46 : 52;
+  views.forEach((v, k) => {
+    const col = k % cols, row = Math.floor(k / cols), x = col * pw, y = h - (row + 1) * ph;
+    renderer.setViewport(x, y, pw, ph); renderer.setScissor(x, y, pw, ph);
+    const aspect = pw / ph; Object.assign(v.camera, { left: -viewHeight * aspect / 2, right: viewHeight * aspect / 2, top: viewHeight / 2, bottom: -viewHeight / 2 }); v.camera.updateProjectionMatrix();
+    renderer.render(v.scene, v.camera);
+  });
+}
+addEventListener('resize', frame); frame();
+window.labReady = true;
+</script></body></html>
