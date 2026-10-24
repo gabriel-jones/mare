@@ -47,7 +47,7 @@ export function createAstronaut(gltf) {
   actions.set(key,action);
  }
  let current='',active=null;
- const spine=root.getObjectByName('Spine'),parentQ=new THREE.Quaternion(),twistQ=new THREE.Quaternion(),UP=new THREE.Vector3(0,1,0),untwisted=new THREE.Quaternion();let twisted=false;
+ const spine=root.getObjectByName('Spine'),parentQ=new THREE.Quaternion(),twistQ=new THREE.Quaternion(),pitchQ=new THREE.Quaternion(),lean=new THREE.Vector3(),UP=new THREE.Vector3(0,1,0),untwisted=new THREE.Quaternion();let twisted=false;
  const tools=[],weapons={pistol:[],smg:[],rifle:[],flamethrower:[],arc:[],railgun:[],katana:[]},MESH={Pistol:'pistol',Smg:'smg',Rifle:'rifle',Flamethrower:'flamethrower',ArcProjector:'arc',Railgun:'railgun',Katana:'katana'};
  root.traverse(o=>{if(o.name.startsWith('ConstructionTool'))tools.push(o);if(MESH[o.name])weapons[MESH[o.name]].push(o);});
  // Clip names carry the weapon: 'rifleaimidle', 'flameturnl'. The pistol uses the plain set.
@@ -91,10 +91,12 @@ export function createAstronaut(gltf) {
   mixer.update(Math.min(dt,.1));
   const throwing=throwT>=0&&arm.fore?throwPose(throwT):null;
   if(throwing){throwT+=dt;if(throwT>THROW.at(-1).t)throwT=-1;}
-  const twist=(pose.twist??0)+(throwing?throwing.twist:0);
-  if(spine&&twist){
+  const twist=(pose.twist??0)+(throwing?throwing.twist:0),pitch=throwing?0:pose.pitch??0;
+  if(spine&&(twist||pitch)){
    untwisted.copy(spine.quaternion);twisted=true;
    spine.parent.getWorldQuaternion(parentQ);twistQ.setFromAxisAngle(UP,twist);
+   // Aiming up or down a slope the chest leans back or over, about the axis across the way it now faces.
+   if(pitch){root.getWorldDirection(lean);lean.y=0;lean.normalize().applyAxisAngle(UP,twist);lean.crossVectors(UP,lean).normalize();twistQ.premultiply(pitchQ.setFromAxisAngle(lean,-pitch));}
    spine.quaternion.premultiply(parentQ).premultiply(twistQ).premultiply(parentQ.invert());
   }
   if(throwing?.w>0){

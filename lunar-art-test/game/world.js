@@ -28,6 +28,7 @@ import { ALARM_RED, createAlarmView } from './alarm-view.js';
 import { raidAlert } from './raid.js';
 import { createHeadlamp } from './headlamp.js';
 import { createCrawlerView, scaled } from './crawler-view.js';
+import { createRaidFx } from './raid-fx.js';
 import { createCentipedeView } from './centipede-view.js';
 import { createBurrowFx } from './burrow-fx.js';
 import { SHAPE } from './centipede.js';
@@ -37,7 +38,7 @@ import { createGooView } from './goo-view.js';
 import { FLARE } from './peril.js';
 import { GOO } from './goo.js';
 import { beltSlopes } from './belt-slope.js';
-import { DODGE, KINDS } from './crawler.js';
+import { DODGE, KINDS, partsOf } from './crawler.js';
 import { BIO, THERMAL } from './power.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createLightBudget, createAdaptiveResolution, trimShadows } from './render-budget.js';
@@ -339,6 +340,7 @@ export async function createWorld(canvas, initialState, options = {}) {
   // The brood walks the ground itself: each holder rides the terrain (or a room floor) under its crawler.
   const broodGround=(x,z)=>habitatView.floorAt(state,x,z)??heightAt(state.seed,x,z);
   const gooView=createGooView(scene,broodGround);
+  const raidFx=createRaidFx(scene,{groundAt:broodGround});
   // Centipedes walk the ground in surfaceFx's space; the terrain itself hides whatever of them is dug in.
   const onSurfaceFx=(x,z)=>broodGround(x,z)-surfaceFx.position.y,surfaceBurrows=createBurrowFx(surfaceFx,{groundAt:onSurfaceFx});
   function updateSurfaceHunt(dt,underground){
@@ -462,11 +464,47 @@ export async function createWorld(canvas, initialState, options = {}) {
     meetHolder.position.y=heightAt(state.seed,c.x,c.z);
     meetView.update(c,dt,{player:encounterState.phase==='pry'?pryAt:state.player});
   }
-  const aimPlane=new THREE.Plane(new THREE.Vector3(0,1,0),0);
-  /** The cave-local floor point under the cursor, or null on the surface. */
+  // Shots go out at about shoulder height over the ground they are aimed at, so on a slope they pitch with it.
+  const AIM_HEIGHT=1.2;
+  const aimPlane=new THREE.Plane(new THREE.Vector3(0,1,0),0),aimBody=new THREE.Vector3(),aimStep=new THREE.Vector3();
+  /**
+   * On the surface, what the cursor is over: a raider's body if the ray passes through one, else the ground, found by
+   * walking the ray down onto the terrain. `y` is the world height to shoot at (the body, or shoulder height over the
+   * ground there), `pitch` the angle up (+) or down to it from the player's shoulder.
+   */
+  function aimOnSurface(){
+    const ray=raycaster.ray;let best=null,bestT=Infinity;
+    for(const c of state.brood??[]){
+      if(c.state==='dead')continue;
+      const size=c.kind==='centipede'?.6:c.raider?c.size??1:HATCHLING;
+      for(const p of partsOf(c)){
+        aimBody.set(p.x,broodGround(p.x,p.z)+(c.kind==='centipede'?.45:.75*size),p.z);
+        const t=ray.origin.distanceTo(aimBody),r=.45*size+.3;
+        if(t<bestT&&ray.distanceSqToPoint(aimBody)<r*r){bestT=t;best={x:p.x,z:p.z,y:aimBody.y,target:c};}
+      }
+    }
+    if(!best){
+      // Down the ray in half-metre steps from well above the highest ground about, then halve onto the crossing.
+      const top=player.position.y+14;let t=(ray.origin.y-top)/-ray.direction.y,prev=t;
+      if(!(t>0))return null;
+      for(let i=0;i<400;i++){ray.at(t,aimStep);if(aimStep.y<=broodGround(aimStep.x,aimStep.z))break;prev=t;t+=.5/Math.max(.2,-ray.direction.y);}
+      let lo=prev,hi=t;for(let i=0;i<12;i++){const mid=(lo+hi)/2;ray.at(mid,aimStep);if(aimStep.y<=broodGround(aimStep.x,aimStep.z))hi=mid;else lo=mid;}
+      ray.at(hi,aimStep);best={x:aimStep.x,z:aimStep.z,y:broodGround(aimStep.x,aimStep.z)+AIM_HEIGHT,ground:true};
+    }
+    const from=player.position.y+AIM_HEIGHT,run=Math.hypot(best.x-player.position.x,best.z-player.position.z);
+    best.pitch=THREE.MathUtils.clamp(Math.atan2(best.y-from,Math.max(.5,run)),-.7,.7);
+    return best;
+  }
+  /** The floor point under the cursor (cave-local underground), with the height and pitch to shoot at on the surface. */
   function aim(clientX,clientY){
     const r=canvas.getBoundingClientRect();if(!r.width||!r.height)return null;
-    if(state.player.cave==null){pointer.set((clientX-r.left)/r.width*2-1,-(clientY-r.top)/r.height*2+1);raycaster.setFromCamera(pointer,camera);aimPlane.constant=-player.position.y;if(!raycaster.ray.intersectPlane(aimPlane,hit))return null;combat?.setAim({x:hit.x,z:hit.z});return {x:hit.x,z:hit.z};}
+    if(state.player.cave==null){
+      pointer.set((clientX-r.left)/r.width*2-1,-(clientY-r.top)/r.height*2+1);raycaster.setFromCamera(pointer,camera);
+      const at=aimOnSurface();
+      if(!at){aimPlane.constant=-player.position.y;if(!raycaster.ray.intersectPlane(aimPlane,hit))return null;combat?.setAim({x:hit.x,z:hit.z,y:player.position.y+AIM_HEIGHT-surfaceFx.position.y,pitch:0});return {x:hit.x,z:hit.z};}
+      combat?.setAim({x:at.x,z:at.z,y:at.y-surfaceFx.position.y,pitch:at.pitch,ground:broodGround(at.x,at.z)-surfaceFx.position.y});
+      return {x:at.x,z:at.z,y:at.y,pitch:at.pitch,target:at.target??null};
+    }
     if(!caveView)return null;
     pointer.set((clientX-r.left)/r.width*2-1,-(clientY-r.top)/r.height*2+1);raycaster.setFromCamera(pointer,camera);
     aimPlane.constant=-caveView.root.position.y;if(!raycaster.ray.intersectPlane(aimPlane,hit))return null;
@@ -582,6 +620,7 @@ export async function createWorld(canvas, initialState, options = {}) {
         if(o.fill){const f=Math.min(1,b.inv.regolith/PROCESSOR_INPUT_CAP);o.fill.visible=f>0;o.fill.scale.set(.6+.4*f,Math.max(.05,f),.6+.4*f);}
       }
     }
+    if(!underground)raidFx.update(state,structures,camera,renderer.domElement.height,dt);
     expedition.update(state,dt);iceView.update(state);updateEncounter(dt,underground);
     lampClock+=dt;lamps.update(lampClock,daylight,updateLights(daylight,dt));
     productionView.update(state,dt,daylight);androidView?.update(state,dt);for(const [id,view] of productionView.rovers)if(view.display)groundMarks.drive(state.seed,id,view.display.x,view.display.z,.73);groundMarks.update();logistics.update(state.player.cave==null?storageCrates(state).map(crateCentre):[],logisticsShown,dt);buildFx.update(dt);portLinks.update(state,structures,dt,state.time);groundPads.update(state,padBase);pipes.update(state);
@@ -589,6 +628,7 @@ export async function createWorld(canvas, initialState, options = {}) {
     follow.set(player.position.x,player.position.y+1.05,player.position.z);
     if(hunting&&combat.shake){follow.x+=(Math.random()-.5)*combat.shake;follow.z+=(Math.random()-.5)*combat.shake;}
     if(!underground&&surfaceBurrows.shake){const k=surfaceBurrows.shake*.35;follow.x+=(Math.random()-.5)*k;follow.y+=(Math.random()-.5)*k;follow.z+=(Math.random()-.5)*k;}
+    if(!underground&&raidFx.shake){const k=raidFx.shake*.4;follow.x+=(Math.random()-.5)*k;follow.y+=(Math.random()-.5)*k;follow.z+=(Math.random()-.5)*k;}
     if(encounterState?.phase==='shriek'){const k=.12*Math.max(0,1-encounterState.t);follow.x+=(Math.random()-.5)*k;follow.z+=(Math.random()-.5)*k;}
     const cameraDistance=4;camera.position.set(follow.x+26*cameraDistance,follow.y+34*cameraDistance,follow.z+26*cameraDistance);camera.lookAt(follow);camera.updateMatrixWorld();
     updateSurfaceHunt(dt,underground);
@@ -606,7 +646,7 @@ export async function createWorld(canvas, initialState, options = {}) {
     renderer.compileAsync(view.root,camera,scene).catch(()=>{});view.root.visible=false;
     caveViews.set(key,view);return view;
   }
-  function dispose(){disposed=true;logistics.dispose();buildFx.dispose();portLinks.dispose();pipes.dispose();iceView.dispose();groundPads.dispose();groundMarks.dispose();headlamp.dispose();meetView?.dispose();gooView.dispose();broodViews.forEach(v=>v.dispose());surfaceBurrows.dispose();surfaceFx.removeFromParent();lamps.dispose();alarmView.dispose();caveViews.forEach(v=>v.dispose());vignette.remove();expedition.dispose();productionView.dispose();androidView?.dispose();habitatView.dispose();statusLayer.remove();terrainView.dispose();grid.geometry.dispose();grid.material.dispose();combat?.dispose();actor?.dispose();reflection.dispose();canvas.removeEventListener('wheel',zoom);for(const o of structures.values()){o.ownedMaterials?.forEach(m=>m.dispose());scene.remove(o.ports);}geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());itemModels?.dispose();renderer.dispose();}
+  function dispose(){disposed=true;logistics.dispose();buildFx.dispose();portLinks.dispose();pipes.dispose();iceView.dispose();groundPads.dispose();groundMarks.dispose();headlamp.dispose();meetView?.dispose();gooView.dispose();broodViews.forEach(v=>v.dispose());surfaceBurrows.dispose();raidFx.dispose();surfaceFx.removeFromParent();lamps.dispose();alarmView.dispose();caveViews.forEach(v=>v.dispose());vignette.remove();expedition.dispose();productionView.dispose();androidView?.dispose();habitatView.dispose();statusLayer.remove();terrainView.dispose();grid.geometry.dispose();grid.material.dispose();combat?.dispose();actor?.dispose();reflection.dispose();canvas.removeEventListener('wheel',zoom);for(const o of structures.values()){o.ownedMaterials?.forEach(m=>m.dispose());scene.remove(o.ports);}geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());itemModels?.dispose();renderer.dispose();}
   resize();update(initialState,1);
-  return {renderer,scene,camera,actor,update,pick,aim,setGhost,clearGhost,setLogistics:shown=>{logisticsShown=shown;},setZones:shown=>productionView.setZones(shown),setPorts,resize,dispose};
+  return {renderer,scene,camera,actor,update,pick,aim,raided:events=>raidFx.apply(events,state,structures,state.player),setGhost,clearGhost,setLogistics:shown=>{logisticsShown=shown;},setZones:shown=>productionView.setZones(shown),setPorts,resize,dispose};
 }

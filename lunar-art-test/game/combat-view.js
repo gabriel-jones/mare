@@ -1,9 +1,9 @@
 import * as THREE from 'three';
-import {createCrawlerView} from './crawler-view.js';
+import {createCrawlerView,scaled} from './crawler-view.js';
 import {createCentipedeView} from './centipede-view.js';
 import {createBurrowFx} from './burrow-fx.js';
 import {SHAPE} from './centipede.js';
-import {CRAWLER,DODGE,walkable} from './crawler.js';
+import {CRAWLER,DODGE,KINDS,walkable} from './crawler.js';
 import {caveLayout} from './caves.js';
 import {grabbedBy} from './hunt.js';
 import {FLARE} from './peril.js';
@@ -133,6 +133,8 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
 
  const localOf=(o,v=new THREE.Vector3())=>caveView.root.worldToLocal(o.getWorldPosition(v));
  let bodyYaw=null,turning=false,act=null,strain=0,wasAirborne=false,flicker=0,stutter=0,shake=0,hurtFlash=0,lastHealth=null,pending=[];
+ // Where the cursor aims, in this space ({x, z}, with y and pitch on the surface), and the body's lean toward it.
+ let aimAt=null,pitch=0;const lastMuzzle=new THREE.Vector3(0,1.2,0);
  const wisps=new Map(),wispFrom=new THREE.Vector3(),burns=new Map();
 
  function play(clip,rate=1){if(act?.clip===clip)actor.restart();act={clip,t:0,len:actor.duration(clip)/rate,rate};}
@@ -155,10 +157,24 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
   actor.root.rotation.y=0;hud.update(false,{});
  }
 
+ /** A crawler drawn at its kind's size: its view walks a cave scaled about the origin by the same factor (see scaled). */
+ function sized(c,look){
+  const s=c.size??1,kind=KINDS[c.kind];
+  if(s===1)return createCrawlerView(crawlerGLTF,caveView.root,{...look,girth:kind?.belly??0});
+  const holder=new THREE.Group();holder.scale.setScalar(s);caveView.root.add(holder);
+  const view=createCrawlerView(crawlerGLTF,holder,{...look,girth:kind?.belly??0,lite:s<1,size:s}),at=new THREE.Vector3();
+  return {
+   update:(c,dt,ctx={})=>view.update(scaled(c,s),dt,{...ctx,player:ctx.player&&{x:ctx.player.x/s,z:ctx.player.z/s}}),
+   get position(){return at.copy(view.position).multiplyScalar(s);},
+   hit:(point,dir)=>view.hit(point.clone().divideScalar(s),dir),
+   burn:(h,k)=>view.burn(h,k),burning:()=>view.burning().map(p=>p.clone().multiplyScalar(s)),
+   dispose:()=>{view.dispose();holder.removeFromParent();},
+  };
+ }
  function syncViews(hunt){
   for(const c of hunt.crawlers)if(!views.has(c)){
    const look={mode:'sight',sight:caveView.sight,toCave,viewDir};
-   views.set(c,{view:c.kind==='centipede'?createCentipedeView(crawlerGLTF,caveView.root,{...look,style:SHAPE.style,freak:SHAPE.freak}):createCrawlerView(crawlerGLTF,caveView.root,look),last:new THREE.Vector3(),vel:new THREE.Vector3(),fresh:true});
+   views.set(c,{view:c.kind==='centipede'?createCentipedeView(crawlerGLTF,caveView.root,{...look,style:SHAPE.style,freak:SHAPE.freak}):sized(c,look),last:new THREE.Vector3(),vel:new THREE.Vector3(),fresh:true});
   }
   for(const [c,v] of views)if(!hunt.crawlers.includes(c)){v.view.dispose();views.delete(c);wisps.delete(c);}
  }
@@ -214,9 +230,16 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
   }
   // The player group already turns with the aim; the body is set relative to it.
   actor.root.rotation.y=wrapAngle(bodyYaw-facing);
-  return {...renderPose,animation:anim,speed:moving,weapon:heldWeapon(state),backward,rate,twist};
+  pitch+=((hunt.rolling?0:aimAt?.pitch??0)-pitch)*(1-Math.exp(-dt*10));
+  return {...renderPose,animation:anim,speed:moving,weapon:heldWeapon(state),backward,rate,twist,pitch};
  }
 
+ /** How high a round that hit nothing is at (x, z): level underground; on the surface along the line to the aim. */
+ function lineHeight(from,x,z){
+  if(!aimAt||aimAt.y==null)return .95;
+  const run=Math.hypot(aimAt.x-from.x,aimAt.z-from.z);if(run<.5)return aimAt.y;
+  return from.y+(aimAt.y-from.y)*Math.hypot(x-from.x,z-from.z)/run;
+ }
  function fireShot(e){
   const g=GUNS[e.weapon]??GUNS.pistol;
   actor.fire();actor.root.updateMatrixWorld(true);
@@ -225,8 +248,8 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
   muzzleLight.position.copy(flash.position);muzzleLight.intensity=g.light;
   for(let i=0;i<g.sparks;i++)sparks.spawn(flash.position.x,flash.position.y,flash.position.z,ahead.x*4+(Math.random()-.5)*2,ahead.y*4+Math.random(),ahead.z*4+(Math.random()-.5)*2,.08+Math.random()*.08);
   flicker=Math.max(flicker,.05);shake=Math.max(shake,g.shake);
-  const b=bullets.find(b=>!b.live)??bullets[0],target=viewFor(e.target),targetY=target?target.position.y:.95;
-  b.from.copy(muzzle);b.dir.set(e.x,targetY,e.z).sub(b.from);b.length=b.dir.length();b.dir.normalize();
+  const b=bullets.find(b=>!b.live)??bullets[0],target=viewFor(e.target),targetY=target?target.position.y:lineHeight(muzzle,e.x,e.z);
+  lastMuzzle.copy(muzzle);  b.from.copy(muzzle);b.dir.set(e.x,targetY,e.z).sub(b.from);b.length=b.dir.length();b.dir.normalize();
   b.travelled=0;b.live=true;b.mesh.visible=true;b.thick=g.tracer;
   // Brass out of the port.
   const port=localOf(actor.marker(g.port)),out=localOf(actor.marker(g.out)).sub(port).normalize(),k=nextCase,c=cases[k];nextCase=(nextCase+1)%CASES;caseSize[k]=g.brass;
@@ -308,8 +331,8 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
    for(let i=0;i<22;i++){const a=Math.random()*Math.PI*2,s=1+Math.random()*2.5;ichor.spawn(at.x,at.y,at.z,Math.cos(a)*s-dir.x*3,.8+Math.random()*2.5,Math.sin(a)*s-dir.z*3,.4+Math.random()*.4);}
    return;
   }
-  // Rock: sparks off the wall and a puff of dust.
-  const y=.95;
+  // Rock: sparks off the wall and a puff of dust. On the surface the round spends itself out along the aim.
+  const y=aimAt?.y!=null?lineHeight(lastMuzzle,e.x,e.z):.95;
   for(let i=0;i<12;i++)sparks.spawn(e.x,y,e.z,-dir.x*(2+Math.random()*3)+(Math.random()-.5)*3,Math.random()*3,-dir.z*(2+Math.random()*3)+(Math.random()-.5)*3,.15+Math.random()*.25);
   for(let i=0;i<5;i++)dust.spawn(e.x,y,e.z,-dir.x*.6+(Math.random()-.5)*.5,.1+Math.random()*.3,-dir.z*.6+(Math.random()-.5)*.5,.8+Math.random()*.6);
   impactFlash.position.set(e.x,y,e.z);impactFlash.material.opacity=.6;
@@ -413,7 +436,7 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
  return {
   enter,leave,pose,after,light,
   /** Cave-local point under the cursor, or null to hide the marker. */
-  setAim(point){aimMarker.visible=!!point&&!!caveView;if(point)aimMarker.position.set(point.x,.05,point.z);},
+  setAim(point){aimMarker.visible=!!point&&!!caveView;aimAt=point;if(point)aimMarker.position.set(point.x,(point.ground??0)+.05,point.z);},
   get shake(){return shake*.5;},
   get active(){return !!caveView;},
   dispose(){leave();hud.dispose();burrows.dispose();bulletGeo.dispose();bulletMat.dispose();caseMesh.geometry.dispose();caseMesh.material.dispose();caseMesh.dispose();flashTex.dispose();flash.material.dispose();impactFlash.material.dispose();ichor.dispose();sparks.dispose();dust.dispose();zaps.dispose();trailGeo.dispose();trailMat.dispose();boltGeo.dispose();boltMat.dispose();smoke.dispose();flares.dispose();jet.dispose();aimMarker.geometry.dispose();aimMarker.material.dispose();},

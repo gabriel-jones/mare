@@ -336,7 +336,7 @@ function fixedUpdate(dt){
   if(hunt.flame&&!caving)fires.push(...hunt.flame.points);
   if(!caving)stepBrood(state,dt,fires);
   // Raids go on at the base while the player is underground.
-  stepRaiders(state,dt,fires);
+  world.raided(stepRaiders(state,dt,fires));
  }
  updatePortals(dt);
  updatePeril(dt);

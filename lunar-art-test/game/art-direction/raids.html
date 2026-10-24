@@ -17,6 +17,11 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#090f1a}#ga
 #raid-lab .readout{font:11px ui-monospace,monospace;color:#c9d4d8;white-space:pre;margin-top:6px}
 #raid-lab .fold{float:right;background:none;border:none;color:#9fb0b8;padding:0}
 #raid-lab.min>*:not(h2){display:none}
+#raid-lab h3{margin:10px 0 2px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#ff8f7d;font-weight:600}
+#raid-lab .mix{display:grid;grid-template-columns:1fr auto auto auto;gap:3px 6px;align-items:center}
+#raid-lab .mix output{font:12px ui-monospace,monospace;min-width:1.4em;text-align:center}
+#raid-lab .mix small{color:#7f9098}
+#raid-lab select{max-width:100%}
 </style>
 <script type="importmap">{"imports":{"three":"../node_modules/three/build/three.module.js","three/addons/":"../node_modules/three/examples/jsm/"}}</script>
 <script>
@@ -37,11 +42,15 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#090f1a}#ga
  <div class="row" data-scenarios></div>
  <div class="note" data-note></div>
  <div class="row">
-  <select data-wave title="Raid size">
-   <option value="1">Wave 1 · 1 drone</option><option value="3">Wave 3 · 2 drones</option><option value="5">Wave 5 · 3 drones, brute</option><option value="7">Wave 7 · 4 drones, brute, centipede</option><option value="9" selected>Wave 9 · 4 drones, 2 brutes, centipede</option><option value="10">Wave 10 · + matron</option><option value="14">Wave 14 · + 2 matrons, 2 centipedes</option>
-  </select>
+  <select data-wave title="Raid size"></select>
   <button data-act="raid">Raid now</button>
  </div>
+ <h3>Build a raid</h3>
+ <div class="mix" data-mix></div>
+ <div class="row">
+  <button data-act="send">Send this raid</button><button data-act="fill" title="Copy the chosen wave's make-up">From wave</button><button data-act="zero">None</button><button data-act="double">×2</button>
+ </div>
+ <div class="note" data-mixnote></div>
  <div class="row">
   <button data-act="dusk">Dusk</button><button data-act="dawn">Dawn</button>
  </div>
@@ -62,8 +71,29 @@ const save=makeSave(id);
 for(const key of ['lunar-frontier.sandbox','lunar-frontier.phase-a.v1'])localStorage.setItem(key,save);
 await import('./main.js');
 const raid=await import('./raid.js');
+const {roster,rosterCount,ROSTER_KINDS}=await import('./roster.js');
+const {KINDS}=await import('./crawler.js');
 
 const lab=document.querySelector('#raid-lab'),canvas=document.querySelector('#game');
+// Waves as the game sends them, and a raid of any make-up built by hand (kept in the URL as `mix`).
+const NAMES={brood:['brood','brood'],crawler:['crawler','crawlers'],drone:['drone','drones'],brute:['brute','brutes'],centipede:['centipede','centipedes'],matron:['matron','matrons']};
+const describe=m=>ROSTER_KINDS.filter(k=>m[k]).map(k=>`${m[k]>1?m[k]+' ':''}${NAMES[k][m[k]>1?1:0]}`).join(', ')||'nobody';
+const waveSelect=lab.querySelector('[data-wave]');
+waveSelect.innerHTML=Array.from({length:16},(_,i)=>i+1).map(n=>`<option value="${n}"${n===(Number(params.get('wave'))||7)?' selected':''}>Wave ${n} · ${describe(roster(n))}</option>`).join('');
+waveSelect.addEventListener('change',()=>{params.set('wave',waveSelect.value);history.replaceState(null,'',here());});
+const mix=Object.fromEntries(ROSTER_KINDS.map(k=>[k,0]));
+for(const part of (params.get('mix')??'').split(',')){const [k,n]=part.split(':');if(k in mix)mix[k]=Math.max(0,Math.min(raid.RAID.most,Number(n)||0));}
+if(!rosterCount(mix))Object.assign(mix,roster(Number(waveSelect.value)));
+const stats=k=>k==='centipede'?`${KINDS[k].hp} hp · tunnels`:`${KINDS[k].hp} hp · ×${KINDS[k].size}`;
+lab.querySelector('[data-mix]').innerHTML=ROSTER_KINDS.map(k=>`<span>${NAMES[k][1][0].toUpperCase()+NAMES[k][1].slice(1)} <small>${stats(k)}</small></span><button data-kind="${k}" data-d="-1">−</button><output data-count="${k}"></output><button data-kind="${k}" data-d="1">+</button>`).join('');
+function showMix(){
+ for(const k of ROSTER_KINDS)lab.querySelector(`[data-count="${k}"]`).textContent=mix[k];
+ const hp=ROSTER_KINDS.reduce((n,k)=>n+mix[k]*KINDS[k].hp,0);
+ lab.querySelector('[data-mixnote]').textContent=`${rosterCount(mix)} raiders · ${hp} hp in all. Sent as wave ${waveSelect.value}: from wave 5 on, two packs from two caves.`;
+ params.set('mix',ROSTER_KINDS.filter(k=>mix[k]).map(k=>`${k}:${mix[k]}`).join(','));history.replaceState(null,'',here());
+}
+showMix();
+
 lab.querySelector('[data-scenarios]').innerHTML=Object.entries(SCENARIOS).map(([k,s])=>`<button data-scenario="${k}">${s.name}</button>`).join('');
 const show=()=>{lab.querySelectorAll('[data-scenario]').forEach(b=>b.classList.toggle('on',b.dataset.scenario===id));lab.querySelector('[data-note]').textContent=SCENARIOS[id]?.note??'';};
 show();
@@ -77,7 +107,11 @@ function play(next){
 const state=()=>window.game?.state;
 const DAY=240,cycle=t=>Math.floor((t-DAY/3)/DAY);
 const acts={
- raid(s){if(raid.raidAlert(s)||s.raid?.spawns?.length)s.brood=(s.brood??[]).filter(c=>!c.raider);if(Math.max(0,Math.sin(s.time/DAY*Math.PI*2+Math.PI/3))>0)s.time=(cycle(s.time)+1)*DAY+DUSK;raid.launchRaid(s,Number(lab.querySelector('[data-wave]').value),1.5);},
+ raid(s,b,make=null){if(raid.raidAlert(s)||s.raid?.spawns?.length)s.brood=(s.brood??[]).filter(c=>!c.raider);if(Math.max(0,Math.sin(s.time/DAY*Math.PI*2+Math.PI/3))>0)s.time=(cycle(s.time)+1)*DAY+DUSK;raid.launchRaid(s,Number(waveSelect.value),1.5,Math.random,make);},
+ send(s,b){acts.raid(s,b,{...mix});},
+ fill(){Object.assign(mix,roster(Number(waveSelect.value)));showMix();},
+ zero(){for(const k of ROSTER_KINDS)mix[k]=0;showMix();},
+ double(){for(const k of ROSTER_KINDS)mix[k]=Math.min(raid.RAID.most,mix[k]*2);showMix();},
  dusk(s){s.time=(cycle(s.time)+1)*DAY+DUSK;},
  dawn(s){const c=cycle(s.time),dawn=c*DAY+DAWN;s.time=s.time<dawn-2?dawn-2:(c+1)*DAY+DAWN-2;},
  heal(s){s.player.health=100;for(const r of s.robots)if(r.kind==='android')Object.assign(r,{down:false,reported:false,hp:60,charge:Math.max(r.charge,.8),job:null,next:null,task:'idle'});},
@@ -88,6 +122,7 @@ lab.addEventListener('click',e=>{
  const b=e.target.closest('button');if(!b)return;
  if(b.classList.contains('fold')){lab.classList.toggle('min');b.textContent=lab.classList.contains('min')?'+':'–';return;}
  if(b.dataset.scenario){play(b.dataset.scenario);canvas.focus({preventScroll:true});return;}
+ if(b.dataset.kind){const k=b.dataset.kind;mix[k]=Math.max(0,Math.min(raid.RAID.most,mix[k]+Number(b.dataset.d)));showMix();return;}
  const s=state();if(s&&acts[b.dataset.act])acts[b.dataset.act](s,b);
  canvas.focus({preventScroll:true});
 });

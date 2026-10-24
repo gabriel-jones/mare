@@ -3,12 +3,15 @@ import {FLARE,flareNow} from './peril.js';
 import {burnNest,liveNests,nestMouth,silkBlocks,stepInfest} from './infest.js';
 import {burnGoo} from './goo.js';
 import {WEAPONS,stepArms,pullTrigger,burnTank,heldWeapon,armsOf,reload} from './arms.js';
-import {CRAWLER,PLAYER_RADIUS,radiusOf,partsOf,partNear,walkable,createCrawler,stepCrawler,struggle,hurtCrawler,scorchCrawler,shotEnd,createDodge,startDodge,stepDodge} from './crawler.js';
+import {CRAWLER,KINDS,PLAYER_RADIUS,radiusOf,partsOf,partNear,walkable,asKind,createCrawler,stepCrawler,struggle,hurtCrawler,scorchCrawler,shotEnd,spill,createDodge,startDodge,stepDodge} from './crawler.js';
 import {SHAPE,createCentipede,huntCentipede} from './centipede.js';
+import {ROSTER_KINDS,caveRoster} from './roster.js';
 
 /**
  * Crawlers in the caves, and the player's answer to them: the weapons (arms.js), the dodge roll and breaking free of
- * a grab. The crawlers are not saved: whoever hunts a zone is rolled fresh each time the player enters it. On the
+ * a grab. The crawlers are not saved: whoever hunts a zone is rolled fresh each time the player enters it: the nests'
+ * own crawlers, and the rest of the zone's level on the roster (roster.js), so the deeper the zone the bigger what
+ * hunts it, from a few brood near the surface to drones, a brute, a centipede and a matron at the bottom. On the
  * surface the weapons still fire, at the hatchlings of a breach (state.brood). Damage lands on the suit's health, so
  * a mauling ends in the usual blackout.
  */
@@ -19,8 +22,6 @@ import {SHAPE,createCentipede,huntCentipede} from './centipede.js';
  * more out of it (`brood`), and when it finally goes up in flames `final` more boil out. `limit` caps the living.
  */
 export const NEST=Object.freeze({count:[3,5,7],farFrom:16,respawn:[16,30],bullet:90,hp:120,burst:30,brood:[1,2],final:3,limit:14,mouth:.95});
-/** The chance a centipede hunts a zone, by depth. */
-export const CENTIPEDES=Object.freeze([.3,.65,1]);
 function brood(state,cave){
  const p=state.player,total=cave.nests.length,live=liveNests(state,p.cave,p.zone??0);
  if(!total)return {live,cap:NEST.count[cave.zone]??1,slow:1};
@@ -103,9 +104,11 @@ export function stepHunt(hunt,state,dt,rng=Math.random){
  if(hunt.key!==key){
   Object.assign(hunt,createHunt(),{events:hunt.events,key,trigger:hunt.trigger});
   const b=brood(state,cave);for(let i=0;i<b.cap;i++)spawn(hunt,cave,state,rng,b.live);
-  if(rng()<(CENTIPEDES[zone]??1)){
-   const at=spawnSpot(cave,state.player,rng,hunt.crawlers);
-   if(at)hunt.crawlers.push(createCentipede(at.x,at.z,{...SHAPE,facing:Math.atan2(state.player.x-at.x,state.player.z-at.z)}));
+  const rest=caveRoster(zone);
+  for(const kind of ROSTER_KINDS)for(let i=0;i<rest[kind];i++){
+   const at=spawnSpot(cave,state.player,rng,hunt.crawlers);if(!at)break;
+   const facing=Math.atan2(state.player.x-at.x,state.player.z-at.z);
+   hunt.crawlers.push(kind==='centipede'?createCentipede(at.x,at.z,{...SHAPE,facing}):Object.assign(asKind(createCrawler(at.x,at.z,rng),kind),{facing}));
   }
  }
  hunt.clock+=dt;
@@ -135,10 +138,17 @@ export function stepHunt(hunt,state,dt,rng=Math.random){
    }
    continue;
   }
+  // A big one dead splits open and its brood boil out onto the floor around it.
+  if(c.state==='dead'&&!c.burst&&KINDS[c.kind]?.burst){
+   c.burst=true;
+   const out=spill(c,Math.max(0,Math.min(KINDS[c.kind].burst,NEST.limit-alive(hunt))),rng);
+   for(const b of out){if(!walkable(cave,b.emergeTo.x,b.emergeTo.z))b.emergeTo={x:c.x,z:c.z};hunt.crawlers.push(b);hunt.events.push({type:'spawned',crawler:b,emerge:true});}
+  }
   // One at a time: while something has hold of the player the others cannot land a blow.
   const env={cave,player:{x:p.x,z:p.z,facing:p.facing,lamp:hunt.lampShort<=0,invulnerable:dash.invulnerable||(held&&held!==c)||(p.y??0)>.6},flares};
+  const might=KINDS[c.kind]?.might??1;
   for(const e of stepCrawler(c,env,dt,rng)){
-   if(e.type==='grab'||e.type==='slash'||e.type==='hurt')hurt(e.damage);
+   if(e.type==='grab'||e.type==='slash'||e.type==='hurt')hurt(e.damage*might);
    if(e.type==='slash')hunt.lampShort=e.short;
    if(e.type==='drag'){if(cavePassable(cave,p.x+e.dx,p.z+e.dz,PLAYER_RADIUS)&&!silkBlocks(state,p.x+e.dx,p.z+e.dz,PLAYER_RADIUS)){p.x+=e.dx;p.z+=e.dz;}continue;}
    if(e.type==='hurt')continue;
@@ -154,7 +164,8 @@ export function stepHunt(hunt,state,dt,rng=Math.random){
  for(const c of hunt.crawlers)if(c.state==='dead'&&c.t>6.5){hunt.respawns.push((NEST.respawn[0]+(NEST.respawn[1]-NEST.respawn[0])*rng())*b.slow);}
  hunt.crawlers=hunt.crawlers.filter(c=>!(c.state==='dead'&&c.t>6.5));
  hunt.respawns=hunt.respawns.map(t=>t-dt);
- for(const t of hunt.respawns)if(t<=0&&hunt.crawlers.filter(c=>c.state!=='dead').length<b.cap){const c=spawn(hunt,cave,state,rng,b.live);if(c)hunt.events.push({type:'spawned',crawler:c,nest:c.nest??null});}
+ // Only the nests' own crawlers come back; what else hunted the zone is gone until the player returns.
+ for(const t of hunt.respawns)if(t<=0&&hunt.crawlers.filter(c=>c.state!=='dead'&&!c.kind).length<b.cap){const c=spawn(hunt,cave,state,rng,b.live);if(c)hunt.events.push({type:'spawned',crawler:c,nest:c.nest??null});}
  hunt.respawns=hunt.respawns.filter(t=>t>0);
  if(hunt.events.length>200)hunt.events.splice(0,hunt.events.length-200);
 }

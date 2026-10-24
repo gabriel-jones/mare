@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {CRAWLER,PISTOL,DODGE,createCrawler,stepCrawler,struggle,hurtCrawler,exposure,createGun,fireGun,stepGun,reloadGun,craftAmmo,shotTarget,createDodge,startDodge,stepDodge} from './crawler.js';
+import {CRAWLER,KINDS,PISTOL,DODGE,createCrawler,stepCrawler,struggle,hurtCrawler,exposure,createGun,fireGun,stepGun,reloadGun,craftAmmo,shotTarget,createDodge,startDodge,stepDodge} from './crawler.js';
 import {caveKey,caveLayout} from './caves.js';
 
 /** A plain square hall, `half` cells from the middle to each wall, with an optional rock column. */
@@ -173,14 +173,28 @@ function underground(zone=0){
 test('each cave zone is hunted by more crawlers the deeper it lies, spawned well away from the player',()=>{
  for(const zone of [0,1,2]){
   const s=underground(zone),h=createHunt();stepHunt(h,s,1/30,seeded(zone+3));
-  assert.equal(h.crawlers.filter(c=>c.kind!=='centipede').length,NEST.count[zone]);
+  assert.equal(h.crawlers.filter(c=>!c.kind).length,NEST.count[zone]);
   for(const c of h.crawlers)assert.ok(Math.hypot(c.x-s.player.x,c.z-s.player.z)>=6,'not on top of the player');
  }
+});
+test('the deeper the zone the bigger what hunts it: the raids\' kinds, by the same ladder',()=>{
+ const kinds=zone=>{const s=underground(zone),h=createHunt();stepHunt(h,s,1/30,seeded(zone+3));return new Set(h.crawlers.map(c=>c.kind).filter(Boolean));};
+ const top=kinds(0),mid=kinds(1),deep=kinds(2);
+ assert.ok(top.has('brood')&&!top.has('drone')&&!top.has('brute'),'small near the surface');
+ assert.ok(mid.has('drone')&&mid.has('brute')&&!mid.has('matron'),'drones and a brute in the middle zone');
+ assert.ok(deep.has('matron')&&deep.has('centipede')&&deep.has('brute'),'a matron and a centipede at the bottom');
+});
+test('a big one killed in the caves bursts into brood',()=>{
+ const s=underground(1),h=createHunt(),rng=seeded(4);stepHunt(h,s,1/30,rng);
+ const b=h.crawlers.find(c=>c.kind==='brute');hurtCrawler(b,1e4,rng);
+ const before=h.crawlers.filter(c=>c.kind==='brood').length;
+ stepHunt(h,s,1/30,rng);
+ assert.equal(h.crawlers.filter(c=>c.kind==='brood').length-before,KINDS.brute.burst);
 });
 test('leaving the caves clears the hunt, and coming back rolls a fresh one',()=>{
  const s=underground(1),h=createHunt();stepHunt(h,s,1/30,seeded());
  delete s.player.cave;stepHunt(h,s,1/30,seeded());assert.equal(h.crawlers.length,0);
- s.player.cave=0;stepHunt(h,s,1/30,seeded());assert.equal(h.crawlers.filter(c=>c.kind!=='centipede').length,NEST.count[1]);
+ s.player.cave=0;stepHunt(h,s,1/30,seeded());assert.equal(h.crawlers.filter(c=>!c.kind).length,NEST.count[1]);
 });
 test('a round lands only after its flight time and a kill brings a replacement later',()=>{
  const s=underground(0),h=createHunt(),rng=seeded();stepHunt(h,s,1/30,rng);
