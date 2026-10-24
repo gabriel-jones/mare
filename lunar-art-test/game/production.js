@@ -286,6 +286,10 @@ export function drive(state, r, goal, dt, topology) {
 // A nearly full bucket is not worth another trip to a fresh cell.
 const full = r => r.cargo > ROVER.capacity - 1;
 function chooseTask(state, r) {
+  // A load nothing standing can take (regolith with no hopper left, say) is tipped out, or the rover
+  // would sit on it forever, unable to start on a zone of the other material.
+  const takes = (r.load ?? 'regolith') === 'ice' ? 'melter' : 'hopper';
+  if (r.cargo > 0 && !state.buildings.some(b => b.built && b.type === takes)) { r.cargo = 0; r.load = null; }
   const work = nearestMiningCell(state, r), loaded = r.cargo >= 1;
   const hopper = nearestDock(state, r, loaded ? [r.load === 'ice' ? 'melter' : 'hopper'] : ['hopper', 'melter']);
   if (hopper && (full(r) || r.charge < ROVER.low || (r.cargo > 0 && !work) || (!work && r.charge < 1))) {

@@ -89,6 +89,21 @@ test('the rover digs crater ice into a hopper, and a belted melter fills the wat
   assert.deepEqual(restored.buildings.find(b => b.type === 'melter').inv, melter.inv);
 });
 
+test('a rover left holding regolith with no hopper tips it out and goes on to mine ice', () => {
+  const s = createState(); s.inventory = createInventory({ metal: 1000, silicon: 1000 });
+  s.player = { ...s.player, x: 0, z: 30 };
+  let melter = null;
+  for (let x = 3; x < 14 && !melter; x++) for (let z = 2; z < 10 && !melter; z++) if (validatePlacement(s, 'melter', x, z).ok) melter = build(s, 'melter', x, z);
+  let solar = 0;
+  for (let x = -12; x < 12 && solar < 3; x += 2) for (let z = 8; z < 16 && solar < 3; z += 2) if (validatePlacement(s, 'solar', x, z).ok) { build(s, 'solar', x, z); solar++; }
+  s.time = 205; tick(s, 0);
+  assert.equal(setMiningArea(s, Math.round(site.lander.x / 2), Math.round(site.lander.z / 2)).ok, true);
+  const rover = s.robots.find(r => r.kind !== 'hauler');
+  rover.cargo = 3; rover.load = 'regolith';
+  run(s, 60);
+  assert.ok(melter.inv.ice + s.mission.melted > 0, `ice reached the melter (rover ${rover.task}, ${rover.cargo} ${rover.load})`);
+});
+
 test('ice sits in the shadowed middle of the crater and the lander blocks walking', () => {
   assert.equal(iceAt(Math.round(site.x / 2), Math.round(site.z / 2)), true);
   assert.equal(iceAt(0, 0), false);
