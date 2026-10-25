@@ -1,6 +1,7 @@
 {
   "name": "mare",
   "compatibility_date": "2026-10-01",
+  "routes": [{ "pattern": "mare.gdev.bm", "custom_domain": true }],
   "assets": {
     "directory": "./site"
   }
