@@ -35,7 +35,7 @@ input[type=range]{width:100%;accent-color:#8a70ff}
 </div>
 <script type="module">
 // Isolated centipede review. Never reads or writes colony saves.
-// ?style=needle|millipede|plated &mode=wander|chase|circle &freak=0..1
+// ?style=needle|millipede|plated|lamprey &mode=wander|chase|circle &freak=0..1
 import * as THREE from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
@@ -43,7 +43,10 @@ import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import {createAstronaut} from '../actor.js';
 import {CENTIPEDE,SHAPE,createCentipede,stepCentipede,burrow,rear,popSpot} from '../centipede.js';
-import {createCentipedeView,CENTIPEDE_STYLES} from '../centipede-view.js';
+import {createCentipedeView,CENTIPEDE_STYLES as BASE_STYLES} from '../centipede-view.js';
+import {createLampreyView} from '../lamprey-view.js';
+// The Martian one: same sim, legless jelly worm with a lamprey maw (lamprey-view.js).
+const CENTIPEDE_STYLES={...BASE_STYLES,lamprey:{name:'Martian lamprey',note:'Mars only. A legless jelly worm on the same sim: a round maw of hooked teeth that flares to strike, gills, glowing spots.',segments:18,spacing:.55,gait:'scuttle'}};
 
 const params=new URLSearchParams(location.search),$=id=>document.getElementById(id);
 const canvas=$('lab'),renderer=new THREE.WebGLRenderer({canvas,antialias:true});
@@ -86,7 +89,7 @@ function build(){
  view?.dispose();const S=CENTIPEDE_STYLES[style];
  const at=body?{x:body.x,z:body.z,f:body.facing}:{x:-7,z:-5,f:.8};
  body=createCentipede(at.x,at.z,{segments,spacing:S.spacing,gait:S.gait,facing:at.f});body.pace=pace;
- view=createCentipedeView(crawlerGLTF,scene,{style,segments,freak});
+ view=style==='lamprey'?createLampreyView(scene,{segments,spacing:S.spacing}):createCentipedeView(crawlerGLTF,scene,{style,segments,freak});
  styleButtons.forEach((b,k)=>b.classList.toggle('on',k===style));$('style-note').textContent=S.note;
  $('segments').value=segments;$('segments-v').textContent=segments;
  const q=new URLSearchParams(location.search);q.set('style',style);q.set('mode',mode);q.set('freak',freak);history.replaceState(null,'',location.pathname+'?'+q);
@@ -150,7 +153,7 @@ function frame(){
  if($('follow').checked){followAt.set((body.x+astronaut.root.position.x)/2,.8,(body.z+astronaut.root.position.z)/2);const d=followAt.clone().sub(orbit.target).multiplyScalar(1-Math.exp(-dt*2));orbit.target.add(d);camera.position.add(d);}
  shake=Math.max(0,shake-dt*1.5);camera.position.x+=(Math.random()-.5)*shake*.15;camera.position.y+=(Math.random()-.5)*shake*.15;
  orbit.update();
- $('readout').textContent=`state  ${body.state}\nhead   ${body.y.toFixed(2)} m\nspeed  ${body.speed.toFixed(1)} m/s\nlength ${(segments*CENTIPEDE_STYLES[style].spacing).toFixed(1)} m · ${segments} segments\nlegs   ${segments*2}`;
+ $('readout').textContent=`state  ${body.state}\nhead   ${body.y.toFixed(2)} m\nspeed  ${body.speed.toFixed(1)} m/s\nlength ${(segments*CENTIPEDE_STYLES[style].spacing).toFixed(1)} m · ${segments} segments\nlegs   ${style==='lamprey'?0:segments*2}`;
  renderer.render(scene,camera);requestAnimationFrame(frame);
 }
 function resize(){renderer.setSize(innerWidth,innerHeight,false);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();}

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {createCrawlerView,scaled} from './crawler-view.js';
 import {createHorrorView} from './horror-view.js';
+import {createLampreyView} from './lamprey-view.js';
 import {planetOf} from './planets.js';
 import {createCentipedeView} from './centipede-view.js';
 import {createBurrowFx} from './burrow-fx.js';
@@ -178,7 +179,7 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
  function syncViews(hunt){
   for(const c of hunt.crawlers)if(!views.has(c)){
    const look={mode:'sight',sight:caveView.sight,toCave,viewDir};
-   views.set(c,{view:c.kind==='centipede'?createCentipedeView(crawlerGLTF,caveView.root,{...look,style:SHAPE.style,freak:SHAPE.freak}):sized(c,look),last:new THREE.Vector3(),vel:new THREE.Vector3(),fresh:true});
+   views.set(c,{view:c.kind==='centipede'?(planetOf(seed)==='mars'?createLampreyView(caveView.root,{...look,segments:SHAPE.segments,spacing:SHAPE.spacing}):createCentipedeView(crawlerGLTF,caveView.root,{...look,style:SHAPE.style,freak:SHAPE.freak})):sized(c,look),last:new THREE.Vector3(),vel:new THREE.Vector3(),fresh:true});
   }
   for(const [c,v] of views)if(!hunt.crawlers.includes(c)){v.view.dispose();views.delete(c);wisps.delete(c);}
  }

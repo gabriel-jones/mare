@@ -42,11 +42,11 @@ vec3 hzBurn(vec3 c){if(uChar+uHeat<.001)return c;vec3 g=vHz*vec3(38.,44.,40.);
 const TO_CAVE='mat4 caveFrom=uToCave*modelMatrix;\n#ifdef USE_INSTANCING\ncaveFrom=caveFrom*instanceMatrix;\n#endif\n';
 
 /** The jelly, physically lit on the surface or lit by the cave's sight underground. `deform`: body wobble and tentacles. */
-function jelly({mode,sight,toCave,viewDir},shared,{tint,glow=1,deform=true}){
+export function jelly({mode,sight,toCave,viewDir},shared,{tint,glow=1,deform=true,rest=false}){
  const uniforms={...shared,uVeins:{value:glow}};
  const vertex=s=>{
-  s.vertexShader=s.vertexShader.replace('#include <common>','#include <common>\n'+(deform?DEFORM:'varying vec3 vHz;'))
-   .replace('#include <begin_vertex>',deform?'vec3 hzN=normal;vec3 transformed=position;hzDeform(transformed,hzN);vHz=position;':'vec3 transformed=position;vec3 hzN=normal;vHz=position;');
+  s.vertexShader=s.vertexShader.replace('#include <common>','#include <common>\n'+(deform?DEFORM:'varying vec3 vHz;'+(rest?'attribute vec3 aRest;':'')))
+   .replace('#include <begin_vertex>',deform?'vec3 hzN=normal;vec3 transformed=position;hzDeform(transformed,hzN);vHz=position;':`vec3 transformed=position;vec3 hzN=normal;vHz=${rest?'aRest':'position'};`);
   if(deform)s.vertexShader=s.vertexShader.replace('#include <beginnormal_vertex>','vec3 objectNormal=normal;{vec3 q=position;hzDeform(q,objectNormal);}\n#ifdef USE_TANGENT\nvec3 objectTangent=vec3(tangent.xyz);\n#endif');
  };
  if(mode==='studio'){
@@ -56,7 +56,7 @@ function jelly({mode,sight,toCave,viewDir},shared,{tint,glow=1,deform=true}){
     float rim=pow(1.-abs(dot(normal,normalize(vViewPosition))),2.6);
     outgoingLight+=vec3(.25,.8,.3)*rim*.55+vec3(.3,1.,.4)*hzVein()*uVeins*.9;outgoingLight=hzBurn(outgoingLight);
     #include <opaque_fragment>`);};
-  m.customProgramCacheKey=()=>`horror-jelly:${deform}`;return m;
+  m.customProgramCacheKey=()=>`horror-jelly:${deform}:${rest}`;return m;
  }
  const m=new THREE.MeshBasicMaterial({color:tint,fog:false});
  m.onBeforeCompile=s=>{Object.assign(s.uniforms,uniforms,sight,{uToCave:toCave,uViewDir:viewDir});vertex(s);
@@ -72,10 +72,10 @@ function jelly({mode,sight,toCave,viewDir},shared,{tint,glow=1,deform=true}){
      +vec3(.75,1.,.75)*glint*lamp*.9+glowAt*(.2+rim*.6)+vec3(.25,1.,.4)*hzVein()*uVeins*.4;
     outgoingLight=hzBurn(c);
     #include <opaque_fragment>`);};
- m.customProgramCacheKey=()=>`horror-jelly-sight:${deform}`;return m;
+ m.customProgramCacheKey=()=>`horror-jelly-sight:${deform}:${rest}`;return m;
 }
 /** Hard parts (teeth, sucker rims, the throat): plain colour, lit like the cave or the surface. */
-function flat({mode,sight,toCave},color,{rough=.4,shine=1.4}={}){
+export function flat({mode,sight,toCave},color,{rough=.4,shine=1.4}={}){
  if(mode==='studio')return new THREE.MeshStandardMaterial({color,roughness:rough});
  const m=new THREE.MeshBasicMaterial({color,fog:false});
  m.onBeforeCompile=s=>{Object.assign(s.uniforms,sight,{uToCave:toCave});
