@@ -70,11 +70,12 @@ export function jelly({mode,sight,toCave,viewDir},shared,{tint,glow=1,deform=tru
   s.fragmentShader=s.fragmentShader.replace('#include <common>','#include <common>\nuniform vec3 uViewDir;varying vec3 vCave;varying vec3 vCaveN;\n'+SKIN+SIGHT_PARS.replace('varying vec2 vCaveLocal;varying float vSeen;',''))
    .replace('#include <opaque_fragment>',`
     vec3 n=normalize(vCaveN),toLamp=normalize(vec3(uPlayer.x,1.5,uPlayer.y)-vCave),lit=caveSight(vCave.xz),glowAt=caveGlow(vCave.xz);
-    float lamp=dot(caveSightRaw(vCave.xz),vec3(.33)),rim=pow(1.-abs(dot(n,uViewDir)),2.4);
+    float lamp=dot(caveSightRaw(vCave.xz),vec3(.33)),rim=pow(1.-abs(dot(n,uViewDir)),2.4),seen=caveSeen(vCave.xz);
     float glint=smoothstep(.93,.985,dot(reflect(-toLamp,n),uViewDir));
     // Jelly: lit through, so the far side glows where the lamp is behind it, with a hard wet glint and a bright rim.
-    vec3 c=diffuseColor.rgb*(1.-.55*hzChroma())*lit*(.55+.6*max(0.,dot(n,toLamp)))+(diffuseColor.rgb*2.4+vec3(.06,.2,.06))*rim*(lamp*.9+.1)
-     +vec3(.75,1.,.75)*glint*lamp*.9+glowAt*(.2+rim*.6)+vec3(.25,1.,.4)*hzVein()*uVeins*.4;
+    // Its veins glow faintly in the dark, but only where the player could see, so they never give away what lurks in rock not yet reached.
+    vec3 c=diffuseColor.rgb*(1.-.55*hzChroma())*lit*(.55+.6*max(0.,dot(n,toLamp)))+(diffuseColor.rgb*2.4+vec3(.06,.2,.06))*rim*(lamp*.9+.1*seen)
+     +vec3(.75,1.,.75)*glint*lamp*.9+glowAt*(.2+rim*.6)+vec3(.25,1.,.4)*hzVein()*uVeins*.4*seen;
     outgoingLight=hzBurn(c);
     #include <opaque_fragment>`);};
  m.customProgramCacheKey=()=>`horror-jelly-sight:${deform}:${rest}`;return m;

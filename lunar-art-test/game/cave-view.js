@@ -6,6 +6,7 @@ import {BUFFS,buffed} from './farm.js';
 import {caveLayout,visibleCaveCells,lineVisible,CAVE_CELL,SIGHT_RADIUS,BEAM_RANGE,CAVE_ZONES} from './caves.js';
 import {FLARE,MAX_DROPS,flareNow} from './peril.js';
 import {flareLight,FLARE_LIGHT,FLARE_GLOW} from './flare-view.js';
+import {marsFormations,MARS_FORMATIONS,scree,dip,strataOffset,stratumAt,STRATA_TOPS,DUST} from './mars-rock.js';
 
 const LIGHTS=8;
 /** The seen field covers cave cells x -32..31, z -4..59 (caves are carved within x ±24, z -1..55, walls a cell beyond). */
@@ -44,7 +45,7 @@ vec3 caveGlow(vec2 p){
 /** Light colours for crystals, vents and the daylight shaft. */
 const GLOW={cyan:new THREE.Color(.25,.8,1),violet:new THREE.Color(.62,.36,1),vent:new THREE.Color(.45,.9,.3),sky:new THREE.Color(.6,.72,.95),
  fremen:new THREE.Color(.02,.14,.8),fungus:new THREE.Color(.3,1,.42),dust:new THREE.Color(.95,.66,.42)};
-const TILE_COLORS={floor:'#8b918b',mars:'#86695b'};
+const TILE_COLORS={floor:'#8b918b',mars:'#8e472b'};
 
 /** The Blender formation kit (cave-formations.glb), loading in the background; caves use cones until it arrives. */
 const FORMATION_NAMES=['Stalagmite','Twin','Column','Stump','Cluster'];
@@ -85,15 +86,31 @@ export function createCaveView(seed,id,parent,zone=0,itemModels=null){
     if(ground.r<.22||drop>.74)discard;`:'')).replace('#include <color_fragment>','#include <color_fragment>\n'+(ground?`
     ${mars?`float tuft=caveNoise(vCaveLocal*6.0)*.5+caveNoise(vCaveLocal*17.0)*.5,mossy=smoothstep(.2,.65,ground.b+(tuft-.5)*.6);
     diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.11,.32,.09)*(.55+.9*tuft),mossy*.94);`:'diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.66,.77,.84),ground.b*.85);'}diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.33,.4,.18),ground.a*.8);
-    // Rock underfoot: broad patches, two sets of cracks and scattered pebbles with a shadow on their far side.
     vec2 q=vCaveLocal;float patches=caveNoise(q*.31)*.55+caveNoise(q*1.2+3.1)*.3+caveNoise(q*5.3)*.15;
+    ${mars?`// Martian floor: drifts of fine dust in wind ripples over bare bedrock, the rock crazed into polygons, and
+    // hematite spherules weathered out of it lying loose, each with a glint and a shadow.
+    float drift=smoothstep(.42,.62,caveNoise(q*.21+4.0)+.12*caveNoise(q*1.9))*(1.0-mossy);
+    float ripple=sin(dot(q,vec2(.83,.55))*7.5+caveNoise(q*.6)*5.0);
+    vec2 vq=q*.85,vi=floor(vq),vf=fract(vq),plateId=vi;float d1=9.0,d2=9.0;
+    for(int j=-1;j<=1;j++)for(int i=-1;i<=1;i++){vec2 o=vec2(float(i),float(j)),pt=o+.15+.7*vec2(caveHash(vi+o),caveHash(vi+o+19.1))-vf;float dd=dot(pt,pt);
+     if(dd<d1){d2=d1;d1=dd;plateId=vi+o;}else if(dd<d2)d2=dd;}
+    float bare=(1.0-mossy)*(1.0-ground.a),crazed=smoothstep(.45,.7,caveNoise(q*.13+9.0));
+    float seam=(1.0-smoothstep(.015,.05,sqrt(d2)-sqrt(d1)))*(1.0-drift)*bare*crazed;
+    vec2 bc=floor(q*6.0),bin=fract(q*6.0)-.5,boff=(vec2(caveHash(bc+7.0),caveHash(bc+9.0))-.5)*.5;
+    float bsize=.09+.08*caveHash(bc+3.0),bd=length(bin-boff),loose=step(.84,caveHash(bc))*(1.0-drift*.8)*bare,berry=loose*(1.0-smoothstep(bsize*.7,bsize,bd));
+    float bshadow=loose*(1.0-smoothstep(bsize*.8,bsize*1.7,length(bin-boff-vec2(.07,.07))))*smoothstep(bsize*.7,bsize,bd);
+    vec3 bedrock=diffuseColor.rgb*(.78+.4*patches)*(1.0+(caveHash(plateId)-.5)*.2*crazed);
+    vec3 dust=vec3(.46,.16,.06)*(1.0+.08*ripple);
+    diffuseColor.rgb=mix(bedrock,dust,drift*.85)*mix(1.0,.6,seam)*(1.0-bshadow*.45)*(.92+.16*caveNoise(q*9.0));
+    diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.07,.065,.08)+vec3(.35,.33,.38)*pow(max(0.0,1.0-length(bin-boff+vec2(.03,.03))/bsize),6.0),berry);`:`
+    // Rock underfoot: broad patches, two sets of cracks and scattered pebbles with a shadow on their far side.
     float cracked=smoothstep(.5,.75,caveNoise(q*.17+2.0)),crack=1.0-(1.0-smoothstep(.0,.018,abs(caveNoise(q*.55+11.0)-.5)))*cracked;
     vec2 cellQ=floor(q*3.4),inQ=fract(q*3.4)-.5;float pick=step(.9,caveHash(cellQ)),size=.12+.14*caveHash(cellQ+3.0);
     vec2 off=(vec2(caveHash(cellQ+7.0),caveHash(cellQ+9.0))-.5)*.4;float d=length(inQ-off);
     float pebble=pick*(1.0-smoothstep(size*.4,size,d))*(.6+.4*smoothstep(.0,size,dot(inQ-off,vec2(-.7,-.7))+size*.5));
     float shadow=pick*(1.0-smoothstep(size*.6,size*1.5,length(inQ-off-vec2(.06,.06))))*(1.0-smoothstep(.0,.2,pebble));
     float grain=.9+.2*caveNoise(q*9.0);
-    diffuseColor.rgb*=(.72+.5*patches)*grain*mix(.55,1.0,crack)*(1.0+pebble*.28)*(1.0-shadow*.3);`:'')).replace('#include <opaque_fragment>',`
+    diffuseColor.rgb*=(.72+.5*patches)*grain*mix(.55,1.0,crack)*(1.0+pebble*.28)*(1.0-shadow*.3);`}`:'')).replace('#include <opaque_fragment>',`
     vec3 glow=caveGlow(vCaveLocal);
     vec3 ghost=diffuseColor.rgb*(vec3(.42,.55,.85)*.07+glow*.5);
     float seenHere=caveSeen(vCaveLocal);
@@ -111,7 +128,8 @@ export function createCaveView(seed,id,parent,zone=0,itemModels=null){
   return material;
  };
  const floorMat=litMaterial(false,false,true),rockMat=litMaterial(true),formationMat=litMaterial(true,true);
- const rockTint=mars?'#86675a':'#7f8a84';
+ // Martian rock carries its banding in vertex colours, so its tint only varies it.
+ const rockTint=mars?'#f2e8e2':'#7f8a84';
  const groups=[];let disposed=false;
  function litGroup(geometry,material,items,place,color,vary=true){
   const mesh=new THREE.InstancedMesh(keep(geometry),material,Math.max(1,items.length));mesh.count=items.length;mesh.frustumCulled=false;root.add(mesh);
@@ -162,7 +180,11 @@ export function createCaveView(seed,id,parent,zone=0,itemModels=null){
    vec4 cell=texture2D(uCells,vec2((aCell+.5)/${cave.tiles.length}.0,.5));vCaveLocal=transformed.xz;vSeenAt=aSeenAt;vRock=transformed;vOut=aOut;
    if(cell.g<.5)transformed=vec3(0.0);`);
   shader.fragmentShader=shader.fragmentShader.replace('#include <common>','#include <common>\nvarying vec2 vSeenAt;varying vec3 vRock;varying vec2 vOut;uniform sampler2D uGround;'+SIGHT_PARS).replace('#include <color_fragment>',`#include <color_fragment>
-   ${mars?`// Moss climbs the foot of the wall over a mossy floor, and stays damp and dark where water runs below.
+   ${mars?`// Fine laminae inside each bed, and dark desert varnish streaked down the face from the top.
+   float laminae=.9+.1*sin(vRock.y*42.0+caveNoise(vRock.xz*.8)*5.0);
+   float varnish=smoothstep(.55,.85,caveNoise(vec2((vRock.x*1.7+vRock.z*1.3)*2.2,vRock.y*.12)))*smoothstep(.6,2.2,vRock.y);
+   diffuseColor.rgb*=laminae*(1.0-.4*varnish);
+   // Moss climbs the foot of the wall over a mossy floor, and stays damp and dark where water runs below.
    vec4 under=texture2D(uGround,(vSeenAt/${CAVE_CELL}.0+vec2(${SEEN_X0}.5,${SEEN_Z0}.5))/${SEEN_SIZE}.0);
    float tuft=caveNoise(vRock.xz*6.0+vRock.y*4.0),reach=.35+1.3*caveNoise(vRock.xz*.9)+.4*under.g;
    diffuseColor.rgb*=1.0-.35*under.g*(1.0-smoothstep(.0,.9,vRock.y));
@@ -197,25 +219,41 @@ export function createCaveView(seed,id,parent,zone=0,itemModels=null){
  // Rock formations that split rooms into paths: drip-built stalagmites, fused twins, fluted columns, snapped stumps and
  // clusters. Goo glazes some of them, more the deeper you go and thickest round the lair.
  const lair=cave.heart??cave.down,depthShare=zone/(CAVE_ZONES-1);
+ // Mars has no drip-built stone: its rooms stand with wind-cut hoodoos and fins, basalt columns, stepped mesas and
+ // fallen boulders, banded like the walls, and no goo.
  const spireItems=cave.spires.map(s=>{const h=hash2(s.x*1.7,s.z*2.3),g=hash2(s.x*5.1,s.z*.7);
-  const kind=s.h<3?(h<.45?'Stump':'Cluster'):s.h>4.3?(h<.4?'Column':h<.75?'Stalagmite':'Twin'):(h<.45?'Stalagmite':h<.75?'Twin':'Cluster');
+  const kind=mars?(s.h<3?(h<.5?'Mesa':'Boulders'):s.h>4.3?(h<.4?'Hoodoo':h<.7?'Basalt':'Fin'):(h<.4?'Hoodoo':h<.7?'Fin':'Basalt'))
+   :s.h<3?(h<.45?'Stump':'Cluster'):s.h>4.3?(h<.4?'Column':h<.75?'Stalagmite':'Twin'):(h<.45?'Stalagmite':h<.75?'Twin':'Cluster');
   const near=lair?Math.max(0,1-Math.hypot(lair.x-s.x,lair.z-s.z)/(cave.heart?9:6))*(cave.heart?1:.6):0;
-  return {...s,key:`${s.x},${s.z}`,kind,goo:Math.max(g<.3+.45*depthShare?.3+.5*hash2(s.z,s.x):0,near)};});
- const placeSpire=s=>{dummy.position.set(s.x*2,0,s.z*2);dummy.rotation.set(s.lean,s.x*1.3+s.z,s.lean*.6);dummy.scale.set(s.r,s.h*(s.kind==='Stump'?.5:1),s.r);};
+  return {...s,key:`${s.x},${s.z}`,kind,goo:mars?0:Math.max(g<.3+.45*depthShare?.3+.5*hash2(s.z,s.x):0,near)};});
+ // Fins all run with the one prevailing wind that cut them.
+ const SQUAT={Stump:.5,Mesa:.42,Boulders:.4,Basalt:.62,Fin:.85};
+ const placeSpire=s=>{const lean=mars?s.lean*.3:s.lean;dummy.position.set(s.x*2,0,s.z*2);
+  dummy.rotation.set(lean,s.kind==='Fin'?.7+(hash2(s.z,s.x*3)-.5)*.5:s.x*1.3+s.z,lean*.6);dummy.scale.set(s.r,s.h*(SQUAT[s.kind]??1),s.r);};
  let spireGroups=[];
  const growSpires=geometries=>{
   for(const g of spireGroups){root.remove(g.mesh);g.mesh.dispose();groups.splice(groups.indexOf(g),1);}
   spireGroups=[];
-  const kinds=geometries?FORMATION_NAMES:['Cone'];
+  const kinds=mars?MARS_FORMATIONS:geometries?FORMATION_NAMES:['Cone'];
   for(const kind of kinds){
-   const items=spireItems.filter(s=>!geometries||s.kind===kind);if(!items.length)continue;
-   const geo=geometries?shade(geometries[kind].clone()):shade(jitter(new THREE.CylinderGeometry(.12,.75,1,7,4).translate(0,.5,0),.07,.07));
+   const items=spireItems.filter(s=>(!mars&&!geometries)||s.kind===kind);if(!items.length)continue;
+   const geo=mars?geometries[kind].clone():geometries?shade(geometries[kind].clone()):shade(jitter(new THREE.CylinderGeometry(.12,.75,1,7,4).translate(0,.5,0),.07,.07));
    geo.setAttribute('aGoo',new THREE.InstancedBufferAttribute(new Float32Array(items.map(s=>s.goo)),1));
    spireGroups.push(litGroup(geo,formationMat,items,placeSpire,()=>rockTint));
   }
  };
- growSpires(formationGeometries);
- if(!formationGeometries)formationsReady.then(geometries=>{if(geometries&&!disposed){growSpires(geometries);clock=1;lastFacing=-100;}});
+ if(mars){const kit=marsFormations();growSpires(kit);Object.values(kit).forEach(g=>g.dispose());}
+ else{growSpires(formationGeometries);
+  if(!formationGeometries)formationsReady.then(geometries=>{if(geometries&&!disposed){growSpires(geometries);clock=1;lastFacing=-100;}});}
+
+ // Scree: boulders fallen from the beds above, lying along the foot of the Martian walls.
+ if(mars){
+  const clear=(x,z)=>![...cave.nests,...cave.crystals,...(cave.fungi??[]),...cave.loot].some(a=>Math.hypot(a.x-x,a.z-z)<1.2);
+  const screeItems=edges.flatMap(e=>{const roll=hash2(e.x*3.3+e.dx,e.z*2.9+e.dz);if(roll>.42||!clear(e.x,e.z))return [];
+   return [0,1,2].slice(0,1+Math.floor(roll*6)).map(i=>{const along=(hash2(e.x+i*1.9,e.z-e.dx)-.5)*1.7,s=.13+.22*hash2(e.z*1.3+i,e.x);
+    return {key:e.key,x:e.x,z:e.z,px:e.x*2+e.dx*(.62-s*.4)+e.dz*along,pz:e.z*2+e.dz*(.62-s*.4)+e.dx*along,s,turn:hash2(i,e.x+e.z)*6};});});
+  if(screeItems.length)litGroup(scree(),rockMat,screeItems,t=>{dummy.position.set(t.px,t.s*.18,t.pz);dummy.rotation.set(0,t.turn,0);dummy.scale.setScalar(t.s);},()=>'#f2e8e2');
+ }
 
  // Crystals glow on their own and light what is around them.
  const shardParts=[0,1,2].map(i=>new THREE.OctahedronGeometry(1,0).scale(.16,.75,.16).rotateZ((i-1)*.45).rotateX((i%2?.25:-.2)).translate((i-1)*.18,.55-(i===1?0:.18),0).toNonIndexed());
@@ -509,11 +547,16 @@ function buildWallSkin(cave,edges,tileIndex,anchors,mars=false){
    const along=q.x*.43+q.z*.37,top=2.7+1.3*fbm2(q.x*.21,q.z*.21)+.45*noise2(along*1.7,5),ledgeAt=.9+2*noise2(along*.55+3,1),ledge=noise2(along*.7+11,2)>.55?.22+.2*noise2(along*2,4):0;
    const ledge2At=ledgeAt+.7+.6*noise2(along*.9,8),ledge2=noise2(along*.8+21,3)>.62?.18:0;
    let pin=0;for(const [ax,az] of anchors){const d=Math.hypot(ax-q.x,az-q.z);if(d<1.4)pin=Math.max(pin,1-d/1.4);}
-   const offset=y=>{const face=(fbm2(along*.55,y*.42+q.x*.05)-.5)*.9+(noise2(along*1.9,y*.25+2)-.5)*.42+(y>ledgeAt?ledge:0)+(y>ledge2At?ledge2:0)-.12,foot=-.32*(1-Math.min(1,y/.55))*fbm2(along*1.3,7);
+   // Martian walls are bedded: the face steps in and out with the strata (dipping gently across the cave) rather than
+   // with scattered ledges, and the wind has smoothed it, so it bulges less and is chipped less.
+   const bed=mars?dip(q.x,q.z):0;
+   const offset=y=>{const face=mars?(fbm2(along*.45,y*.12+q.x*.05)-.5)*.6+strataOffset(y-bed)-.08:(fbm2(along*.55,y*.42+q.x*.05)-.5)*.9+(noise2(along*1.9,y*.25+2)-.5)*.42+(y>ledgeAt?ledge:0)+(y>ledge2At?ledge2:0)-.12,foot=-.32*(1-Math.min(1,y/.55))*fbm2(along*1.3,7);
     const o=Math.max(-.42,Math.min(.6,face+foot));return y<2.7?o+(-.3-o)*pin:o;};
-   const heights=[0,.3,.75,ledgeAt-.02,ledgeAt+.04,ledge2At-.02,ledge2At+.04,top-.5,top].map(y=>Math.min(y,top)).sort((u,v)=>u-v);
+   const beds=mars?STRATA_TOPS.flatMap((b,k)=>[(k?STRATA_TOPS[k-1]:0)+(b-(k?STRATA_TOPS[k-1]:0))*.5,b-.03,b+.05]).map(y=>y+bed).filter(y=>y>.3&&y<top-.12):[];
+   const heights=(mars?[0,.3,...beds,top]:[0,.3,.75,ledgeAt-.02,ledgeAt+.04,ledge2At-.02,ledge2At+.04,top-.5,top]).map(y=>Math.min(y,top)).sort((u,v)=>u-v);
    // Chipped, not smooth: every vertex is knocked a little off the surface.
-   const ring=heights.map((y,k)=>{const o=offset(y)+(hash2(along*13.1,k*7.3)-.5)*.16*(1-pin),yy=y+(k&&k<heights.length-1?(hash2(along*5.7,k*3.1)-.5)*.14:0);return {x:q.x+nx*o,y:yy,z:q.z+nz*o,cell:q.cell,nx,nz,sx:q.x-nx*.9,sz:q.z-nz*.9};});
+   const chip=mars?.07:.16,heave=mars?0:.14;
+   const ring=heights.map((y,k)=>{const o=offset(y)+(hash2(along*13.1,k*7.3)-.5)*chip*(1-pin),yy=y+(k&&k<heights.length-1?(hash2(along*5.7,k*3.1)-.5)*heave:0);return {x:q.x+nx*o,y:yy,z:q.z+nz*o,cell:q.cell,nx,nz,sx:q.x-nx*.9,sz:q.z-nz*.9};});
    // The shelf of rock behind the top edge, so the wall reads as mass from above.
    const o=offset(top);ring.push({x:q.x+nx*(o+.9),y:top+.2*(noise2(along*2.3,3)-.3),z:q.z+nz*(o+.9),cell:q.cell,nx,nz},{x:q.x+nx*(o+2.4),y:top-.25,z:q.z+nz*(o+2.4),cell:q.cell,nx,nz});
    return ring;});
@@ -526,7 +569,11 @@ function buildWallSkin(cave,edges,tileIndex,anchors,mars=false){
  const n=geo.attributes.normal,p=geo.attributes.position,colors=[];
  for(let i=0;i<n.count;i++){
   const lit=.62+Math.max(0,n.getY(i))*.28+Math.max(0,n.getX(i))*.1,tone=.82+.26*fbm2(p.getX(i)*.7,p.getZ(i)*.7+p.getY(i)*.9);
-  if(mars)colors.push(.55*lit*tone,.34*lit*tone,.25*lit*tone);else colors.push(.392*lit*tone,.459*lit*tone,.486*lit*tone);}
+  if(mars){
+   // Each bed its own colour; dust settles on whatever faces up, ledges and the shelf on top.
+   const x=p.getX(i),y=p.getY(i),z=p.getZ(i),band=stratumAt(y-dip(x,z)).band,d=Math.max(0,n.getY(i)-.55)*1.8,t=lit*(.9+.2*fbm2(x*.9,z*.9+y*.3));
+   colors.push((band[0]+(DUST[0]-band[0])*d)*t,(band[1]+(DUST[1]-band[1])*d)*t,(band[2]+(DUST[2]-band[2])*d)*t);
+  }else colors.push(.392*lit*tone,.459*lit*tone,.486*lit*tone);}
  geo.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
  return geo;
 }

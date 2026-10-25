@@ -9,7 +9,7 @@
 </head><body><canvas id="game" tabindex="0"></canvas><div class="note" id="note">loading…</div>
 <script type="module">
 import {createWorld} from './world.js';
-import {createState,DEFS} from './sim.js';
+import {createState,DEFS,settle} from './sim.js';
 import {caveLayout} from './caves.js';
 import {movePlayer,resetLocomotion,interpolatePose} from './controller.js';
 import {stepPeril,throwFlare} from './peril.js';
@@ -19,7 +19,9 @@ import {reload,armsOf,heldWeapon,reserveOf} from './arms.js';
 import {worldVectorToCave} from './cave-space.js';
 
 const params=new URLSearchParams(location.search),zone=Number(params.get('zone')??1);
-const state=createState(1847),start=caveLayout(state.seed,0,zone).start;
+// ?mars=1 settles the throwaway colony on Mars first, so the cave is Martian and so are its foes.
+const state=createState(1847);if(params.get('mars'))settle(state,'mars');
+const start=caveLayout(state.seed,0,zone).start;
 Object.assign(state.player,{cave:0,zone,x:start.x*2,z:start.z*2+(zone?2:1),facing:0});resetLocomotion(state.player);add(state.inventory,'flare',6);
 const canvas=document.getElementById('game'),world=await createWorld(canvas,state),hunt=createHunt(),keys=new Set();
 let previous={...state.player},jumpVelocity=0,accumulator=0,last=performance.now(),aimClient=null;
