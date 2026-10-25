@@ -53,20 +53,22 @@ function particles(parent,count,{additive,color,size}){
 const LABEL={pistol:'PISTOL',smg:'SMG',rifle:'RIFLE',railgun:'RAILGUN',arc:'ARC',katana:'ELECTRIC KATANA'};
 function createHud(){
  const root=document.createElement('div');root.className='hunt-hud';root.hidden=true;
- root.innerHTML=`<div class="hunt-hurt"></div><div class="hunt-prompt"><span>GRABBED — MASH E</span><i><b></b></i></div><div class="hunt-ammo"></div>`;
+ root.innerHTML=`<div class="hunt-hurt"></div><div class="hunt-prompt"><span>GRABBED — MASH E</span><i><b></b></i></div><div class="hunt-ammo"></div><div class="hunt-parry"></div>`;
  const style=document.createElement('style');style.textContent=`
 .hunt-hud{position:fixed;inset:0;pointer-events:none;z-index:4;font:600 12px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.08em;color:#e8dccb}
 .hunt-hurt{position:absolute;inset:0;opacity:0;background:radial-gradient(ellipse at center,transparent 45%,rgba(120,8,4,.75) 100%)}
 .hunt-prompt{position:absolute;left:50%;top:30%;transform:translateX(-50%);display:none;text-align:center;font-size:15px;color:#ffd9c2;text-shadow:0 0 8px #000}
 .hunt-prompt i{display:block;width:180px;height:5px;margin:8px auto 0;background:rgba(255,255,255,.12);border-radius:3px;overflow:hidden}
 .hunt-prompt b{display:block;height:100%;width:0;background:#ffb26b}
+.hunt-parry{position:absolute;left:50%;top:38%;transform:translateX(-50%);font-size:17px;letter-spacing:.24em;color:#bff4ff;text-shadow:0 0 10px #39c6ff,0 0 2px #000;opacity:0;transition:opacity .08s}
 .hunt-ammo{position:absolute;right:18px;bottom:112px;padding:6px 10px;border-radius:6px;background:rgba(6,8,12,.62);text-shadow:0 0 6px #000}`;
  root.append(style);document.body.append(root);
- const hurt=root.querySelector('.hunt-hurt'),prompt=root.querySelector('.hunt-prompt'),meter=root.querySelector('.hunt-prompt b'),ammo=root.querySelector('.hunt-ammo');
+ const parryText=root.querySelector('.hunt-parry'),hurt=root.querySelector('.hunt-hurt'),prompt=root.querySelector('.hunt-prompt'),meter=root.querySelector('.hunt-prompt b'),ammo=root.querySelector('.hunt-ammo');
  let lastAmmo='';
  return {
-  update(on,{hurtFlash,grabbed,escape,weapon,loaded,reserve,reloading}){
+  update(on,{hurtFlash,grabbed,escape,weapon,loaded,reserve,reloading,parried=null}){
    root.hidden=!on;if(!on)return;
+   parryText.style.opacity=parried?'1':'0';if(parried&&parryText.textContent!==parried)parryText.textContent=parried;
    hurt.style.opacity=String(Math.min(.85,hurtFlash));
    prompt.style.display=grabbed?'block':'none';if(grabbed)meter.style.width=`${Math.min(1,escape)*100}%`;
    const spec=WEAPONS[weapon],cells=`${reserve} CELL${reserve===1?'':'S'}`;
@@ -135,7 +137,7 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
  const aimMarker=new THREE.Mesh(new THREE.RingGeometry(.18,.24,24).rotateX(-Math.PI/2),new THREE.MeshBasicMaterial({color:'#ffcf9a',transparent:true,opacity:.6,depthWrite:false}));aimMarker.position.y=.05;aimMarker.visible=false;fx.add(aimMarker);
 
  const localOf=(o,v=new THREE.Vector3())=>caveView.root.worldToLocal(o.getWorldPosition(v));
- let bodyYaw=null,turning=false,act=null,strain=0,wasAirborne=false,flicker=0,stutter=0,shake=0,hurtFlash=0,lastHealth=null,pending=[];
+ let parryGlow=0,parryNote=null,bodyYaw=null,turning=false,act=null,strain=0,wasAirborne=false,flicker=0,stutter=0,shake=0,hurtFlash=0,lastHealth=null,pending=[];
  // Where the cursor aims, in this space ({x, z}, with y and pitch on the surface), and the body's lean toward it.
  let aimAt=null,pitch=0;const lastMuzzle=new THREE.Vector3(0,1.2,0);
  const wisps=new Map(),wispFrom=new THREE.Vector3(),burns=new Map();
@@ -194,6 +196,8 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
    else if(e.type==='throwoff')play('throwoff');
    else if(e.type==='shriek')flicker=Math.max(flicker,.9);
    else if(e.type==='swing'){play('katanaslash');trail.length=0;slashT=0;}
+   else if(e.type==='guard')play('katanaparry');
+   else if(e.type==='parried'){pending.push(e);parryNote={text:e.perfect?'PERFECT PARRY':'PARRY',t:.75};}
    else if(e.type==='shot'||e.type==='impact'||e.type==='rail')pending.push(e);
   }
  }
@@ -308,7 +312,7 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
   slashT+=dt;
   if(!base||!tip){bladeLight.intensity=0;trail.length=0;trailAlpha.fill(0);trailGeo.attributes.aAlpha.needsUpdate=true;return;}
   const a=localOf(base),b=localOf(tip),swinging=slashT<.42,cutting=slashT>.09&&slashT<.34;
-  bladeLight.position.lerpVectors(a,b,.6);bladeLight.intensity=swinging?28*(1-slashT/.42)+5:5+Math.random()*1.5;
+  bladeLight.position.lerpVectors(a,b,.6);bladeLight.intensity=Math.max(parryGlow*60,swinging?28*(1-slashT/.42)+5:5+Math.random()*1.5);parryGlow=Math.max(0,parryGlow-dt*3);
   if((crackle-=dt)<0){crackle=.05+Math.random()*.2;const k=Math.random(),at=new THREE.Vector3().lerpVectors(a,b,k);zaps.spawn(at.x,at.y,at.z,(Math.random()-.5)*1.5,Math.random()*1.2,(Math.random()-.5)*1.5,.08+Math.random()*.1);}
   if(cutting)trail.unshift({a,b,age:0});
   for(const s of trail)s.age+=dt;
@@ -321,8 +325,18 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
   }
   trailGeo.attributes.position.needsUpdate=true;trailGeo.attributes.aAlpha.needsUpdate=true;
  }
+ /** A blow turned on the blade: a burst of charge off the edge, an arc into what struck, the jelly quivering. */
+ function parryFx(e){
+  const v=viewFor(e.crawler),tip=actor.marker('BladeTip'),at=tip?localOf(tip):new THREE.Vector3(e.x,1.2,e.z),to=v?v.position.clone():new THREE.Vector3(e.x,.85,e.z);
+  for(let i=0,n=e.perfect?60:36;i<n;i++){const a=Math.random()*Math.PI*2,s=3+Math.random()*(e.perfect?7:5);zaps.spawn(at.x,at.y,at.z,Math.cos(a)*s,Math.random()*4,Math.sin(a)*s,.15+Math.random()*.25);}
+  for(let i=0;i<(e.heavy?10:22);i++){const p=new THREE.Vector3().lerpVectors(at,to,Math.random());zaps.spawn(p.x,p.y,p.z,(Math.random()-.5)*2,Math.random()*1.5,(Math.random()-.5)*2,.15+Math.random()*.2);}
+  for(let i=0;i<14;i++)sparks.spawn(at.x,at.y,at.z,(Math.random()-.5)*6,Math.random()*4,(Math.random()-.5)*6,.12+Math.random()*.2);
+  impactFlash.position.copy(at);impactFlash.scale.setScalar(e.perfect?2.4:1.6);impactFlash.material.opacity=1;
+  if(v)v.hit(to,new THREE.Vector3(to.x-at.x,0,to.z-at.z).normalize());
+  parryGlow=e.perfect?1:.7;shake=Math.max(shake,e.perfect?.45:.3);flicker=Math.max(flicker,.12);
+ }
  function impact(e){
-  const dir=new THREE.Vector3(e.dir.x,0,e.dir.z),v=viewFor(e.crawler);
+  const dir=new THREE.Vector3(e.dir.x,0,e.dir.z),v=viewFor(e.crawler);impactFlash.scale.setScalar(.9);
   if(e.melee){const y=v?v.position.y:.85;for(let i=0;i<18;i++){const a=Math.random()*Math.PI*2,s=2+Math.random()*4;zaps.spawn(e.x-dir.x*.3,y,e.z-dir.z*.3,Math.cos(a)*s,Math.random()*3,Math.sin(a)*s,.12+Math.random()*.18);}shake=Math.max(shake,.12);flicker=Math.max(flicker,.06);}
   if(v){
    const at=new THREE.Vector3(e.x,v.position.y,e.z);
@@ -345,7 +359,7 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
 
  /** After the actor has been posed: gunfire from the real muzzle, everything in flight, the crawlers and their smoke. */
  function after(state,hunt,dt){
-  for(const e of pending)(e.type==='shot'?fireShot:e.type==='rail'?fireRail:impact)(e);pending=[];
+  for(const e of pending)(e.type==='shot'?fireShot:e.type==='rail'?fireRail:e.type==='parried'?parryFx:impact)(e);pending=[];
   for(const b of bullets){if(!b.live)continue;b.travelled+=BULLET_SPEED*dt;if(b.travelled>=b.length){b.live=false;b.mesh.visible=false;continue;}
    const streak=Math.min(1.1*(b.thick??1),b.travelled);b.mesh.scale.set(b.thick??1,b.thick??1,streak);b.mesh.position.copy(b.from).addScaledVector(b.dir,b.travelled-streak/2);b.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),b.dir);}
   for(let i=0;i<CASES;i++){const c=cases[i];if(c.age>9)continue;c.age+=dt;
@@ -435,7 +449,8 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
   const p=state.player,health=p.health??100;if(lastHealth!=null&&health<lastHealth)hurtFlash=Math.min(1,hurtFlash+(lastHealth-health)/14);lastHealth=health;
   hurtFlash=Math.max(0,hurtFlash-dt*1.5);
   const held=grabbedBy(hunt),w=heldWeapon(state),a=armsOf(state);
-  hud.update(true,{hurtFlash,grabbed:!!held,escape:held?.escape??0,weapon:w,loaded:w?a.loaded[w]:0,reserve:w?reserveOf(state,w):0,reloading:a.reloading>0});
+  if(parryNote&&(parryNote.t-=dt)<=0)parryNote=null;
+  hud.update(true,{hurtFlash,grabbed:!!held,escape:held?.escape??0,weapon:w,loaded:w?a.loaded[w]:0,reserve:w?reserveOf(state,w):0,reloading:a.reloading>0,parried:parryNote?.text??null});
  }
 
  return {

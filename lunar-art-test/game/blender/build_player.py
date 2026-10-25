@@ -518,6 +518,17 @@ def katana_slash(t):
  lunge=math.sin(math.pi*min(1,t*1.4));rig.pose.bones['Hips'].location.y=-.06*lunge
  leg('L',-.16*lunge,-.06*lunge);leg('R',.12*lunge,-.06*lunge)
  katana_grip(lerp(a[1],b[1],k),lerp(Vector(a[2]).normalized(),Vector(b[2]).normalized(),k),lerp(a[3],b[3],k))
+# The parry: the blade snapped up flat across the visor to take the blow, braced, then a short shove out to throw it off.
+PARRY=[(0,KATANA_W,KATANA_B,(0,-1,-.4),0),(.18,(.1,-.44,1.44),(-1,-.25,.3),(0,-.5,1),-.25),(.5,(.12,-.48,1.47),(-1,-.3,.38),(0,-.5,1),-.28),
+ (.66,(.2,-.6,1.4),(-1,-.5,.2),(0,-.6,1),-.1),(1,KATANA_W,KATANA_B,(0,-1,-.4),0)]
+def katana_parry(t):
+ i=0
+ while i<len(PARRY)-2 and t>=PARRY[i+1][0]:i+=1
+ a,b=PARRY[i],PARRY[i+1];k=ease((t-a[0])/(b[0]-a[0]))
+ brace=math.sin(math.pi*min(1,t*1.3));aim_body(.04-.08*brace);twist=a[4]+(b[4]-a[4])*k
+ rig.pose.bones['Spine'].rotation_euler.y=twist;rig.pose.bones['Head'].rotation_euler.y=-twist*.5
+ rig.pose.bones['Hips'].location.y=-.05*brace;leg('L',-.1*brace,-.05*brace);leg('R',.14*brace,-.05*brace)
+ katana_grip(lerp(a[1],b[1],k),lerp(Vector(a[2]).normalized(),Vector(b[2]).normalized(),k),lerp(a[3],b[3],k))
 GRIP_REACH=.077
 def stance(right,fore,lean_left=(0,-.25,1),twist=0):
  """Set the aim globals for a weapon: the right wrist, and the left wrist placed so the glove closes on the fore-grip
@@ -571,9 +582,9 @@ clips+=[make_clip('ArcAimIdle',60,aim_idle),make_clip('ArcAimWalk',24,lambda t:a
 CLIP_NAMES+=['RailAimIdle','RailAimWalk','RailAimRun','RailFire','RailTurnL','RailTurnR','ArcAimIdle','ArcAimWalk','ArcAimRun','ArcTurnL','ArcTurnR']
 STANCE_TWIST=.2;UPPER=katana_ready
 clips+=[make_clip('KatanaAimIdle',60,aim_idle),make_clip('KatanaAimWalk',24,lambda t:aim_gait(t)),make_clip('KatanaAimRun',20,lambda t:aim_gait(t,True)),
- make_clip('KatanaTurnL',24,lambda t:turn(t,1)),make_clip('KatanaTurnR',24,lambda t:turn(t,-1)),make_clip('KatanaSlash',13,katana_slash)]
+ make_clip('KatanaTurnL',24,lambda t:turn(t,1)),make_clip('KatanaTurnR',24,lambda t:turn(t,-1)),make_clip('KatanaSlash',13,katana_slash),make_clip('KatanaParry',12,katana_parry)]
 UPPER=None
-CLIP_NAMES+=['SmgAimIdle','SmgAimWalk','SmgAimRun','SmgFire','SmgTurnL','SmgTurnR','KatanaAimIdle','KatanaAimWalk','KatanaAimRun','KatanaTurnL','KatanaTurnR','KatanaSlash']
+CLIP_NAMES+=['SmgAimIdle','SmgAimWalk','SmgAimRun','SmgFire','SmgTurnL','SmgTurnR','KatanaAimIdle','KatanaAimWalk','KatanaAimRun','KatanaTurnL','KatanaTurnR','KatanaSlash','KatanaParry']
 AIM_W,AIM_WL,AIM_AL=PISTOL_STANCE;STANCE_TWIST=0
 reset_pose();refresh()
 
@@ -602,7 +613,7 @@ scene.render.resolution_x=900;scene.render.resolution_y=900;scene.render.image_s
 with contextlib.suppress(Exception):scene.eevee.taa_render_samples=32
 tool.hide_render=True
 PORTRAITS=[('AimIdle',1,'astronaut-v3-aim.png'),('Fire',2,'astronaut-v3-fire.png'),('Struggle',7,'astronaut-v3-struggle.png'),('Roll',7,'astronaut-v3-roll.png'),('TurnL',19,'astronaut-v3-turn.png'),
- ('RailAimIdle',1,'astronaut-v3-railgun.png'),('ArcAimIdle',1,'astronaut-v3-arc.png'),('SmgAimIdle',1,'astronaut-v3-smg.png'),('KatanaAimIdle',1,'astronaut-v3-katana.png'),('KatanaSlash',4,'astronaut-v3-slash-wind.png'),('KatanaSlash',7,'astronaut-v3-slash.png'),
+ ('RailAimIdle',1,'astronaut-v3-railgun.png'),('ArcAimIdle',1,'astronaut-v3-arc.png'),('SmgAimIdle',1,'astronaut-v3-smg.png'),('KatanaAimIdle',1,'astronaut-v3-katana.png'),('KatanaSlash',4,'astronaut-v3-slash-wind.png'),('KatanaSlash',7,'astronaut-v3-slash.png'),('KatanaParry',4,'astronaut-v3-parry.png'),
  ('RifleAimIdle',1,'astronaut-v3-rifle.png'),('RifleFire',2,'astronaut-v3-rifle-fire.png'),('FlameAimIdle',1,'astronaut-v3-flame.png'),('FlameAimWalk',7,'astronaut-v3-flame-walk.png')]
 only=os.environ.get('LUNAR_PORTRAITS')
 for clip,frame,file in PORTRAITS:

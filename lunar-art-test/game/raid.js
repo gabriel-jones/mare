@@ -1,7 +1,7 @@
 import { CELL_SIZE, DEFS, footprint } from './defs.js';
 import { caveKey } from './caves.js';
 import { terrainData } from './terrain.js';
-import { KINDS, asKind, closeIn, createCrawler, hurtCrawler, spill, stepCrawler } from './crawler.js';
+import { KINDS, asKind, blocks, closeIn, createCrawler, hurtCrawler, scorchCrawler, spill, stepCrawler } from './crawler.js';
 import { SHAPE, burrow, createCentipede, huntCentipede, stepCentipede } from './centipede.js';
 import { GOO } from './goo.js';
 import { LADDER, ROSTER_KINDS, roster, rosterCount } from './roster.js';
@@ -294,9 +294,10 @@ export function stepRaiders(state, dt, fires = [], rng = Math.random) {
     }
     const target = prey ? null : state.buildings.find(b => b.id === c.target.id);
     const env = prey
-      ? { cave: grid, player: prey === p ? { x: p.x, z: p.z, facing: p.facing ?? 0, lamp: true, invulnerable: (p.y ?? 0) > .6 } : { x: prey.x, z: prey.z, facing: prey.facing, lamp: true, invulnerable: false }, flares: fires }
+      ? { cave: grid, player: prey === p ? { x: p.x, z: p.z, facing: p.facing ?? 0, lamp: true, invulnerable: (p.y ?? 0) > .6, guard: p.guard } : { x: prey.x, z: prey.z, facing: prey.facing, lamp: true, invulnerable: false }, flares: fires }
       : { cave: grid, player: { x: goal.x, z: goal.z, facing: Math.atan2(c.x - goal.x, c.z - goal.z), lamp: true, invulnerable: false }, flares: fires };
     for (const e of stepCrawler(c, env, dt, rng)) {
+      if (e.type === 'parried') { const r = scorchCrawler(c, e.zap, rng); events.push({ type: 'parried', crawler: c, perfect: e.perfect, x: c.x, z: c.z, killed: r.killed }); continue; }
       if (e.type === 'grab' || e.type === 'slash') {
         const damage = (e.type === 'grab' ? RAID.bite : e.damage) * mightOf(c);
         if (e.type === 'grab') { c.state = 'flee'; c.t = 0; c.goal = null; }
@@ -337,6 +338,7 @@ function raidCentipede(state, c, grid, people, dt, rng, events) {
   c.aimAt = prey ? { x: prey.x, z: prey.z } : c.target.point.edge;
   for (const e of huntCentipede(c, dt, { prey: { x: at.x, z: at.z, invulnerable: prey === p && (p.y ?? 0) > .6 }, open, rng })) {
     if (e.type !== 'strike') { events.push({ ...e, crawler: c }); continue; }
+    if (prey === p && blocks(p, c)) { events.push({ type: 'parried', crawler: c, perfect: p.guard === 'perfect', heavy: true, x: c.x, z: c.z }); continue; }
     if (prey === p) { p.health = Math.max(0, (p.health ?? 100) - e.damage); p.calm = 0; events.push({ type: 'bite', crawler: c, android: null }); }
     else if (prey) { if ((prey.hp = Math.max(0, prey.hp - e.damage)) <= 0) Object.assign(prey, { down: true, task: 'down', job: null, next: null }); events.push({ type: 'bite', crawler: c, android: prey.id }); }
     else {

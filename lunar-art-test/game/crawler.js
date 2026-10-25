@@ -22,7 +22,19 @@ export const CRAWLER=Object.freeze({
 });
 export const PISTOL=Object.freeze({damage:12,range:16,magazine:6,reload:1.4,cooldown:.28,cost:{metal:1},makes:4,tolerance:.22});
 export const DODGE=Object.freeze({time:.42,distance:3.6,cooldown:.85,invulnerable:.34});
+/**
+ * The katana's parry: for `window` seconds a lunge that lands from in front is turned aside, the crawler zapped and
+ * thrown back, then left dazed (taking double, like after a miss) for `daze` seconds, less the bigger it is. Inside the
+ * first `perfect` seconds it is zapped harder and dazed longer. A parry that catches nothing leaves `cooldown` to wait.
+ */
+export const PARRY=Object.freeze({window:.3,perfect:.12,cooldown:.65,zap:12,perfectZap:26,daze:1.6,perfectDaze:2.6,again:.12});
 export const PLAYER_RADIUS=.32;
+/** Whether the player's guard is up and facing `c` (a centipede's head counts): a blow from behind still lands. */
+export function blocks(p,c){
+ if(!p.guard)return false;
+ const dx=c.x-p.x,dz=c.z-p.z,d=Math.hypot(dx,dz)||1;
+ return (Math.sin(p.facing??0)*dx+Math.cos(p.facing??0)*dz)/d>=.1;
+}
 
 const ANIM={march:'stalk',emerge:'skitter',lurk:'stalk',stalk:'stalk',close:'stalk',evade:'skitter',shriek:'shriek',lunge:'lunge',recover:'idle',grab:'grab',slash:'lunge',recoil:'recoil',flee:'skitter',hit:'hit',dead:'death'};
 const cellOf=v=>Math.round(v/CAVE_CELL);
@@ -142,7 +154,7 @@ export function spill(c,n,rng=Math.random){
  return out;
 }
 function turn(c,target,k){let d=target-c.facing;d=Math.atan2(Math.sin(d),Math.cos(d));c.facing+=d*Math.min(1,k);}
-function enter(c,state,rng){c.state=state;c.t=0;c.think=0;if(state==='stalk')c.patience=between(rng,CRAWLER.patience);if(state!=='grab')c.escape=0;}
+function enter(c,state,rng){c.state=state;c.t=0;c.think=0;if(state!=='recover')c.dazed=0;if(state==='stalk')c.patience=between(rng,CRAWLER.patience);if(state!=='grab')c.escape=0;}
 
 /** Rear for a short, angry tell: it was pinned in the beam or shot. */
 function provoke(c,events,rng){enter(c,'shriek',rng);c.tell=CRAWLER.quickShriek;c.goal=null;events.push({type:'shriek',quick:true});}
@@ -153,8 +165,9 @@ function evade(c,player,rng){
 }
 
 /**
- * Advance one crawler. `env`: {cave, player:{x,z,facing,lamp,invulnerable}, flares:[{x,z,r}]}.
- * Returns events for the caller to apply: shriek, lunge, grab {damage}, drag {dx,dz}, slash {damage, short}, recoil, release, miss.
+ * Advance one crawler. `env`: {cave, player:{x,z,facing,lamp,invulnerable,guard}, flares:[{x,z,r}]}; `guard` is the
+ * katana's parry ('parry' or 'perfect') while it is up. Returns events for the caller to apply: shriek, lunge,
+ * grab {damage}, drag {dx,dz}, slash {damage, short}, parried {perfect, zap}, recoil, release, miss.
  */
 export function stepCrawler(c,env,dt,rng=Math.random){
  const events=[],{player,cave}=env;c.t+=dt;
@@ -201,7 +214,12 @@ export function stepCrawler(c,env,dt,rng=Math.random){
    const hd=Math.hypot(player.x-c.x,player.z-c.z);
    if(hd<CRAWLER.reach*sizeOf(c)+PLAYER_RADIUS&&!player.invulnerable){
     const fromBehind=(Math.sin(player.facing)*(c.x-player.x)+Math.cos(player.facing)*(c.z-player.z))/(hd||1)<.1;
-    if(fromBehind||!player.lamp){enter(c,'grab',rng);events.push({type:'grab',damage:CRAWLER.grabDamage*.5});}
+    if(player.guard&&!fromBehind){
+     const perfect=player.guard==='perfect';
+     enter(c,'recoil',rng);c.thrown={facing:Math.atan2(c.x-player.x,c.z-player.z)};c.daze=(perfect?PARRY.perfectDaze:PARRY.daze)/Math.sqrt(sizeOf(c));
+     events.push({type:'parried',perfect,zap:perfect?PARRY.perfectZap:PARRY.zap});
+    }
+    else if(fromBehind||!player.lamp){enter(c,'grab',rng);events.push({type:'grab',damage:CRAWLER.grabDamage*.5});}
     else{enter(c,'slash',rng);events.push({type:'slash',damage:CRAWLER.slashDamage,short:CRAWLER.shortTime});}
    }else if(blocked||c.t>=lungeTimeOf(c)){enter(c,'recover',rng);events.push({type:'miss'});}
    break;}
@@ -209,7 +227,7 @@ export function stepCrawler(c,env,dt,rng=Math.random){
    c.speed=0;turn(c,toPlayer,dt*3);
    // Dazed for a moment after a miss, even in the light: the window to punish it.
    if(c.t>CRAWLER.recoverTime*.5&&inFlare){enter(c,'recoil',rng);events.push({type:'recoil'});}
-   else if(c.t>=CRAWLER.recoverTime){enter(c,'stalk',rng);c.patience*=.4;}break;
+   else if(c.t>=(c.dazed||CRAWLER.recoverTime)){c.dazed=0;enter(c,'stalk',rng);c.patience*=.4;}break;
   case 'slash':
    c.speed=0;if(c.t>=.45){enter(c,'flee',rng);c.goal=null;}break;
   case 'grab':{
@@ -233,7 +251,8 @@ export function stepCrawler(c,env,dt,rng=Math.random){
     const step=CRAWLER.throwSpeed*dt,nx=c.x+Math.sin(c.thrown.facing)*step,nz=c.z+Math.cos(c.thrown.facing)*step;
     if(walkable(cave,nx,nz)){c.x=nx;c.z=nz;c.speed=CRAWLER.throwSpeed;}
    }
-   if(c.t>=CRAWLER.recoilTime+(c.thrown?CRAWLER.throwTime:0)){c.thrown=null;enter(c,'flee',rng);c.goal=null;}break;
+   // Parried, it lands dazed instead of running.
+   if(c.t>=CRAWLER.recoilTime+(c.thrown?CRAWLER.throwTime:0)){c.thrown=null;if(c.daze){c.dazed=c.daze;c.daze=0;enter(c,'recover',rng);}else enter(c,'flee',rng);c.goal=null;}break;
   case 'hit':
    c.speed=0;if(c.t>=CRAWLER.hitTime){
     const next=c.after??'stalk';c.after=null;

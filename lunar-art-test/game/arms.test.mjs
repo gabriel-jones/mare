@@ -4,9 +4,9 @@ import { createState, serialize, deserialize } from './sim.js';
 import { caveLayout } from './caves.js';
 import { WEAPONS, ARMORY, BENCH, armsOf, heldWeapon, holdWeapon, reload, stepArms, pullTrigger } from './arms.js';
 import { startCraft, stepLife } from './life.js';
-import { createHunt, stepHunt, fire, release, NEST } from './hunt.js';
+import { createHunt, stepHunt, fire, release, parry, NEST } from './hunt.js';
 import { nestMouth, liveNests } from './infest.js';
-import { createCrawler } from './crawler.js';
+import { createCrawler, PARRY } from './crawler.js';
 import * as inv from './inventory.js';
 
 const seeded = (seed = 7) => () => (seed = (seed * 16807) % 2147483647) / 2147483647;
@@ -100,6 +100,35 @@ test('the electric katana cuts everything in its arc and needs no ammunition', (
   stepHunt(h, s, spec.cooldown + .01, rng);
   assert.equal(fire(h, s, false, rng).ok, true);
   assert.equal(reload(s).ok, false); assert.equal(inv.count(s.inventory, 'rounds'), 0);
+});
+
+test('a katana parry turns a lunge from the front: no harm, the crawler zapped and dazed; from behind it still lands', () => {
+  const s = underground(0), h = createHunt(), rng = seeded();
+  stepHunt(h, s, 1 / 30, rng);
+  clear(s); give(s, { katana: 1 });
+  const p = s.player, lunging = dz => { const c = createCrawler(p.x, p.z + dz, rng); Object.assign(c, { state: 'lunge', t: 0, hp: 500, lunge: { x: 0, z: -Math.sign(dz) } }); h.crawlers = [c]; return c; };
+  const health = p.health, c = lunging(.5);
+  assert.equal(parry(h, s).ok, true);
+  assert.equal(parry(h, s).ok, false, 'no raising it again straight away');
+  stepHunt(h, s, 1 / 60, rng);
+  const e = h.events.find(e => e.type === 'parried');
+  assert.ok(e?.perfect, 'caught at once, a perfect parry');
+  assert.equal(p.health, health); assert.equal(c.hp, 500 - PARRY.perfectZap); assert.equal(c.state, 'recoil');
+  for (let t = 0; t < 1; t += 1 / 30) stepHunt(h, s, 1 / 30, rng);
+  assert.equal(c.state, 'recover', 'thrown back, then dazed');
+  assert.equal(parry(h, s).ok, true, 'a parry that lands can be raised again soon');
+
+  for (let t = 0; t < PARRY.window + PARRY.cooldown + .1; t += 1 / 30) stepHunt(h, s, 1 / 30, rng);
+  assert.equal(p.guard, null, 'the guard drops after its window');
+  const behind = lunging(-.5); h.events.length = 0;
+  parry(h, s); stepHunt(h, s, 1 / 60, rng);
+  assert.equal(behind.state, 'grab'); assert.ok(!h.events.some(e => e.type === 'parried'));
+});
+
+test('only the katana parries', () => {
+  const s = underground(0), h = createHunt();
+  stepHunt(h, s, 1 / 30, seeded());
+  assert.equal(heldWeapon(s), 'pistol'); assert.equal(parry(h, s).ok, false);
 });
 
 test('every weapon but the pistol is researched, on a ballistics branch and an energy branch', async () => {

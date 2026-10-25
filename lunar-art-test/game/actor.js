@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 
 // Played once and held on their last frame until the caller asks for something else.
-const ONCE=new Set(['hurt','roll','land','throwoff','collapse','katanaslash']);
-const FADE={roll:.06,hurt:.05,land:.06,throwoff:.08,jump:.08,katanaslash:.04};
+const ONCE=new Set(['hurt','roll','land','throwoff','collapse','katanaslash','katanaparry']);
+const FADE={roll:.06,hurt:.05,land:.06,throwoff:.08,jump:.08,katanaslash:.04,katanaparry:.03};
 /**
  * The flare throw, keyed to peril.js FLARE (struck at .42s, let go at .8s): raised to the chest, the cap raked across,
  * wound up behind the head and thrown overhand. Upper arm and forearm directions are [forward, up, out to the side].

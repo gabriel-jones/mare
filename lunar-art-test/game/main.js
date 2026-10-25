@@ -21,7 +21,8 @@ import {shipAction,holdLaunch,holdVoyage,loadGoo,releaseLaunch,loadSatellite,rec
 import {PLANETS,gravityOf,planetOf} from './planets.js';
 import {createOrbitView} from './orbit-view.js';
 import {createResearchView} from './research-view.js';
-import {createHunt,stepHunt,fire,release,roll,wrench,pinned,grabbedBy,rouse} from './hunt.js';
+import {createHunt,stepHunt,fire,release,roll,wrench,pinned,grabbedBy,rouse,parry} from './hunt.js';
+import {PARRY} from './crawler.js';
 import {isWeapon,holdWeapon,reload,heldWeapon,armsOf,WEAPONS} from './arms.js';
 import {installCursors,createReticle} from './cursors.js';
 import {crateDistance,moveStack,storeAll,storeSlot,takeSlot,crates as storageCrates,crateCentre,BASE_REACH,available,baseCount,inReach} from './storage.js';
@@ -341,7 +342,9 @@ function fixedUpdate(dt){
   if(hunt.flame&&!caving)fires.push(...hunt.flame.points);
   if(!caving)stepBrood(state,dt,fires);
   // Raids go on at the base while the player is underground.
-  world.raided(stepRaiders(state,dt,fires));
+  const raids=stepRaiders(state,dt,fires);
+  for(const e of raids)if(e.type==='parried'){hunt.events.push(e);hunt.parryCool=Math.min(hunt.parryCool??0,PARRY.again);}
+  world.raided(raids);
  }
  // Turrets and fences fight on whether or not anything is loose, and while the player is underground.
  world.defended(stepDefenses(state,dt,state.power.powered!==false));
@@ -413,7 +416,7 @@ async function start(){
   canvas.addEventListener('pointerleave',()=>{pointerIn=false;if(beltPath||paintPath||erasing)return;hover=null;world.clearGhost();});
   canvas.addEventListener('pointerdown',e=>{
    canvas.focus({preventScroll:true});
-   if(e.button===2){select(null);return;}
+   if(e.button===2){if(drawn()&&heldWeapon(state)==='katana'){parry(hunt,state);return;}select(null);return;}
    if(e.button!==0||state.player.aboard)return;
    aimClient={x:e.clientX,y:e.clientY};
    if(!selectedType&&state.player.cave==null&&clickStation(world.pick(e.clientX,e.clientY)))return;

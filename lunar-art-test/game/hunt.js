@@ -3,7 +3,7 @@ import {FLARE,flareNow} from './peril.js';
 import {burnNest,liveNests,nestMouth,silkBlocks,stepInfest} from './infest.js';
 import {burnGoo} from './goo.js';
 import {WEAPONS,stepArms,pullTrigger,burnTank,heldWeapon,armsOf,reload} from './arms.js';
-import {CRAWLER,KINDS,PLAYER_RADIUS,radiusOf,partsOf,partNear,walkable,asKind,createCrawler,stepCrawler,struggle,hurtCrawler,scorchCrawler,shotEnd,spill,createDodge,startDodge,stepDodge} from './crawler.js';
+import {CRAWLER,KINDS,PARRY,blocks,PLAYER_RADIUS,radiusOf,partsOf,partNear,walkable,asKind,createCrawler,stepCrawler,struggle,hurtCrawler,scorchCrawler,shotEnd,spill,createDodge,startDodge,stepDodge} from './crawler.js';
 import {SHAPE,createCentipede,huntCentipede} from './centipede.js';
 import {ROSTER_KINDS,caveRoster} from './roster.js';
 
@@ -90,7 +90,7 @@ function spawn(hunt,cave,state,rng,nests=[]){
  */
 export function stepHunt(hunt,state,dt,rng=Math.random){
  const p=state.player;
- stepArms(state,dt);stepBurst(hunt,state,dt,rng);
+ stepArms(state,dt);stepBurst(hunt,state,dt,rng);stepGuard(hunt,state,dt);
  if(hunt.charging!=null)hunt.charging=WEAPONS[heldWeapon(state)]?.charge?hunt.charging+dt:null;
  if(p.cave==null){
   if(hunt.key!==null)Object.assign(hunt,createHunt(),{events:hunt.events,trigger:hunt.trigger});
@@ -133,6 +133,7 @@ export function stepHunt(hunt,state,dt,rng=Math.random){
    // It feels the player through the rock from anywhere in the zone; a roll or a jump carries them clear of a blow.
    const near=Math.hypot(p.x-c.x,p.z-c.z)<CRAWLER.sense*1.5;
    for(const e of huntCentipede(c,dt,{prey:near?{x:p.x,z:p.z,invulnerable:dash.invulnerable||(p.y??0)>.6}:null,open:caveOpen,rng})){
+    if(e.type==='strike'&&blocks(p,c)){parried(hunt,state,c,{perfect:p.guard==='perfect',zap:0,heavy:true});continue;}
     if(e.type==='strike'){hurt(e.damage);hunt.events.push({type:'slash',crawler:c,damage:e.damage});}
     else hunt.events.push({...e,crawler:c});
    }
@@ -145,13 +146,14 @@ export function stepHunt(hunt,state,dt,rng=Math.random){
    for(const b of out){if(!walkable(cave,b.emergeTo.x,b.emergeTo.z))b.emergeTo={x:c.x,z:c.z};hunt.crawlers.push(b);hunt.events.push({type:'spawned',crawler:b,emerge:true});}
   }
   // One at a time: while something has hold of the player the others cannot land a blow.
-  const env={cave,player:{x:p.x,z:p.z,facing:p.facing,lamp:hunt.lampShort<=0,invulnerable:dash.invulnerable||(held&&held!==c)||(p.y??0)>.6},flares};
+  const env={cave,player:{x:p.x,z:p.z,facing:p.facing,lamp:hunt.lampShort<=0,invulnerable:dash.invulnerable||(held&&held!==c)||(p.y??0)>.6,guard:p.guard},flares};
   const might=KINDS[c.kind]?.might??1;
   for(const e of stepCrawler(c,env,dt,rng)){
    if(e.type==='grab'||e.type==='slash'||e.type==='hurt')hurt(e.damage*might);
    if(e.type==='slash')hunt.lampShort=e.short;
    if(e.type==='drag'){if(cavePassable(cave,p.x+e.dx,p.z+e.dz,PLAYER_RADIUS)&&!silkBlocks(state,p.x+e.dx,p.z+e.dz,PLAYER_RADIUS)){p.x+=e.dx;p.z+=e.dz;}continue;}
    if(e.type==='hurt')continue;
+   if(e.type==='parried'){parried(hunt,state,c,e,rng);continue;}
    hunt.events.push({...e,crawler:c});
   }
  }
@@ -374,3 +376,25 @@ export function wrench(hunt,state){
  hunt.events.push({type:'throwoff',crawler:c},{type:'release',crawler:c});return true;
 }
 export const lampOn=hunt=>hunt.lampShort<=0;
+/**
+ * Raise the katana to parry (PARRY in crawler.js). Not while held, rolling, mid-swing or waiting out a missed parry.
+ * While it is up, state.player.guard says so, for whatever attacks the player (here and in raid.js).
+ */
+export function parry(hunt,state){
+ if(heldWeapon(state)!=='katana'||pinned(hunt)||hunt.rolling||(hunt.parryCool??0)>0||armsOf(state).cooldown>0)return {ok:false};
+ hunt.guard=0;hunt.parryCool=PARRY.window+PARRY.cooldown;state.player.guard='perfect';
+ hunt.events.push({type:'guard'});return {ok:true};
+}
+function stepGuard(hunt,state,dt){
+ const p=state.player;hunt.parryCool=Math.max(0,(hunt.parryCool??0)-dt);
+ if(hunt.guard==null||heldWeapon(state)!=='katana'){hunt.guard=null;p.guard=null;return;}
+ hunt.guard+=dt;p.guard=hunt.guard<=PARRY.perfect?'perfect':hunt.guard<=PARRY.window?'parry':null;
+ if(!p.guard)hunt.guard=null;
+}
+/** A blow turned aside: the blade's charge zaps whatever struck, and a parry that lands can be raised again at once. */
+export function parried(hunt,state,c,{perfect,zap,heavy=false},rng=Math.random){
+ const r=zap?scorchCrawler(c,zap,rng):{killed:false};
+ hunt.parryCool=Math.min(hunt.parryCool??0,PARRY.again);
+ hunt.events.push({type:'parried',crawler:c,perfect,heavy,x:c.x,z:c.z,killed:r.killed});
+ if(r.killed)hunt.events.push({type:'killed',crawler:c,shocked:true});
+}
