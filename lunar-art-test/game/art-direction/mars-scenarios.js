@@ -74,6 +74,18 @@ function cave(id, zone) {
   s.exploredCaves = {};
   return s;
 }
+/** Beside the ford with the most fungus round it in cave `id`, zone `zone`, the whole zone already mapped. */
+function grotto(id, zone) {
+  const s = cave(id, zone), c = caveLayout(s.seed, id, zone);
+  const fords = c.tiles.filter(t => t.type === 'ford'), near = t => c.fungi.filter(f => Math.hypot(f.x - t.x, f.z - t.z) < 7).length;
+  const at = fords.sort((a, b) => near(b) - near(a))[0] ?? c.start;
+  Object.assign(s.player, { x: at.x * CAVE_CELL, z: (at.z - 1) * CAVE_CELL, facing: 0 });
+  const key = zone ? `${id}:${zone}` : String(id);
+  s.exploredCaves = { [key]: c.tiles.map(t => t.key) };
+  // Quiet, for looking round: every nest in the zone burnt out for the next hour.
+  s.burnt = { [key]: Object.fromEntries(c.nests.map(n => [n.key, 3600])) };
+  return s;
+}
 export const SCENARIOS = {
   pad: { name: 'Ready to fly', note: 'Moon base, every manoeuvre researched, tanks full, goo drive loaded. Hold E at the Starship to board.', make: moon },
   transfer: { name: 'In transfer', note: 'Mid-way along the Hohmann transfer to Mars. Opens the orbital view.', make() { const s = moon(); Object.assign(s.ship, { status: 'transfer', t: 9, crew: true, dest: 'mars', fuel: 0, goo: VOYAGE.gooHold - VOYAGE.goo }); s.player.aboard = true; return s; } },
@@ -83,6 +95,7 @@ export const SCENARIOS = {
   upper: { name: 'Cave · upper', note: 'Inside the first Martian cave, upper zone.', make: () => cave(0, 0) },
   hollows: { name: 'Cave · hollows', note: 'Inside the first Martian cave, the Hollows.', make: () => cave(0, 1) },
   deep: { name: 'Cave · deep', note: 'Inside the first Martian cave, the Deep.', make: () => cave(0, 2) },
+  grotto: { name: 'Cave · river', note: 'At a ford in the Hollows with fungus nearby, the zone mapped: water, moss, fungus, fireflies, blue crystals.', make: () => grotto(0, 1) },
 };
 export const makeSave = id => serialize((SCENARIOS[id] ?? SCENARIOS.landed).make());
 /** The nearest deposit of `kind` to the pad, for teleporting to. */

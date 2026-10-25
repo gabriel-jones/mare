@@ -42,8 +42,9 @@ vec3 caveGlow(vec2 p){
 }`;
 
 /** Light colours for crystals, vents and the daylight shaft. */
-const GLOW={cyan:new THREE.Color(.25,.8,1),violet:new THREE.Color(.62,.36,1),vent:new THREE.Color(.45,.9,.3),sky:new THREE.Color(.6,.72,.95)};
-const TILE_COLORS={floor:'#8b918b'};
+const GLOW={cyan:new THREE.Color(.25,.8,1),violet:new THREE.Color(.62,.36,1),vent:new THREE.Color(.45,.9,.3),sky:new THREE.Color(.6,.72,.95),
+ fremen:new THREE.Color(.02,.14,.8),fungus:new THREE.Color(.3,1,.42),dust:new THREE.Color(.95,.66,.42)};
+const TILE_COLORS={floor:'#8b918b',mars:'#86695b'};
 
 /** The Blender formation kit (cave-formations.glb), loading in the background; caves use cones until it arrives. */
 const FORMATION_NAMES=['Stalagmite','Twin','Column','Stump','Cluster'];
@@ -57,7 +58,7 @@ export const caveMemoryKey=(id,zone=0)=>zone?`${id}:${zone}`:String(id);
 
 export function createCaveView(seed,id,parent,zone=0,itemModels=null){
  const angle=terrainData(seed).caves[id].angle,viewX=Math.cos(angle)-Math.sin(angle),viewZ=Math.sin(angle)+Math.cos(angle);
- const cave=caveLayout(seed,id,zone),root=new THREE.Group(),memory=caveMemoryKey(id,zone);parent.add(root);
+ const cave=caveLayout(seed,id,zone),mars=cave.mars,root=new THREE.Group(),memory=caveMemoryKey(id,zone);parent.add(root);
  const seenNow=new Float32Array(SEEN_SIZE*SEEN_SIZE),seenTarget=new Float32Array(SEEN_SIZE*SEEN_SIZE),seenPixels=new Uint8Array(SEEN_SIZE*SEEN_SIZE);
  const seenMap=new THREE.DataTexture(seenPixels,SEEN_SIZE,SEEN_SIZE,THREE.RedFormat);seenMap.minFilter=seenMap.magFilter=THREE.LinearFilter;seenMap.needsUpdate=true;
  // Per cell: floor (r), a drop into a chasm or the shaft (g), ice (b) and toxic seep (a), blurred between cells so
@@ -65,7 +66,7 @@ export function createCaveView(seed,id,parent,zone=0,itemModels=null){
  // instead of stepping round each cell.
  const groundPixels=new Uint8Array(SEEN_SIZE*SEEN_SIZE*4);
  for(const t of cave.tiles){const x=t.x+SEEN_X0,z=t.z+SEEN_Z0;if(x<0||z<0||x>=SEEN_SIZE||z>=SEEN_SIZE)continue;
-  const at=(z*SEEN_SIZE+x)*4,drop=t.type==='chasm'||t.type==='shaftDown';groundPixels[at+(drop?1:0)]=255;if(t.type==='ice')groundPixels[at+2]=255;if(t.type==='toxic')groundPixels[at+3]=255;}
+  const at=(z*SEEN_SIZE+x)*4,drop=t.type==='chasm'||t.type==='shaftDown'||t.type==='water'||t.type==='ford';groundPixels[at+(drop?1:0)]=255;if(t.type==='ice'||t.type==='moss')groundPixels[at+2]=255;if(t.type==='toxic')groundPixels[at+3]=255;}
  const groundMap=new THREE.DataTexture(groundPixels,SEEN_SIZE,SEEN_SIZE,THREE.RGBAFormat);groundMap.minFilter=groundMap.magFilter=THREE.LinearFilter;groundMap.needsUpdate=true;
  const sight={uSeenMap:{value:seenMap},uPlayer:{value:new THREE.Vector2()},uFacing:{value:new THREE.Vector2(0,1)},uFlicker:{value:1},uReach:{value:1},uVoid:{value:new THREE.Vector3()},
   uGlow:{value:Array.from({length:LIGHTS},()=>new THREE.Vector4(0,0,0,6))},uGlowColor:{value:Array.from({length:LIGHTS},()=>new THREE.Color(0,0,0))}};
@@ -82,7 +83,8 @@ export function createCaveView(seed,id,parent,zone=0,itemModels=null){
     vec4 ground=texture2D(uGround,(groundAt/${CAVE_CELL}.0+vec2(${SEEN_X0}.5,${SEEN_Z0}.5))/${SEEN_SIZE}.0);
     float drop=ground.g+(caveNoise(vCaveLocal*2.1+7.7)-.5)*.3;
     if(ground.r<.22||drop>.74)discard;`:'')).replace('#include <color_fragment>','#include <color_fragment>\n'+(ground?`
-    diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.66,.77,.84),ground.b*.85);diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.33,.4,.18),ground.a*.8);
+    ${mars?`float tuft=caveNoise(vCaveLocal*6.0)*.5+caveNoise(vCaveLocal*17.0)*.5,mossy=smoothstep(.2,.65,ground.b+(tuft-.5)*.6);
+    diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.11,.32,.09)*(.55+.9*tuft),mossy*.94);`:'diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.66,.77,.84),ground.b*.85);'}diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.33,.4,.18),ground.a*.8);
     // Rock underfoot: broad patches, two sets of cracks and scattered pebbles with a shadow on their far side.
     vec2 q=vCaveLocal;float patches=caveNoise(q*.31)*.55+caveNoise(q*1.2+3.1)*.3+caveNoise(q*5.3)*.15;
     float cracked=smoothstep(.5,.75,caveNoise(q*.17+2.0)),crack=1.0-(1.0-smoothstep(.0,.018,abs(caveNoise(q*.55+11.0)-.5)))*cracked;
@@ -96,7 +98,9 @@ export function createCaveView(seed,id,parent,zone=0,itemModels=null){
     vec3 ghost=diffuseColor.rgb*(vec3(.42,.55,.85)*.07+glow*.5);
     float seenHere=caveSeen(vCaveLocal);
     outgoingLight=mix(ghost,outgoingLight*(caveSight(vCaveLocal)*caveGrit(vCaveLocal)+glow),seenHere);
-    ${ground?'outgoingLight*=(.45+.55*smoothstep(.22,.5,ground.r))*(1.0-smoothstep(.36,.7,drop));':''}
+    ${ground?`outgoingLight*=(.45+.55*smoothstep(.22,.5,ground.r))*(1.0-${mars?'.4*':''}smoothstep(.36,.7,drop));`:''}
+    ${ground&&mars?`vec2 sq=floor(vCaveLocal*7.0);float speck=step(.93,caveHash(sq))*(1.0-smoothstep(.1,.32,length(fract(vCaveLocal*7.0)-.5)));
+    outgoingLight+=vec3(.25,.9,.4)*speck*mossy*(.4+.6*caveHash(sq+2.0))*(.25+.75*seenHere)*.6;`:''}
     ${goo?`float streak=caveNoise(vec2(atan(vLocal.z,vLocal.x)*2.4+vGoo*31.0,vGoo*7.0)),edge=1.0-vGoo*(.15+.8*streak*streak);
     float coat=smoothstep(edge-.012,edge+.012,vLocal.y)*step(.01,vGoo);
     vec3 lit=caveSight(vCaveLocal)+glow,wet=vec3(.03,.03,.04)*lit+lit*pow(caveNoise(vCaveLocal*8.0+vLocal.y*11.0),7.0)*1.4;
@@ -107,6 +111,7 @@ export function createCaveView(seed,id,parent,zone=0,itemModels=null){
   return material;
  };
  const floorMat=litMaterial(false,false,true),rockMat=litMaterial(true),formationMat=litMaterial(true,true);
+ const rockTint=mars?'#86675a':'#7f8a84';
  const groups=[];let disposed=false;
  function litGroup(geometry,material,items,place,color,vary=true){
   const mesh=new THREE.InstancedMesh(keep(geometry),material,Math.max(1,items.length));mesh.count=items.length;mesh.frustumCulled=false;root.add(mesh);
@@ -135,7 +140,7 @@ export function createCaveView(seed,id,parent,zone=0,itemModels=null){
  // Floor, except where the ground falls away: one level sheet of tiles, each the same tone, so no cell reads as a block.
  const floorTiles=cave.tiles.filter(t=>t.type!=='chasm'&&t.type!=='shaftDown');
  const floorGeo=new THREE.PlaneGeometry(3.2,3.2);floorGeo.rotateX(-Math.PI/2);
- litGroup(floorGeo,floorMat,floorTiles,t=>{dummy.position.set(t.x*CAVE_CELL,-.035,t.z*CAVE_CELL);dummy.rotation.set(0,0,0);dummy.scale.setScalar(1);},()=>TILE_COLORS.floor,false);
+ litGroup(floorGeo,floorMat,floorTiles,t=>{dummy.position.set(t.x*CAVE_CELL,-.035,t.z*CAVE_CELL);dummy.rotation.set(0,0,0);dummy.scale.setScalar(1);},()=>mars?TILE_COLORS.mars:TILE_COLORS.floor,false);
 
  // Walls wrap everything carved; the side facing the camera is cut down near the player.
  const edges=[];for(const t of cave.tiles)for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]])if(!cave.open.has(`${t.x+dx},${t.z+dz}`))edges.push({key:t.key,x:t.x,z:t.z,dx,dz});
@@ -147,16 +152,21 @@ export function createCaveView(seed,id,parent,zone=0,itemModels=null){
  const wallTex=keep(new THREE.DataTexture(wallCells,cave.tiles.length,1));wallTex.needsUpdate=true;
  const wallGeo=keep(buildWallSkin(cave,edges,tileIndex,[
   ...cave.nests.map(n=>[n.x*2+n.dx,n.z*2+n.dz]),...cave.crystals.filter(c=>c.dx||c.dz).map(c=>[c.x*2+c.dx,c.z*2+c.dz]),
-  ...cave.loot.filter(l=>l.kind==='ore').map(l=>[l.x*2+l.dx,l.z*2+l.dz])]));
+  ...cave.loot.filter(l=>l.kind==='ore').map(l=>[l.x*2+l.dx,l.z*2+l.dz]),...(cave.fungi??[]).map(f=>[f.x*2+f.dx,f.z*2+f.dz])],mars));
  // Rock between the camera and the player is cut away above a height that drops toward the player. The cut is made per
  // pixel: moving the vertices down instead folded the faceted skin inside out into jagged holes.
  const vl=Math.hypot(viewX,viewZ),wallMat=keep(new THREE.MeshBasicMaterial({color:'#ffffff',vertexColors:true,fog:false}));
  wallMat.onBeforeCompile=shader=>{
-  Object.assign(shader.uniforms,sight,{uCells:{value:wallTex}});
+  Object.assign(shader.uniforms,sight,{uCells:{value:wallTex},uGround:{value:groundMap}});
   shader.vertexShader=shader.vertexShader.replace('#include <common>','#include <common>\nattribute float aCell;attribute vec2 aOut;attribute vec2 aSeenAt;uniform sampler2D uCells;varying vec2 vCaveLocal;varying float vSeen;varying vec2 vSeenAt;varying vec3 vRock;varying vec2 vOut;').replace('#include <begin_vertex>',`#include <begin_vertex>
    vec4 cell=texture2D(uCells,vec2((aCell+.5)/${cave.tiles.length}.0,.5));vCaveLocal=transformed.xz;vSeenAt=aSeenAt;vRock=transformed;vOut=aOut;
    if(cell.g<.5)transformed=vec3(0.0);`);
-  shader.fragmentShader=shader.fragmentShader.replace('#include <common>','#include <common>\nvarying vec2 vSeenAt;varying vec3 vRock;varying vec2 vOut;'+SIGHT_PARS).replace('#include <clipping_planes_fragment>',`#include <clipping_planes_fragment>
+  shader.fragmentShader=shader.fragmentShader.replace('#include <common>','#include <common>\nvarying vec2 vSeenAt;varying vec3 vRock;varying vec2 vOut;uniform sampler2D uGround;'+SIGHT_PARS).replace('#include <color_fragment>',`#include <color_fragment>
+   ${mars?`// Moss climbs the foot of the wall over a mossy floor, and stays damp and dark where water runs below.
+   vec4 under=texture2D(uGround,(vSeenAt/${CAVE_CELL}.0+vec2(${SEEN_X0}.5,${SEEN_Z0}.5))/${SEEN_SIZE}.0);
+   float tuft=caveNoise(vRock.xz*6.0+vRock.y*4.0),reach=.35+1.3*caveNoise(vRock.xz*.9)+.4*under.g;
+   diffuseColor.rgb*=1.0-.35*under.g*(1.0-smoothstep(.0,.9,vRock.y));
+   diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.1,.3,.08)*(.6+.8*tuft),max(under.b,under.g*.8)*(1.0-smoothstep(reach*.6,reach,vRock.y))*smoothstep(.3,.5,tuft+.2)*.9);`:''}`).replace('#include <clipping_planes_fragment>',`#include <clipping_planes_fragment>
    vec2 toCam=vec2(${(viewX/vl).toFixed(4)},${(viewZ/vl).toFixed(4)}),rel=vRock.xz-uPlayer;float dp=length(rel),ahead=dot(rel,toCam);
    float toward=max(smoothstep(.6,2.2,ahead),smoothstep(.05,.4,dot(normalize(vOut),toCam))*step(0.0,ahead))*(1.0-smoothstep(10.0,12.0,dp));
    float cutAt=mix(9.0,.35+max(0.0,dp-3.0)*.22+(caveNoise(vRock.xz*1.7)-.5)*.3,toward);
@@ -201,7 +211,7 @@ export function createCaveView(seed,id,parent,zone=0,itemModels=null){
    const items=spireItems.filter(s=>!geometries||s.kind===kind);if(!items.length)continue;
    const geo=geometries?shade(geometries[kind].clone()):shade(jitter(new THREE.CylinderGeometry(.12,.75,1,7,4).translate(0,.5,0),.07,.07));
    geo.setAttribute('aGoo',new THREE.InstancedBufferAttribute(new Float32Array(items.map(s=>s.goo)),1));
-   spireGroups.push(litGroup(geo,formationMat,items,placeSpire,()=>'#7f8a84'));
+   spireGroups.push(litGroup(geo,formationMat,items,placeSpire,()=>rockTint));
   }
  };
  growSpires(formationGeometries);
@@ -210,15 +220,72 @@ export function createCaveView(seed,id,parent,zone=0,itemModels=null){
  // Crystals glow on their own and light what is around them.
  const shardParts=[0,1,2].map(i=>new THREE.OctahedronGeometry(1,0).scale(.16,.75,.16).rotateZ((i-1)*.45).rotateX((i%2?.25:-.2)).translate((i-1)*.18,.55-(i===1?0:.18),0).toNonIndexed());
  const shardGeo=keep(mergeGeometries(shardParts));shardParts.forEach(g=>g.dispose());
- const crystalMat=keep(new THREE.MeshBasicMaterial({color:'#ffffff',fog:false}));
+ // Martian crystals are faceted: each face its own shade of the deep blue.
+ if(mars)shade(shardGeo);
+ const crystalMat=keep(new THREE.MeshBasicMaterial({color:'#ffffff',vertexColors:mars,fog:false}));
  const crystalItems=cave.crystals.map(c=>({...c,key:`${c.x},${c.z}`}));
  const crystals=new THREE.InstancedMesh(shardGeo,crystalMat,Math.max(1,crystalItems.length));crystals.count=crystalItems.length;crystals.frustumCulled=false;root.add(crystals);
- const crystalColor=new THREE.Color();crystalItems.forEach((c,i)=>{crystalColor.copy(GLOW[c.hue]).multiplyScalar(1.15);crystals.setColorAt(i,crystalColor);});if(!crystalItems.length)crystals.setColorAt(0,crystalColor.set('#000'));
+ const crystalColor=new THREE.Color();crystalItems.forEach((c,i)=>{crystalColor.copy(GLOW[c.hue]).multiplyScalar(mars?1:1.15);crystals.setColorAt(i,crystalColor);});if(!crystalItems.length)crystals.setColorAt(0,crystalColor.set('#000'));
+
+ // Martian water: dark green-blue, running, scummed with algae toward the banks, catching the lamp and every glow.
+ // Fords are the same water with stepping stones through it.
+ const waterItems=cave.tiles.filter(t=>t.type==='water'||t.type==='ford');
+ const waterMat=keep(new THREE.ShaderMaterial({fog:false,uniforms:{...sight,uGround:{value:groundMap},uTime:{value:0}},
+  vertexShader:'varying vec2 vCaveLocal;varying float vSeen;void main(){vec4 w=instanceMatrix*vec4(position,1.0);vCaveLocal=w.xz;vSeen=1.0;gl_Position=projectionMatrix*modelViewMatrix*w;}',
+  fragmentShader:SIGHT_PARS+`uniform sampler2D uGround;uniform float uTime;
+   void main(){
+    vec2 p=vCaveLocal;float seen=caveSeen(p);
+    float bank=1.0-smoothstep(.55,.95,texture2D(uGround,(p/${CAVE_CELL}.0+vec2(${SEEN_X0}.5,${SEEN_Z0}.5))/${SEEN_SIZE}.0).g);
+    vec2 flow=vec2(uTime*.35,uTime*.12);
+    float ripple=caveNoise(p*2.3+flow)*.6+caveNoise(p*5.1-flow*1.7)*.4;
+    float caustic=pow(1.0-abs(caveNoise(p*2.8+flow*.8)-caveNoise(p*3.3-flow*.6)),9.0);
+    vec3 col=mix(vec3(.02,.09,.12),vec3(.07,.27,.26),clamp(bank*.8+ripple*.35,0.0,1.0));
+    float scum=smoothstep(.5,.72,caveNoise(p*1.4+vec2(uTime*.04,0.0))+bank*.45)*(.6+.4*caveNoise(p*9.0));
+    col=mix(col,vec3(.07,.22,.05)*(.7+.6*caveNoise(p*14.0)),scum*.85);
+    vec3 glow=caveGlow(p),light=caveSight(p)*caveGrit(p)+glow;
+    vec3 lit=col*light*2.2+light*(caustic*.5+pow(ripple,4.0)*.6)*(1.0-scum)+glow*.35*(1.0-scum);
+    // Plankton drifting with the current, glowing faintly whether lit or not.
+    vec2 pq=(p+flow*1.4)*4.5,pc=floor(pq);float plankton=step(.9,caveHash(pc))*(1.0-smoothstep(.05,.22,length(fract(pq)-.5)))*(.5+.5*sin(uTime*2.0+caveHash(pc+3.0)*30.0));
+    gl_FragColor=vec4(mix(col*(vec3(.42,.55,.85)*.07+glow*.5),lit,seen)+vec3(.15,.75,.85)*plankton*(1.0-scum)*.5,1.0);
+   }`}));
+ const water=keep(new THREE.InstancedMesh(keep(new THREE.PlaneGeometry(2.5,2.5).rotateX(-Math.PI/2)),waterMat,Math.max(1,waterItems.length)));water.count=waterItems.length;water.frustumCulled=false;root.add(water);
+ const stoneItems=cave.tiles.filter(t=>t.type==='ford').flatMap(t=>[[-.55,-.45],[.5,-.15],[-.1,.5],[.6,.62],[-.7,.4]].map(([a,b],i)=>({key:t.key,x:t.x,z:t.z,ox:a+(hash2(t.x+i,t.z)-.5)*.3,oz:b+(hash2(t.z,t.x+i)-.5)*.3,s:.36+hash2(t.x*3+i,t.z)*.18})));
+ if(stoneItems.length)litGroup(shade(jitter(new THREE.DodecahedronGeometry(1,0).scale(1,.3,1),.05,.05)),rockMat,stoneItems,t=>{dummy.position.set(t.x*2+t.ox,-.1,t.z*2+t.oz);dummy.rotation.set(0,t.ox*5,0);dummy.scale.setScalar(t.s);},()=>'#6e5a50');
+
+ // Fungus at the foot of the walls, glowing green on its own: capped clusters, lantern stalks, and shelves up the rock.
+ // Fireflies drift round each.
+ const fungusItems=(cave.fungi??[]).map(f=>({...f,key:`${f.x},${f.z}`,kind:f.seed<.45?0:f.seed<.75?1:2}));
+ const fungusMat=keep(new THREE.ShaderMaterial({fog:false,side:THREE.DoubleSide,uniforms:{...sight,uTime:{value:0}},
+  vertexShader:`varying vec2 vCaveLocal;varying float vSeen;attribute vec3 aTint;attribute float aGlow;varying vec3 vTint;varying float vGlow;varying float vPhase;varying float vUp;
+   void main(){vec4 w=instanceMatrix*vec4(position,1.0);vCaveLocal=w.xz;vSeen=1.0;vTint=aTint;vGlow=aGlow;vPhase=instanceMatrix[3].x*.37+instanceMatrix[3].z*.61;
+    vUp=normalize(mat3(instanceMatrix)*normal).y;gl_Position=projectionMatrix*modelViewMatrix*w;}`,
+  fragmentShader:SIGHT_PARS+`uniform float uTime;varying vec3 vTint;varying float vGlow;varying float vPhase;varying float vUp;
+   void main(){float seen=caveSeen(vCaveLocal);vec3 glow=caveGlow(vCaveLocal);
+    vec3 lit=vTint*(.7+.3*max(0.0,vUp))*(caveSight(vCaveLocal)*1.2+glow*.6),ghost=vTint*(vec3(.42,.55,.85)*.07+glow*.3);
+    gl_FragColor=vec4(mix(ghost,lit,seen)+vec3(.3,1.0,.45)*vGlow*(.72+.28*sin(uTime*1.3+vPhase))*.9,1.0);}`}));
+ if(fungusItems.length)[0,1,2].forEach(kind=>{
+  const items=fungusItems.filter(f=>f.kind===kind);if(!items.length)return;
+  const mesh=new THREE.InstancedMesh(keep(fungusGeometry(kind)),fungusMat,items.length);mesh.frustumCulled=false;root.add(mesh);
+  groups.push({mesh,items,place:f=>{dummy.position.set(f.x*2+f.dx*.62,0,f.z*2+f.dz*.62);dummy.rotation.set(0,Math.atan2(-f.dx,-f.dz),0);const k=f.size*1.9;dummy.scale.set(k*(f.seed*100%2<1?-1:1),k,k);}});
+ });
+ const FIREFLIES=6,flyCount=fungusItems.length*FIREFLIES,flyPositions=new Float32Array(Math.max(1,flyCount)*3),flyPhase=new Float32Array(Math.max(1,flyCount));
+ for(let i=0;i<flyCount;i++)flyPhase[i]=hash2(i*1.3,i*.7);
+ const flyGeo=keep(new THREE.BufferGeometry());flyGeo.setAttribute('position',new THREE.BufferAttribute(flyPositions,3));flyGeo.setAttribute('aPhase',new THREE.BufferAttribute(flyPhase,1));flyGeo.setDrawRange(0,flyCount);
+ const flyMat=keep(new THREE.ShaderMaterial({transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,uniforms:{uTime:{value:0},uPointScale:{value:Math.min(2,window.devicePixelRatio||1)}},
+  vertexShader:'uniform float uPointScale;uniform float uTime;attribute float aPhase;varying float vBlink;void main(){vBlink=pow(.5+.5*sin(uTime*(1.1+aPhase*1.4)+aPhase*40.0),4.0);gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);gl_PointSize=(4.0+7.0*vBlink)*uPointScale;}',
+  fragmentShader:'varying float vBlink;void main(){float d=length(gl_PointCoord-.5),core=1.0-smoothstep(.04,.16,d),halo=1.0-smoothstep(.1,.5,d);gl_FragColor=vec4(vec3(.75,1.0,.4)*(core*1.2+halo*.35)*(.15+.85*vBlink),1.0);}'}));
+ const flies=new THREE.Points(flyGeo,flyMat);flies.frustumCulled=false;root.add(flies);
+ function updateFlies(){
+  fungusItems.forEach((f,j)=>{const shown=cellKnown(f.key),cx=f.x*2-f.dx*.6,cz=f.z*2-f.dz*.6;
+   for(let k=0;k<FIREFLIES;k++){const i=j*FIREFLIES+k,ph=flyPhase[i]*40,sp=.25+flyPhase[i]*.3;
+    flyPositions.set(shown?[cx+Math.sin(time*sp+ph)*1.6+Math.sin(time*1.3+ph*2)*.25,.5+.9*(.5+.5*Math.sin(time*sp*1.7+ph*3))+Math.sin(time*2.1+ph)*.12,cz+Math.cos(time*sp*.8+ph*1.3)*1.6+Math.cos(time*1.7+ph)*.25]:[0,-50,0],i*3);}});
+  if(flyCount)flyGeo.attributes.position.needsUpdate=true;
+ }
 
  // Finds. Titanium seams only show in the lamp; relics glow on their own and are spotted from afar like crystals.
  const loot=cave.loot,lootByCrystal=new Map(loot.filter(l=>l.kind==='crystal').map(l=>[`${l.x},${l.z},${l.dx},${l.dz}`,l.key]));
  crystalItems.forEach(c=>c.loot=lootByCrystal.get(`${c.x},${c.z},${c.dx},${c.dz}`));
- const collectibleCrystals=crystalItems.filter(c=>c.loot),rareEarthModels=glowingItems('rareearth',collectibleCrystals.length,1.3);
+ const collectibleCrystals=crystalItems.filter(c=>c.loot),rareEarthModels=mars?null:glowingItems('rareearth',collectibleCrystals.length,1.3);
  const seamParts=[[0,0,0,.34],[.3,.22,.05,.22],[-.28,-.18,.04,.26],[.12,-.32,.03,.18],[-.1,.36,.02,.2]].map(([x,y,z,r],i)=>new THREE.OctahedronGeometry(r,0).rotateZ(i).rotateX(i*.7).translate(x,y,z).toNonIndexed());
  const seamGeo=shade(mergeGeometries(seamParts));seamParts.forEach(g=>g.dispose());
  const seams=loot.filter(l=>l.kind==='ore').map(l=>({...l,key:`${l.x},${l.z}`,loot:l.key}));
@@ -266,7 +333,7 @@ export function createCaveView(seed,id,parent,zone=0,itemModels=null){
  const vents=new THREE.Points(ventGeo,ventMat);vents.frustumCulled=false;root.add(vents);
 
  // The shaft up: a cold column of light and a rope. The shaft down: a black pit with a rope ladder over the lip.
- const shaftLight=keep(new THREE.MeshBasicMaterial({color:'#8fa6d0',transparent:true,opacity:.07,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,fog:false}));
+ const shaftLight=keep(new THREE.MeshBasicMaterial({color:mars?'#d29a70':'#8fa6d0',transparent:true,opacity:.07,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,fog:false}));
  const ropeMat=keep(new THREE.MeshBasicMaterial({color:'#2a2622',fog:false}));
  if(cave.up){const column=new THREE.Mesh(keep(new THREE.CylinderGeometry(.85,1.05,40,18,1,true)),shaftLight);column.position.set(cave.up.x*2,20,cave.up.z*2);root.add(column);
   const rope=new THREE.Mesh(keep(new THREE.BoxGeometry(.05,14,.05)),ropeMat);rope.position.set(cave.up.x*2+.35,7,cave.up.z*2-.2);root.add(rope);}
@@ -282,7 +349,7 @@ export function createCaveView(seed,id,parent,zone=0,itemModels=null){
   vertexShader:`uniform float uPointScale;attribute float aSeed;varying vec2 vCaveLocal;varying float vSeed;void main(){vCaveLocal=position.xz;vSeed=aSeed;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);gl_PointSize=(1.5+aSeed*2.5)*uPointScale;}`,
   fragmentShader:SIGHT_PARS.replace('varying float vSeen;','')+`varying float vSeed;void main(){vec2 c=gl_PointCoord-.5;float a=smoothstep(.5,.1,length(c));
    vec2 d=vCaveLocal-uPlayer;float r=length(d);float beam=smoothstep(.6,.92,dot(d/max(.01,r),uFacing))*pow(max(0.0,1.0-r/${BEAM_RANGE.toFixed(1)}),1.2);
-   vec3 glow=(vec3(.78,.8,.84)*(beam*.55+.05*(1.0-smoothstep(1.0,6.0,r)))*uFlicker+caveGlow(vCaveLocal)*.5)*(.4+.6*vSeed);gl_FragColor=vec4(glow*a,1.0);}`}));
+   vec3 glow=(vec3(${mars?'.66,.86,.62':'.78,.8,.84'})*(beam*.55+.05*(1.0-smoothstep(1.0,6.0,r)))*uFlicker+caveGlow(vCaveLocal)*${mars?'.6':'.5'})*(.4+.6*vSeed);gl_FragColor=vec4(glow*a,1.0);}`}));
  const dust=new THREE.Points(dustGeo,dustMat);dust.frustumCulled=false;root.add(dust);
 
  let flicker=0,flickerSeed=0;
@@ -296,7 +363,8 @@ export function createCaveView(seed,id,parent,zone=0,itemModels=null){
   ...relicItems.map(r=>({key:r.key,loot:r.loot,x:r.x*2,z:r.z*2,color:RELIC[r.kind].color,strength:RELIC[r.kind].light,pulse:r.kind==='heart'})),
   ...crystalItems.map(c=>({key:c.key,loot:c.loot,x:c.x*2+c.dx*(c.loot&&rareEarthModels ? .35 : .8),z:c.z*2+c.dz*(c.loot&&rareEarthModels ? .35 : .8),color:c.loot&&rareEarthModels?GLOW.violet:GLOW[c.hue],strength:.55*c.size})),
   ...cave.vents.map(v=>({key:`${v.x},${v.z}`,x:v.x*2,z:v.z*2,color:GLOW.vent,strength:.28})),
-  ...(cave.up?[{key:`${cave.up.x},${cave.up.z}`,x:cave.up.x*2,z:cave.up.z*2,color:GLOW.sky,strength:.75,always:true}]:[]),
+  ...(cave.up?[{key:`${cave.up.x},${cave.up.z}`,x:cave.up.x*2,z:cave.up.z*2,color:mars?GLOW.dust:GLOW.sky,strength:.75,always:true}]:[]),
+  ...fungusItems.map(f=>({key:f.key,x:f.x*2+f.dx*.6,z:f.z*2+f.dz*.6,color:GLOW.fungus,strength:.42*f.size,radius:5.5,pulse:'fungus',phase:f.seed*20})),
  ];
 
  function place(p){
@@ -306,6 +374,7 @@ export function createCaveView(seed,id,parent,zone=0,itemModels=null){
   crystalItems.forEach((c,i)=>{const wall=c.dx||c.dz;dummy.position.set(c.x*2+c.dx*.78,wall?.2:0,c.z*2+c.dz*.78);dummy.rotation.set(-c.dz*.5,(c.x*7+c.z*3)%6,c.dx*.5);dummy.scale.setScalar(cellKnown(c.key)&&!gone(c)?c.size:0);
    if(rareEarthModels&&c.loot){dummy.position.set(c.x*2+c.dx*.35,0,c.z*2+c.dz*.35);dummy.rotation.set(0,(c.x*7+c.z*3)%6,0);dummy.updateMatrix();rareEarthModels.set(crystalIndex++,dummy.matrix);dummy.scale.setScalar(0);}
    dummy.updateMatrix();crystals.setMatrixAt(i,dummy.matrix);});crystals.instanceMatrix.needsUpdate=true;rareEarthModels?.finish(crystalIndex);
+  waterItems.forEach((t,i)=>{dummy.position.set(t.x*2,-.2,t.z*2);dummy.rotation.set(0,0,0);dummy.scale.setScalar(cellKnown(t.key)?1:0);dummy.updateMatrix();water.setMatrixAt(i,dummy.matrix);});water.instanceMatrix.needsUpdate=true;
   pitItems.forEach((t,i)=>{dummy.position.set(t.x*2,-.3,t.z*2);dummy.rotation.set(0,0,0);dummy.scale.setScalar(cellKnown(t.key)?1:0);dummy.updateMatrix();pits.setMatrixAt(i,dummy.matrix);});pits.instanceMatrix.needsUpdate=true;
  }
  function ease(dt){
@@ -317,7 +386,7 @@ export function createCaveView(seed,id,parent,zone=0,itemModels=null){
  function updateGlow(p){
   const burning=[...flaresHere.map(({f,now})=>({x:now.x,z:now.z,color:FLARE_GLOW,strength:FLARE_LIGHT.strength*flareLight(f,now),radius:FLARE_LIGHT.reach})),...dropsHere.map(d=>({x:d.x,z:d.z,color:PACK_GLOW,strength:Math.sin(time*4)>.2?.45:.1}))];
   const near=[...burning.map(s=>({s,d:0})),...glowSources.filter(s=>(s.always||seen.has(s.key))&&!(s.loot&&taken.has(s.loot))).map(s=>({s,d:Math.hypot(s.x-p.x,s.z-p.z)})).sort((a,b)=>a.d-b.d)].slice(0,LIGHTS);
-  for(let i=0;i<LIGHTS;i++){const n=near[i];if(n){sight.uGlow.value[i].set(n.s.x,n.s.z,n.s.strength*(n.s.key&&cave.types.get(n.s.key)==='vent'?.8+.2*Math.sin(time*2+i):n.s.pulse?.75+.25*Math.sin(time*2.4):1),n.s.radius??6);sight.uGlowColor.value[i].copy(n.s.color);}else sight.uGlow.value[i].set(0,0,0,6);}
+  for(let i=0;i<LIGHTS;i++){const n=near[i];if(n){sight.uGlow.value[i].set(n.s.x,n.s.z,n.s.strength*(n.s.key&&cave.types.get(n.s.key)==='vent'?.8+.2*Math.sin(time*2+i):n.s.pulse==='fungus'?.8+.2*Math.sin(time*1.3+n.s.phase):n.s.pulse?.75+.25*Math.sin(time*2.4):1),n.s.radius??6);sight.uGlowColor.value[i].copy(n.s.color);}else sight.uGlow.value[i].set(0,0,0,6);}
  }
  function updateVents(dt){
   cave.vents.forEach((v,j)=>{for(let k=0;k<VENT_PUFFS;k++){const i=j*VENT_PUFFS+k;ventLife[i]+=dt*(.25+(k%5)*.04);if(ventLife[i]>1)ventLife[i]-=1;const l=ventLife[i],a=k*2.4;ventPositions.set([v.x*2+Math.cos(a)*l*.6,.1+l*2.4,v.z*2+Math.sin(a)*l*.6],i*3);}});
@@ -349,7 +418,7 @@ export function createCaveView(seed,id,parent,zone=0,itemModels=null){
    dustPositions[o]=p.x+((dustPositions[o]-p.x+14)%28+28)%28-14;dustPositions[o+2]=p.z+((dustPositions[o+2]-p.z+14)%28+28)%28-14;
   }
   dustGeo.attributes.position.needsUpdate=true;
-  pitMat.uniforms.uTime.value=time;
+  pitMat.uniforms.uTime.value=waterMat.uniforms.uTime.value=fungusMat.uniforms.uTime.value=flyMat.uniforms.uTime.value=time;updateFlies();
   updateVents(dt);updateGlow(p);ease(dt);
   clock+=dt;if(clock<.09&&Math.abs(lastFacing-p.facing)<.18&&Math.hypot(lastX-p.x,lastZ-p.z)<.5)return;
   clock=0;lastFacing=p.facing;lastX=p.x;lastZ=p.z;
@@ -360,7 +429,7 @@ export function createCaveView(seed,id,parent,zone=0,itemModels=null){
   for(const t of cave.tiles)if(visible.has(t.key))for(let dx=-2;dx<=2;dx++)for(let dz=-2;dz<=2;dz++)if(!cave.open.has(`${t.x+dx},${t.z+dz}`))seenTarget[at(t.x+dx,t.z+dz)]=1;
   // Crystals shine far beyond the headlamp, so they are spotted from anywhere in line of sight.
   const cx=Math.round(p.x/CAVE_CELL),cz=Math.round(p.z/CAVE_CELL);
-  for(const c of [...crystalItems,...relicItems])if(!seen.has(c.key)&&Math.hypot(c.x*2-p.x,c.z*2-p.z)<34&&lineVisible(cave,cx,cz,c.x,c.z))seen.add(c.key);
+  for(const c of [...crystalItems,...relicItems,...fungusItems])if(!seen.has(c.key)&&Math.hypot(c.x*2-p.x,c.z*2-p.z)<34&&lineVisible(cave,cx,cz,c.x,c.z))seen.add(c.key);
   let changed=false;for(const key of visible)if(!seen.has(key)){seen.add(key);changed=true;}
   if(changed){state.exploredCaves??={};state.exploredCaves[memory]=[...seen];}
   // The surface above opens over what is in view and over the rock behind its walls, so no slab of it lies across a wall top.
@@ -372,6 +441,36 @@ export function createCaveView(seed,id,parent,zone=0,itemModels=null){
   document.body.dataset.caveVisible=String(visible.size);document.body.dataset.caveExplored=String(seen.size);document.body.style.setProperty('--cave-depth',depth.toFixed(3));
  }
  return {root,roofMap,cave,sight,update,known:cellKnown,dispose(){disposed=true;parent.remove(root);seenMap.dispose();groundMap.dispose();itemBatches.forEach(b=>b.dispose());disposables.forEach(d=>d.dispose());crystals.dispose();relics.dispose();halos.dispose();packHalos.dispose();packs.dispose();groups.forEach(g=>g.mesh.dispose());}};
+}
+
+/**
+ * One fungus growth in local space (the wall is z = 0, the room +z, the floor y = 0), with a tint and a glow per vertex:
+ * 0 a cluster of capped mushrooms with glowing gills, 1 lantern stalks with a bulb at each tip, 2 shelves up the wall.
+ */
+function fungusGeometry(kind){
+ const parts=[],r=(()=>{let s=kind*977+13;return ()=>(s=s*16807%2147483647)/2147483647;})();
+ const part=(g,tint,glow)=>{g=g.index?g.toNonIndexed():g;g.deleteAttribute('uv');const n=g.attributes.position.count;
+  g.setAttribute('aTint',new THREE.Float32BufferAttribute(Array.from({length:n},()=>tint).flat(),3));g.setAttribute('aGlow',new THREE.Float32BufferAttribute(new Array(n).fill(glow),1));parts.push(g);};
+ if(kind===0)for(let k=0;k<7;k++){
+  const x=(r()-.5)*1.4,z=.1+r()*.55,back=1-z/.8,h=.12+(.25+.35*back)*r()+.1,cap=.07+.12*r()*(.6+back),lean=(r()-.5)*.35;
+  const q=new THREE.Quaternion().setFromEuler(new THREE.Euler(lean,0,(r()-.5)*.35)),at=new THREE.Vector3(x,0,z);
+  part(new THREE.CylinderGeometry(cap*.28,cap*.4,h,6).translate(0,h/2,0).applyQuaternion(q).translate(at.x,at.y,at.z),[.6,.64,.52],.1);
+  part(new THREE.SphereGeometry(cap,9,4,0,Math.PI*2,0,Math.PI/2).scale(1,.8,1).translate(0,h,0).applyQuaternion(q).translate(at.x,at.y,at.z),[.14,.42,.26],.55);
+  // Glowing warts on the cap, so it reads as alight from above too.
+  for(let w=0;w<4;w++){const a=r()*Math.PI*2,t=.25+r()*.5,y=Math.cos(t*Math.PI/2)*cap*.8,d=Math.sin(t*Math.PI/2)*cap;
+   part(new THREE.SphereGeometry(cap*(.13+.08*r()),5,4).translate(Math.cos(a)*d,h+y,Math.sin(a)*d).applyQuaternion(q).translate(at.x,at.y,at.z),[.7,1,.6],1.8);}
+  part(new THREE.CircleGeometry(cap*.94,9).rotateX(Math.PI/2).translate(0,h-.004,0).applyQuaternion(q).translate(at.x,at.y,at.z),[.3,1,.5],1.4);
+ }else if(kind===1)for(let k=0;k<6;k++){
+  const x=(r()-.5)*1.3,z=.08+r()*.4,h=.45+r()*.9,bend=(r()-.5)*.5,pts=[];
+  for(let i=0;i<=5;i++){const t=i/5;pts.push(new THREE.Vector3(x+bend*t*t,h*t,z+.25*t*t*r()));}
+  part(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts),8,.025+.012*r(),5,false),[.42,.5,.38],.2);
+  const tip=pts[5];part(new THREE.SphereGeometry(.06+.05*r(),8,6).scale(1,1.3,1).translate(tip.x,tip.y,tip.z),[.55,1,.45],1.6);
+ }else for(let k=0;k<6;k++){
+  const x=(r()-.5)*1.2,y=.25+r()*1.5,rad=.14+.16*r();
+  part(new THREE.CylinderGeometry(rad,rad*.9,.05,10,1,false,-Math.PI/2,Math.PI).translate(x,y,0),[.3,.42,.26],.25);
+  part(new THREE.CylinderGeometry(rad*.92,rad*.8,.02,10,1,false,-Math.PI/2,Math.PI).translate(x,y-.035,0),[.3,1,.5],1.2);
+ }
+ const g=mergeGeometries(parts);parts.forEach(p=>p.dispose());return g;
 }
 
 // Deterministic value noise for shaping rock.
@@ -388,7 +487,7 @@ const fbm2=(x,y)=>noise2(x,y)*.55+noise2(x*2.1+5.2,y*2.1+1.3)*.3+noise2(x*4.3+9.
  * and a shelf of rock running back from it. `anchors` are wall spots (nests, crystals, seams) where the face is kept
  * flat so what is mounted there still sits on it.
  */
-function buildWallSkin(cave,edges,tileIndex,anchors){
+function buildWallSkin(cave,edges,tileIndex,anchors,mars=false){
  const segs=edges.map(e=>{const cx=e.x*2+e.dx,cz=e.z*2+e.dz,tx=-e.dz,tz=e.dx;return {a:[cx-tx,cz-tz],b:[cx+tx,cz+tz],cell:tileIndex.get(e.key),used:false};});
  const byStart=new Map();for(const g of segs){const k=g.a.join(',');if(!byStart.has(k))byStart.set(k,[]);byStart.get(k).push(g);}
  const loops=[];
@@ -427,7 +526,7 @@ function buildWallSkin(cave,edges,tileIndex,anchors){
  const n=geo.attributes.normal,p=geo.attributes.position,colors=[];
  for(let i=0;i<n.count;i++){
   const lit=.62+Math.max(0,n.getY(i))*.28+Math.max(0,n.getX(i))*.1,tone=.82+.26*fbm2(p.getX(i)*.7,p.getZ(i)*.7+p.getY(i)*.9);
-  colors.push(.392*lit*tone,.459*lit*tone,.486*lit*tone);}
+  if(mars)colors.push(.55*lit*tone,.34*lit*tone,.25*lit*tone);else colors.push(.392*lit*tone,.459*lit*tone,.486*lit*tone);}
  geo.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
  return geo;
 }

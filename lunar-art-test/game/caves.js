@@ -1,4 +1,5 @@
 // Pure seeded cave topology and line-of-sight; no rendering dependencies.
+import {planetOf} from './planets.js';
 const cache=new Map();
 export const CAVE_CELL=2;
 /** Each entrance leads down through three zones joined by shafts. */
@@ -37,7 +38,7 @@ export function caveLayout(seed,id=0,zone=0){
  // A loop around one room rewards exploration without making every branch a dead end.
  if(rooms.length>7){const a=rooms[3],b=rooms[7];passage(a.x,a.z,b.x,b.z,0);}
  const last=main[main.length-1];
- const layout={id,zone,open:new Set(cells),cells,rooms,
+ const layout={id,zone,mars:planetOf(seed)==='mars',open:new Set(cells),cells,rooms,
   start:zone===0?{x:0,z:0}:{x:0,z:1},
   up:zone>0?{x:0,z:0}:null,
   down:zone<CAVE_ZONES-1?{x:last.x,z:last.z}:null,
@@ -54,10 +55,15 @@ export function caveLayout(seed,id=0,zone=0){
 /** The infestation thickens with depth: nests per zone, silk walls sealing side pockets, webs strung in corners. */
 export const INFESTATION=Object.freeze({nests:[2,4,6],silk:[1,2,3],webs:[3,6,10],growths:[2,5,9]});
 
-/** Seeded features per room, each kept only if every walkable cell stays reachable from the start. */
+/**
+ * Seeded features per room, each kept only if every walkable cell stays reachable from the start.
+ * Martian caves are wet: rivers cut across rooms (water stops you; a ford of stepping stones does not), moss and algae
+ * carpet the banks, glowing fungus grows in groves along the walls, and the crystals are a deep blue. Nothing spins silk
+ * there, and the nests are the brood's, not the crawlers'.
+ */
 function decorate(layout,rng){
- const {cells,rooms,zone}=layout,types=new Map(),blocked=new Set();
- const spires=[],crystals=[],vents=[],nests=[],webs=[],growths=[],goo=[];
+ const {cells,rooms,zone,mars}=layout,types=new Map(),blocked=new Set();
+ const spires=[],crystals=[],vents=[],nests=[],webs=[],growths=[],goo=[],fungi=[];
  const protect=new Set();
  const guard=(p,r=1)=>{if(!p)return;for(let dx=-r;dx<=r;dx++)for(let dz=-r;dz<=r;dz++)protect.add(caveKey(p.x+dx,p.z+dz));};
  guard(layout.start,1);guard(layout.up,1);guard(layout.down,1);guard(layout.heart,2);
@@ -71,19 +77,54 @@ function decorate(layout,rng){
   let total=0;for(const k of cells)if(!blocked.has(k))total++;return seen.size===total;
  }
  function tryBlock(keys,type){
-  if(keys.some(k=>!cells.has(k)||blocked.has(k)||protect.has(k)||types.has(k)))return false;
+  if(keys.some(k=>!cells.has(k)||blocked.has(k)||protect.has(k)||(types.has(k)&&types.get(k)!=='moss')))return false;
   keys.forEach(k=>blocked.add(k));
   if(!connected()){keys.forEach(k=>blocked.delete(k));return false;}
   keys.forEach(k=>types.set(k,type));return true;
  }
  const interior=room=>{const out=[];for(let dx=-room.rx+1;dx<=room.rx-1;dx++)for(let dz=-room.rz+1;dz<=room.rz-1;dz++){const k=caveKey(room.x+dx,room.z+dz);if(cells.has(k)&&!protect.has(k))out.push({x:room.x+dx,z:room.z+dz,key:k});}return out;};
  const pick=list=>list[Math.floor(rng()*list.length)];
- const boundary=room=>{const out=[];for(let dx=-room.rx;dx<=room.rx;dx++)for(let dz=-room.rz;dz<=room.rz;dz++){const x=room.x+dx,z=room.z+dz;if(!cells.has(caveKey(x,z)))continue;for(const [ex,ez] of [[1,0],[-1,0],[0,1],[0,-1]])if(!layout.open.has(caveKey(x+ex,z+ez)))out.push({x,z,dx:ex,dz:ez});}return out;};
+ // On Mars nothing grows on or in the water. (The Moon keeps its layouts as they were, crystals over chasms and all.)
+ const boundary=room=>{const out=[];for(let dx=-room.rx;dx<=room.rx;dx++)for(let dz=-room.rz;dz<=room.rz;dz++){const x=room.x+dx,z=room.z+dz;if(!cells.has(caveKey(x,z))||(mars&&blocked.has(caveKey(x,z))))continue;for(const [ex,ez] of [[1,0],[-1,0],[0,1],[0,-1]])if(!layout.open.has(caveKey(x+ex,z+ez)))out.push({x,z,dx:ex,dz:ez});}return out;};
+ const moss=k=>{if(cells.has(k)&&!blocked.has(k)&&!types.has(k))types.set(k,'moss');};
+ const mossAround=(c,radius,density)=>{for(let dx=-radius;dx<=radius;dx++)for(let dz=-radius;dz<=radius;dz++)if(Math.hypot(dx,dz)<=radius+.3&&rng()<density*(1-.35*Math.hypot(dx,dz)/(radius+1)))moss(caveKey(c.x+dx,c.z+dz));};
+ // A river across the room: a meandering band of water, crossed at a ford (two in a wide room), moss thick on both banks.
+ function river(room){
+  for(let attempt=0;attempt<4;attempt++){
+   // Across the room's long axis where it can, wiggling less on later tries.
+   const across=(room.rx>=room.rz)!==(attempt%2===1),half=across?room.rx:room.rz,phase=rng()*6,wiggle=attempt<2?.8:.4,band=[];
+   if(half<2)continue;
+   for(let d=-half;d<=half;d++){const off=Math.round(Math.sin(d*.75+phase)*wiggle),x=room.x+(across?d:off),z=room.z+(across?off:d),k=caveKey(x,z);
+    if(cells.has(k)&&!protect.has(k)&&!types.has(k)&&!crystals.some(c=>c.x===x&&c.z===z)&&!fungi.some(f=>f.x===x&&f.z===z))band.push({x,z,key:k});}
+   if(band.length<4)continue;
+   const fords=new Set([band[1+Math.floor(rng()*(band.length-2))].key]);
+   if(band.length>=8)fords.add(band[1+Math.floor(rng()*(band.length-2))].key);
+   if(!tryBlock(band.filter(c=>!fords.has(c.key)).map(c=>c.key),'water'))continue;
+   for(const k of fords)types.set(k,'ford');
+   for(const c of band)for(const [ex,ez] of across?[[0,-1],[0,1]]:[[-1,0],[1,0]])if(rng()<.75)moss(caveKey(c.x+ex,c.z+ez));
+   return true;
+  }
+  return false;
+ }
+ // Fungus at the foot of a wall, a little apart from any other.
+ function sprout(room,size){
+  const walls=boundary(room).filter(w=>!protect.has(caveKey(w.x,w.z))&&!blocked.has(caveKey(w.x,w.z))&&!fungi.some(f=>Math.hypot(f.x-w.x,f.z-w.z)<1.5));
+  if(!walls.length)return;const w=pick(walls);
+  fungi.push({x:w.x,z:w.z,dx:w.dx,dz:w.dz,size:(.75+rng()*.5)*size,seed:rng()});moss(caveKey(w.x,w.z));
+ }
  rooms.forEach((room,i)=>{
   if(i===0)return;
   const deep=zone/(2),r=rng();
-  const theme=r<.3?'spires':r<.48?'crystal':r<.6?'ice':r<.72+.1*deep?'hive':r<.86?'vents':'chasm';room.theme=theme;
-  const inside=interior(room);if(!inside.length)return;
+  let theme=mars?(r<.18?'spires':r<.38?'grove':r<.52?'crystal':r<.72?'river':r<.8+.08*deep?'hive':r<.9?'moss':'vents')
+   :r<.3?'spires':r<.48?'crystal':r<.6?'ice':r<.72+.1*deep?'hive':r<.86?'vents':'chasm';
+  const inside=interior(room);room.theme=theme;if(!inside.length)return;
+  if(theme==='river'&&!river(room))theme=room.theme='moss';
+  if(mars&&theme!=='river'&&theme!=='spires'){
+   // A patch of moss in most rooms, a carpet in groves and brood rooms; glowing fungus along the walls.
+   if(theme!=='crystal'||rng()<.4)mossAround(pick(inside),theme==='moss'||theme==='hive'?2+Math.floor(rng()*2):1+Math.floor(rng()*1.5),theme==='moss'?.95:.8);
+   const n=theme==='grove'?4+Math.floor(rng()*3):theme==='hive'?2:1+(rng()<.4?1:0);
+   for(let k=0;k<n;k++)sprout(room,theme==='grove'?1:.75);
+  }
   if(theme==='spires'||(theme==='chasm'&&room.rx<3)){
    let n=2+Math.floor(rng()*4);
    for(let k=0;k<12&&n>0;k++){const c=pick(inside);if(tryBlock([c.key],'spire')){spires.push({x:c.x,z:c.z,h:2.4+rng()*2.6,r:.55+rng()*.4,lean:(rng()-.5)*.2});n--;}}
@@ -92,7 +133,7 @@ function decorate(layout,rng){
    const row=[];for(let dx=-room.rx;dx<=room.rx;dx++){const k=caveKey(room.x+dx,room.z);if(cells.has(k)&&!protect.has(k))row.push({x:room.x+dx,z:room.z,key:k});}
    if(row.length>=4){const bridge=row[1+Math.floor(rng()*(row.length-2))];if(tryBlock(row.filter(c=>c!==bridge).map(c=>c.key),'chasm'))types.set(bridge.key,'bridge');}
   }else if(theme==='crystal'){
-   const walls=boundary(room),n=2+Math.floor(rng()*3),hue=zone===2?'violet':rng()<.6?'cyan':'violet';
+   const walls=boundary(room),n=2+Math.floor(rng()*3),hue=mars?'fremen':zone===2?'violet':rng()<.6?'cyan':'violet';
    for(let k=0;k<n&&walls.length;k++){const w=walls.splice(Math.floor(rng()*walls.length),1)[0];crystals.push({...w,hue,size:.7+rng()*.6});}
    if(rng()<.5){const c=pick(inside);if(tryBlock([c.key],'spire'))crystals.push({x:c.x,z:c.z,dx:0,dz:0,hue,size:1.3});}
   }else if(theme==='ice'){
@@ -116,24 +157,26 @@ function decorate(layout,rng){
  const spare=roomWalls.flatMap(r=>r.walls);
  for(let k=0;k<60&&nests.length<INFESTATION.nests[zone]&&spare.length;k++){const w=spare.splice(Math.floor(rng()*spare.length),1)[0];if(nestOk(w))placeNest(w);}
  // Goo spills from every nest across the floor in front of it, and pools in hive rooms.
- for(const n of nests)goo.push({x:n.x*CAVE_CELL+n.dx*.3,z:n.z*CAVE_CELL+n.dz*.3,r:1.6+rng()*.6,seed:rng()});
- for(const room of rooms)if(room.theme==='hive'){const inside=interior(room);for(let k=0;k<2&&inside.length;k++){const c=pick(inside);goo.push({x:c.x*CAVE_CELL+(rng()-.5),z:c.z*CAVE_CELL+(rng()-.5),r:.9+rng()*.9,seed:rng()});}}
+ if(!mars)for(const n of nests)goo.push({x:n.x*CAVE_CELL+n.dx*.3,z:n.z*CAVE_CELL+n.dz*.3,r:1.6+rng()*.6,seed:rng()});
+ if(!mars)for(const room of rooms)if(room.theme==='hive'){const inside=interior(room);for(let k=0;k<2&&inside.length;k++){const c=pick(inside);goo.push({x:c.x*CAVE_CELL+(rng()-.5),z:c.z*CAVE_CELL+(rng()-.5),r:.9+rng()*.9,seed:rng()});}}
  // Webs strung across inside corners, hive rooms first.
  const corners=[];
  for(const room of [...rooms.filter(r=>r.theme==='hive'),...rooms.filter(r=>r.theme!=='hive')])for(let dx=-room.rx;dx<=room.rx;dx++)for(let dz=-room.rz;dz<=room.rz;dz++){
   const x=room.x+dx,z=room.z+dz;if(!walkable(x,z)||protect.has(caveKey(x,z)))continue;
   for(const [ax,az,bx,bz] of [[1,0,0,1],[0,1,-1,0],[-1,0,0,-1],[0,-1,1,0]])if(!isOpen(x+ax,z+az)&&!isOpen(x+bx,z+bz)&&!corners.some(c=>c.x===x&&c.z===z))corners.push({x,z,ax,az,bx,bz,hive:room.theme==='hive'});
  }
- for(let k=0;k<corners.length&&webs.length<INFESTATION.webs[zone];k++){const c=corners[k];if(c.hive||rng()<.35)webs.push({x:c.x,z:c.z,ax:c.ax,az:c.az,bx:c.bx,bz:c.bz,size:.8+rng()*.6,seed:rng()});}
+ for(let k=0;k<corners.length&&!mars&&webs.length<INFESTATION.webs[zone];k++){const c=corners[k];if(c.hive||rng()<.35)webs.push({x:c.x,z:c.z,ax:c.ax,az:c.az,bx:c.bx,bz:c.bz,size:.8+rng()*.6,seed:rng()});}
  // Coral: branching growths at the foot of a wall, near the nests where there are any.
  const footholds=boundary({x:0,z:27,rx:30,rz:30}).filter(w=>!nests.some(n=>n.x===w.x&&n.z===w.z&&n.dx===w.dx&&n.dz===w.dz)&&!crystals.some(c=>c.x===w.x&&c.z===w.z));
  footholds.sort((a,b)=>Math.min(...nests.map(n=>Math.hypot(n.x-a.x,n.z-a.z)),99)-Math.min(...nests.map(n=>Math.hypot(n.x-b.x,n.z-b.z)),99)+(rng()-.5)*6);
- for(let k=0;k<footholds.length&&growths.length<INFESTATION.growths[zone];k++){const w=footholds[k];if(!protect.has(caveKey(w.x,w.z))&&!growths.some(g=>Math.hypot(g.x-w.x,g.z-w.z)<2))growths.push({...w,size:.7+rng()*.7,seed:rng()});}
+ for(let k=0;k<footholds.length&&!mars&&growths.length<INFESTATION.growths[zone];k++){const w=footholds[k];if(!protect.has(caveKey(w.x,w.z))&&!growths.some(g=>Math.hypot(g.x-w.x,g.z-w.z)<2))growths.push({...w,size:.7+rng()*.7,seed:rng()});}
  // Formations are about .8 across at scale 1, flaring at the foot; the trunk is what stops you. A nest's mound swells
  // half a cell out of its wall.
  const solids=[...spires.map(s=>({x:s.x*CAVE_CELL,z:s.z*CAVE_CELL,r:.62*s.r})),...crystals.filter(c=>!c.dx&&!c.dz).map(c=>({x:c.x*CAVE_CELL,z:c.z*CAVE_CELL,r:.45})),
   ...nests.map(n=>({x:n.x*CAVE_CELL+n.dx*.6,z:n.z*CAVE_CELL+n.dz*.6,r:.5}))];
- Object.assign(layout,{types,spires,crystals,vents,nests,webs,growths,goo,solids,protect});
+ // On Mars the brood's nests sit in a bed of moss.
+ if(mars)for(const n of nests)mossAround({x:n.x-n.dx,z:n.z-n.dz},1,.9);
+ Object.assign(layout,{types,spires,crystals,vents,nests,webs,growths,goo,fungi,solids,protect});
 }
 
 /**
@@ -153,7 +196,7 @@ function spinSilk(layout,rng){
   return (o(1,0)&&o(-1,0)&&!o(0,1)&&!o(0,-1))||(o(0,1)&&o(0,-1)&&!o(1,0)&&!o(-1,0));}).sort((a,b)=>rng()-.5);
  const blocked=new Set();let base=reach(blocked);
  for(const k of corridor){
-  if(silk.length>=INFESTATION.silk[layout.zone])break;
+  if(layout.mars||silk.length>=INFESTATION.silk[layout.zone])break;
   if(!base.has(k))continue;
   blocked.add(k);const after=reach(blocked);
   const sealed=[...base].filter(c=>!after.has(c)&&c!==k);

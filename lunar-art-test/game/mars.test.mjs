@@ -218,3 +218,31 @@ test('a belt carries ore from the drill output straight into the furnace', () =>
   const bars = furnace.out.ironbar + count(crate.slots, 'ironbar') + (carry?.item === 'ironbar' ? carry.n : 0);
   assert.ok(bars >= 2, JSON.stringify(furnace));
 });
+
+test('Martian caves run with rivers, moss and fungus instead of silk, webs and coral', async () => {
+  const { caveLayout, cavePassable, CAVE_ZONES, caveKey, CAVE_CELL } = await import('./caves.js');
+  let rivers = 0, fords = 0, fungi = 0, moss = 0;
+  for (const seed of [1847, 9001, 31337]) for (let id = 0; id < 3; id++) for (let zone = 0; zone < CAVE_ZONES; zone++) {
+    const c = caveLayout(seed + MARS_OFFSET, id, zone);
+    assert.ok(c.mars);
+    assert.equal(c.silk.length + c.webs.length + c.growths.length + c.goo.length, 0);
+    assert.ok(c.nests.length > 0, 'the brood still nests');
+    assert.ok(c.crystals.every(k => k.hue === 'fremen'));
+    const types = c.tiles.map(t => t.type);
+    rivers += types.filter(t => t === 'water').length; fords += types.filter(t => t === 'ford').length; moss += types.filter(t => t === 'moss').length;
+    fungi += c.fungi.length;
+    for (const t of c.tiles) {
+      if (t.type === 'water') assert.ok(!cavePassable(c, t.x * CAVE_CELL, t.z * CAVE_CELL), 'water stops you');
+      if (t.type === 'ford') assert.ok(cavePassable(c, t.x * CAVE_CELL, t.z * CAVE_CELL), 'a ford does not');
+    }
+    // Every walkable cell, the shafts and the finds are still reachable from the start.
+    const seen = new Set([caveKey(c.start.x, c.start.z)]), queue = [[c.start.x, c.start.z]];
+    while (queue.length) { const [x, z] = queue.pop(); for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const k = caveKey(x + dx, z + dz); if (c.cells.has(k) && !seen.has(k)) { seen.add(k); queue.push([x + dx, z + dz]); } } }
+    assert.equal(seen.size, c.cells.size);
+    for (const l of c.loot) assert.ok(seen.has(caveKey(l.x, l.z)), `${l.kind} reachable`);
+  }
+  assert.ok(rivers > 40 && fords > 8 && fungi > 100 && moss > 500, JSON.stringify({ rivers, fords, fungi, moss }));
+  // The Moon's caves are as they were.
+  const moon = caveLayout(1847, 0, 1);
+  assert.ok(!moon.mars && moon.fungi.length === 0 && moon.tiles.every(t => !['water', 'ford', 'moss'].includes(t.type)) && moon.webs.length > 0);
+});
