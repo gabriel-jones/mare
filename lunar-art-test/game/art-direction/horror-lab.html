@@ -1,0 +1,153 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Martian horror lab</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#0b0604;font:13px/1.35 ui-sans-serif,system-ui,-apple-system,sans-serif;color:#e8dcd2;user-select:none}
+canvas#lab{position:fixed;inset:0;width:100%;height:100%;outline:none}
+.panel{position:fixed;top:12px;left:12px;width:262px;max-height:calc(100% - 24px);overflow:auto;background:#1a0f0bcc;border:1px solid #4a2c20;border-radius:10px;padding:10px;backdrop-filter:blur(6px)}
+.panel h2{margin:0 0 8px;font-size:12px;letter-spacing:.14em;color:#8fe39a}
+.panel h3{margin:10px 0 6px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#b3917f;font-weight:600}
+.grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px}
+button{font:inherit;color:#e8dcd2;background:#2a1912;border:1px solid #57362a;border-radius:7px;padding:5px 6px;cursor:pointer}
+button:hover{background:#3a2319}button.on{background:#1f5a2a;border-color:#4fbf62;color:#fff}
+.row{display:flex;gap:6px;align-items:center;margin:5px 0;flex-wrap:wrap}.row label{display:flex;gap:5px;align-items:center;cursor:pointer}
+.note{color:#b39b8c;font-size:12px;margin:6px 0 0}
+.readout{font:11px/1.5 ui-monospace,monospace;color:#d8c4b6;white-space:pre;margin-top:8px;background:#120a07;border-radius:6px;padding:6px}
+</style>
+<script type="importmap">{"imports":{"three":"../../node_modules/three/build/three.module.js","three/addons/":"../../node_modules/three/examples/jsm/"}}</script></head>
+<body><canvas id="lab" tabindex="0"></canvas>
+<div class="panel">
+ <h2>MARTIAN HORROR LAB</h2>
+ <h3>Size</h3><div class="grid" id="kinds"></div>
+ <div class="row"><label><input type="checkbox" id="pack">A pack (one of each)</label></div>
+ <h3>Behaviour</h3><div class="grid" id="modes"></div>
+ <h3>Do it now</h3>
+ <div class="grid"><button id="lash">Whip-arm</button><button id="slam">Slam</button><button id="jet">Jet + ink</button><button id="flinch">Flinch</button><button id="parry">Parry next</button><button id="die">Die → goo</button></div>
+ <h3>View</h3>
+ <div class="grid"><button data-speed=".25">¼×</button><button data-speed=".5">½×</button><button data-speed="1" class="on">1×</button></div>
+ <div class="row"><button id="light-studio" class="on">Studio</button><button id="light-night">Night, headlamp</button></div>
+ <div class="row"><label><input type="checkbox" id="follow" checked>Camera follows</label><label><input type="checkbox" id="free" checked>Break free</label></div>
+ <p class="note">Runs the game's own Martian behaviour (horror.js) against the astronaut. Drag to orbit, scroll to zoom. The astronaut is 1.8 m tall.</p>
+ <div class="readout" id="readout"></div>
+</div>
+<script type="module">
+// Isolated review of what hunts on Mars. Never reads or writes colony saves.
+// ?kind=brood|crawler|drone|brute|matron &mode=hunt|wander|still &pack=1 &night=1
+import * as THREE from 'three';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+import {createAstronaut} from '../actor.js';
+import {KINDS,asKind,createCrawler,hurtCrawler,struggle} from '../crawler.js';
+import {scaled} from '../crawler-view.js';
+import {caveKey} from '../caves.js';
+import {HORROR,stepHorror,coil,jet} from '../horror.js';
+import {createHorrorView} from '../horror-view.js';
+
+const params=new URLSearchParams(location.search),$=id=>document.getElementById(id);
+const canvas=$('lab'),renderer=new THREE.WebGLRenderer({canvas,antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio||1,1.75));renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.1;renderer.shadowMap.enabled=true;
+const astronautGLTF=await new GLTFLoader().loadAsync('../assets/astronaut-v3.glb');
+
+const scene=new THREE.Scene();scene.background=new THREE.Color('#2a150d');scene.fog=new THREE.Fog('#2a150d',30,70);
+{const pmrem=new THREE.PMREMGenerator(renderer),room=new RoomEnvironment();scene.environment=pmrem.fromScene(room,.02).texture;scene.environmentIntensity=.45;room.dispose();pmrem.dispose();}
+const camera=new THREE.PerspectiveCamera(36,1,.05,200);camera.position.set(9,8,13);
+const orbit=new OrbitControls(camera,canvas);orbit.target.set(0,.8,0);orbit.enableDamping=true;orbit.maxDistance=50;
+const hemi=new THREE.HemisphereLight('#ffd2a8','#3d1d12',1.1),key=new THREE.DirectionalLight('#ffd9b0',2.6),rim=new THREE.DirectionalLight('#c9e0ff',1.4);
+key.position.set(-6,12,8);key.castShadow=true;key.shadow.mapSize.set(2048,2048);Object.assign(key.shadow.camera,{left:-14,right:14,top:14,bottom:-14,far:60});rim.position.set(6,5,-8);
+scene.add(hemi,key,rim);
+// Martian ground: rust dust with darker scatter.
+const groundGeo=new THREE.CircleGeometry(30,120).rotateX(-Math.PI/2);
+{const p=groundGeo.attributes.position,col=[];for(let i=0;i<p.count;i++){const x=p.getX(i),z=p.getZ(i),n=.5+.25*Math.sin(x*.7+z*.3)*Math.sin(z*.9-x*.2)+.15*Math.sin(x*2.3+z*1.7);col.push(.42*n+.18,.2*n+.08,.13*n+.05);}groundGeo.setAttribute('color',new THREE.Float32BufferAttribute(col,3));}
+const floor=new THREE.Mesh(groundGeo,new THREE.MeshStandardMaterial({vertexColors:true,roughness:.97}));floor.receiveShadow=true;scene.add(floor);
+for(let i=0;i<40;i++){const r=.2+Math.random()*.6,rock=new THREE.Mesh(new THREE.DodecahedronGeometry(r,0),new THREE.MeshStandardMaterial({color:'#5a2c1c',roughness:.95,flatShading:true}));const a=Math.random()*Math.PI*2,d=11+Math.random()*16;rock.position.set(Math.sin(a)*d,r*.3,Math.cos(a)*d);rock.rotation.set(Math.random(),Math.random(),Math.random());rock.castShadow=rock.receiveShadow=true;scene.add(rock);}
+const astronaut=createAstronaut({...astronautGLTF,scene:SkeletonUtils.clone(astronautGLTF.scene)});scene.add(astronaut.root);
+const headlamp=new THREE.SpotLight('#cfe8ff',0,26,.5,.6,1.4);headlamp.position.set(0,1.55,.25);headlamp.castShadow=true;astronaut.root.add(headlamp);const lampTarget=new THREE.Object3D();lampTarget.position.set(0,.2,8);astronaut.root.add(lampTarget);headlamp.target=lampTarget;
+
+// An open hall for the sim to walk: the same grid a cave zone gives it.
+const cells=new Set();for(let x=-14;x<=14;x++)for(let z=-14;z<=14;z++)if(x*x+z*z<=196)cells.add(caveKey(x,z));
+const cave={cells,open:new Set(cells)};
+const player={x:0,z:0,facing:0,lamp:true,guard:null,health:100};
+
+// The specimens.
+const KIND_NAMES=['brood','crawler','drone','brute','matron'];
+let kind=KIND_NAMES.includes(params.get('kind'))?params.get('kind'):'crawler',mode=['hunt','wander','still'].includes(params.get('mode'))?params.get('mode'):'hunt',pack=params.get('pack')==='1';
+let foes=[],guardT=0,heldT=0,shake=0;
+function spawn(k,at){
+ const c=asKind(createCrawler(at.x,at.z),k);c.facing=Math.atan2(player.x-at.x,player.z-at.z);c.state=mode==='hunt'?'stalk':'lurk';c.patience=1.5;
+ const s=c.size??1,holder=new THREE.Group();holder.scale.setScalar(s);scene.add(holder);
+ const view=createHorrorView(holder,{mode:'studio',size:s,lite:s<1});
+ return {c,s,holder,view};
+}
+function build(){
+ for(const f of foes){f.view.dispose();f.holder.removeFromParent();}
+ Object.assign(player,{x:0,z:0,health:100});
+ const kinds=pack?KIND_NAMES:[kind];
+ foes=kinds.map((k,i)=>{const a=(i/kinds.length)*Math.PI*2+.6,d=7+(KINDS[k].size)*1.5;return spawn(k,{x:Math.sin(a)*d,z:Math.cos(a)*d});});
+ kindButtons.forEach((b,k)=>b.classList.toggle('on',!pack&&k===kind));modeButtons.forEach((b,k)=>b.classList.toggle('on',k===mode));$('pack').checked=pack;
+ const q=new URLSearchParams(location.search);q.set('kind',kind);q.set('mode',mode);q.set('pack',pack?'1':'0');history.replaceState(null,'',location.pathname+'?'+q);
+}
+const kindButtons=new Map(),modeButtons=new Map();
+for(const k of KIND_NAMES){const b=document.createElement('button');b.textContent=k[0].toUpperCase()+k.slice(1);b.title=`size ${KINDS[k].size}, ${KINDS[k].hp} hp`;b.onclick=()=>{kind=k;pack=false;build();};$('kinds').append(b);kindButtons.set(k,b);}
+for(const [id,label] of [['hunt','Hunt you'],['wander','Wander'],['still','Hold still']]){const b=document.createElement('button');b.textContent=label;b.onclick=()=>{mode=id;for(const f of foes)if(f.c.state!=='dead')f.c.state=id==='hunt'?'stalk':'lurk';build.url?.();modeButtons.forEach((x,k)=>x.classList.toggle('on',k===id));};$('modes').append(b);modeButtons.set(id,b);}
+$('pack').onchange=e=>{pack=e.target.checked;build();};
+build();
+
+const live=()=>foes.filter(f=>f.c.state!=='dead');
+const nearest=()=>live().sort((a,b)=>Math.hypot(a.c.x-player.x,a.c.z-player.z)-Math.hypot(b.c.x-player.x,b.c.z-player.z))[0];
+const act=fn=>()=>{const f=nearest();if(f)fn(f.c);};
+$('lash').onclick=act(c=>{c.facing=Math.atan2(player.x-c.x,player.z-c.z);coil(c);});
+$('slam').onclick=act(c=>{coil(c,{slam:true});});
+$('jet').onclick=act(c=>jet(c,player));
+$('flinch').onclick=act(c=>{c.state='hit';c.t=0;c.after='stalk';});
+$('parry').onclick=()=>{guardT=1.6;};
+$('die').onclick=act(c=>hurtCrawler(c,1e4));
+
+let speed=1;document.querySelectorAll('[data-speed]').forEach(b=>b.onclick=()=>{speed=Number(b.dataset.speed);document.querySelectorAll('[data-speed]').forEach(x=>x.classList.toggle('on',x===b));});
+function setLight(night){scene.environmentIntensity=night?.02:.45;hemi.intensity=night?.05:1.1;key.intensity=night?0:2.6;rim.intensity=night?.12:1.4;headlamp.intensity=night?160:0;scene.background.set(night?'#060302':'#2a150d');scene.fog.color.copy(scene.background);$('light-studio').classList.toggle('on',!night);$('light-night').classList.toggle('on',night);}
+$('light-studio').onclick=()=>setLight(false);$('light-night').onclick=()=>setLight(true);if(params.get('night')==='1')setLight(true);
+
+function step(dt){
+ guardT=Math.max(0,guardT-dt);player.guard=guardT>0?'perfect':null;
+ const held=foes.find(f=>f.c.state==='grab');
+ for(const f of foes){
+  const c=f.c,env={cave,player:mode==='hunt'||c.state!=='lurk'&&c.state!=='stalk'?player:{...player,x:c.x+40,z:c.z+40,lamp:false},flares:[]};
+  if(mode==='still'&&(c.state==='stalk'||c.state==='close'||c.state==='lurk')){c.speed=0;c.t+=dt;c.state='lurk';}
+  else for(const e of stepHorror(c,{...env,player:{...env.player,invulnerable:!!held&&held!==f}},dt)){
+   if(e.type==='drag'){player.x+=e.dx;player.z+=e.dz;}
+   if(e.damage)player.health=Math.max(0,player.health-e.damage*(e.type==='hurt'?1:1));
+   if(e.type==='slash'){shake=.4;}
+   if(e.type==='parried'){shake=.3;guardT=0;}
+  }
+  // Dead and melted away: a fresh one crawls in from the edge.
+  if(c.state==='dead'&&c.t>6.5){const k=c.kind,a=Math.random()*Math.PI*2;f.view.dispose();f.holder.removeFromParent();Object.assign(f,spawn(k,{x:Math.sin(a)*11,z:Math.cos(a)*11}));}
+  f.view.update(scaled(c,f.s),dt,{player:{x:player.x/f.s,z:player.z/f.s}});
+ }
+ // Held, the astronaut tears free after a moment (when allowed), as mashing E would.
+ if(held){heldT+=dt;if($('free').checked&&heldT>2.4){struggle(held.c,1,player.facing);heldT=0;}}else heldT=0;
+ if(player.health<=0)player.health=100;
+ const f=nearest(),a=astronaut.root;
+ if(f){const want=Math.atan2(f.c.x-player.x,f.c.z-player.z);player.facing+=Math.atan2(Math.sin(want-player.facing),Math.cos(want-player.facing))*Math.min(1,dt*(held?1:4));}
+ a.position.set(player.x,0,player.z);a.rotation.y=player.facing;
+ astronaut.update({animation:held?'idle':'aimidle',gun:true,speed:0},dt);
+}
+const followAt=new THREE.Vector3();
+function frame(){
+ const dt=Math.min(.05,clock.getDelta())*speed;
+ if(!window.lab.paused)step(dt);
+ const f=nearest()??foes[0];
+ if($('follow').checked&&f){followAt.set((f.c.x+player.x)/2,.8,(f.c.z+player.z)/2);const d=followAt.clone().sub(orbit.target).multiplyScalar(1-Math.exp(-dt*2));orbit.target.add(d);camera.position.add(d);}
+ shake=Math.max(0,shake-dt*1.5);camera.position.x+=(Math.random()-.5)*shake*.15;camera.position.y+=(Math.random()-.5)*shake*.15;
+ orbit.update();
+ const c=f?.c;
+ $('readout').textContent=c?`kind   ${c.kind} · size ${c.size}\nstate  ${c.state}${c.state==='grab'?(c.reel?' (reeling in)':' (feeding)'):c.state==='shriek'?(c.slam?' (slam tell)':' (whip tell)'):''}\nhp     ${Math.ceil(c.hp)} / ${KINDS[c.kind].hp}\nspeed  ${(c.speed??0).toFixed(1)} m/s\nwhip   ${(HORROR.lashRange[1]*Math.sqrt(Math.max(1,c.size))).toFixed(1)} m reach\nsuit   ${Math.ceil(player.health)}${player.guard?' · GUARD':''}`:'';
+ renderer.render(scene,camera);requestAnimationFrame(frame);
+}
+function resize(){renderer.setSize(innerWidth,innerHeight,false);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();}
+addEventListener('resize',resize);resize();
+const clock=new THREE.Clock();
+window.lab={get foes(){return foes;},player,camera,orbit,paused:false,step,
+ /** Sim and render in lockstep, for stills of exact moments while the tab is in the background. */
+ advance(seconds){for(let t=0;t<seconds-1e-6;t+=1/30)step(1/30);renderer.render(scene,camera);},
+ lash:()=>$('lash').onclick(),slam:()=>$('slam').onclick(),jet:()=>$('jet').onclick(),die:()=>$('die').onclick(),parry:()=>$('parry').onclick()};
+requestAnimationFrame(frame);
+</script></body></html>

@@ -377,13 +377,15 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
   blade(state,dt);energy(state,hunt,dt);
   sparks.update(dt,9,1);dust.update(dt,0,2);ichor.update(dt,9,.5);zaps.update(dt,4,3);
   flash.material.opacity=Math.max(0,flash.material.opacity-dt*16);impactFlash.material.opacity=Math.max(0,impactFlash.material.opacity-dt*10);muzzleLight.intensity=Math.max(0,muzzleLight.intensity-dt*800);
-  const p=state.player;
+  const p=state.player,martian=planetOf(seed)==='mars';
   for(const [c,v] of views){
    v.view.update(c,dt,{player:p});
    const at=v.view.position;
    if(v.fresh){v.last.copy(at);v.fresh=false;}
    if(dt>0){v.vel.copy(at).sub(v.last).divideScalar(dt);if(v.vel.lengthSq()>400)v.vel.set(0,0,0);}v.last.copy(at);
    // A thin wisp rises off it; dying, it pours out enough to hide the seizure, thinning as the body melts away.
+   // Martian jelly doesn't smoke: it melts into goo (horror-view.js).
+   if(martian)continue;
    const s=c.state,shroud=s==='dead'?(c.t<.25?100:c.t<4.6?40:40*Math.max(0,1-(c.t-4.6)/1.2)):0;
    let clock=(wisps.get(c)??Math.random())+dt*(s==='dead'?shroud:s==='flee'||s==='lunge'||s==='evade'?12:6);
    for(;clock>1;clock--)smoke.emit(wispFrom.copy(at),v.vel,s==='dead'?.6:.15);

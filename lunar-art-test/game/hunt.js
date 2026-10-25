@@ -6,6 +6,8 @@ import {WEAPONS,stepArms,pullTrigger,burnTank,heldWeapon,armsOf,reload} from './
 import {CRAWLER,KINDS,PARRY,blocks,PLAYER_RADIUS,radiusOf,partsOf,partNear,walkable,asKind,createCrawler,stepCrawler,struggle,hurtCrawler,scorchCrawler,shotEnd,spill,createDodge,startDodge,stepDodge} from './crawler.js';
 import {SHAPE,createCentipede,huntCentipede} from './centipede.js';
 import {ROSTER_KINDS,caveRoster} from './roster.js';
+import {stepHorror} from './horror.js';
+import {onMars} from './planets.js';
 
 /**
  * Crawlers in the caves, and the player's answer to them: the weapons (arms.js), the dodge roll and breaking free of
@@ -127,7 +129,7 @@ export function stepHunt(hunt,state,dt,rng=Math.random){
  // Crawlers shy from the flamethrower's jet as from a flare.
  if(hunt.flame)flares.push(...hunt.flame.points);
  const hurt=amount=>{p.health=Math.max(0,(p.health??100)-amount);p.calm=0;};
- const caveOpen=(x,z)=>walkable(cave,x,z,.4);
+ const caveOpen=(x,z)=>walkable(cave,x,z,.4),mars=onMars(state);
  for(const c of hunt.crawlers){
   if(c.kind==='centipede'){
    // It feels the player through the rock from anywhere in the zone; a roll or a jump carries them clear of a blow.
@@ -148,7 +150,7 @@ export function stepHunt(hunt,state,dt,rng=Math.random){
   // One at a time: while something has hold of the player the others cannot land a blow.
   const env={cave,player:{x:p.x,z:p.z,facing:p.facing,lamp:hunt.lampShort<=0,invulnerable:dash.invulnerable||(held&&held!==c)||(p.y??0)>.6,guard:p.guard},flares};
   const might=KINDS[c.kind]?.might??1;
-  for(const e of stepCrawler(c,env,dt,rng)){
+  for(const e of (mars?stepHorror:stepCrawler)(c,env,dt,rng)){
    if(e.type==='grab'||e.type==='slash'||e.type==='hurt')hurt(e.damage*might);
    if(e.type==='slash')hunt.lampShort=e.short;
    if(e.type==='drag'){if(cavePassable(cave,p.x+e.dx,p.z+e.dz,PLAYER_RADIUS)&&!silkBlocks(state,p.x+e.dx,p.z+e.dz,PLAYER_RADIUS)){p.x+=e.dx;p.z+=e.dz;}continue;}

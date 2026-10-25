@@ -38,7 +38,7 @@ export function blocks(p,c){
 
 const ANIM={march:'stalk',emerge:'skitter',lurk:'stalk',stalk:'stalk',close:'stalk',evade:'skitter',shriek:'shriek',lunge:'lunge',recover:'idle',grab:'grab',slash:'lunge',recoil:'recoil',flee:'skitter',hit:'hit',dead:'death'};
 const cellOf=v=>Math.round(v/CAVE_CELL);
-const between=(rng,[a,b])=>a+(b-a)*rng();
+export const between=(rng,[a,b])=>a+(b-a)*rng();
 
 export function createCrawler(x,z,rng=Math.random){
  return {x,z,facing:0,state:'lurk',t:0,hp:CRAWLER.hp,patience:between(rng,CRAWLER.patience),lunge:{x:0,z:1},escape:0,goal:null,think:0,speed:0,anim:'idle',after:null,
@@ -108,7 +108,7 @@ function distances(cave,player){
 }
 
 /** Pick the neighbouring cell that best fits what the crawler wants right now. */
-function choose(c,env,want,rng){
+export function choose(c,env,want,rng){
  const {cave,player}=env,field=distances(cave,player),cx=cellOf(c.x),cz=cellOf(c.z);
  const fx=Math.sin(player.facing),fz=Math.cos(player.facing);let best=null,bestScore=Infinity;
  for(let dx=-1;dx<=1;dx++)for(let dz=-1;dz<=1;dz++){
@@ -126,7 +126,7 @@ function choose(c,env,want,rng){
  return best;
 }
 
-function moveToward(c,env,goal,speed,dt){
+export function moveToward(c,env,goal,speed,dt){
  if(!goal){c.speed=0;return;}
  const dx=goal.x-c.x,dz=goal.z-c.z,d=Math.hypot(dx,dz);
  if(d<.05){c.speed=0;return;}
@@ -153,8 +153,8 @@ export function spill(c,n,rng=Math.random){
  }
  return out;
 }
-function turn(c,target,k){let d=target-c.facing;d=Math.atan2(Math.sin(d),Math.cos(d));c.facing+=d*Math.min(1,k);}
-function enter(c,state,rng){c.state=state;c.t=0;c.think=0;if(state!=='recover')c.dazed=0;if(state==='stalk')c.patience=between(rng,CRAWLER.patience);if(state!=='grab')c.escape=0;}
+export function turn(c,target,k){let d=target-c.facing;d=Math.atan2(Math.sin(d),Math.cos(d));c.facing+=d*Math.min(1,k);}
+export function enter(c,state,rng){c.state=state;c.t=0;c.think=0;if(state!=='recover')c.dazed=0;if(state==='stalk')c.patience=between(rng,CRAWLER.patience);if(state!=='grab')c.escape=0;}
 
 /** Rear for a short, angry tell: it was pinned in the beam or shot. */
 function provoke(c,events,rng){enter(c,'shriek',rng);c.tell=CRAWLER.quickShriek;c.goal=null;events.push({type:'shriek',quick:true});}

@@ -203,7 +203,7 @@ export function hardParts({mode='studio',sight=null,toCave=null},keep){
  return {bone,maw};
 }
 /** Crawler `c` as seen from inside a holder scaled by `s` about the origin: what a view of a bigger or smaller one walks. */
-export const scaled=(c,s)=>s===1?c:Object.assign(Object.create(c),{x:c.x/s,z:c.z/s,speed:(c.speed??0)/s});
+export const scaled=(c,s)=>s===1?c:Object.assign(Object.create(c),{x:c.x/s,z:c.z/s,speed:(c.speed??0)/s,lash:c.lash&&{...c.lash,x:c.lash.x/s,z:c.lash.z/s,len:c.lash.len/s}});
 export function createCrawlerView(gltf,parent,{mode='studio',sight=null,toCave=null,viewDir=null,girth=0,abdomen=null,lite=false,size=1}={}){
  const root=new THREE.Group(),time={value:0},owned=[];parent.add(root);
  // The big ones carry their weight: slower darts, twitches and steps than a cave crawler's.

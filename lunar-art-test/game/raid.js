@@ -1,9 +1,11 @@
 import { CELL_SIZE, DEFS, footprint } from './defs.js';
 import { caveKey } from './caves.js';
 import { terrainData } from './terrain.js';
-import { KINDS, asKind, blocks, closeIn, createCrawler, hurtCrawler, scorchCrawler, spill, stepCrawler } from './crawler.js';
+import { KINDS, asKind, blocks, closeIn, createCrawler, hurtCrawler, scorchCrawler, spill, stepCrawler as stepOne } from './crawler.js';
 import { SHAPE, burrow, createCentipede, huntCentipede, stepCentipede } from './centipede.js';
 import { GOO } from './goo.js';
+import { stepHorror, surge } from './horror.js';
+import { planetOf } from './planets.js';
 import { LADDER, ROSTER_KINDS, roster, rosterCount } from './roster.js';
 
 /**
@@ -216,7 +218,7 @@ function march(c, goal, dt, grid, hold = 1) {
   if (d < .05) { c.speed = 0; return; }
   // A loping weave, so a pack crossing the plain doesn't read as a column. Under fire it charges, jinking hard.
   const angry = c.grudge > 0, weave = Math.sin(c.t * (angry ? 4.2 : 1.3) + (c.seed ??= Math.random() * 6.28)) * (angry ? .7 : .35), a = Math.atan2(dx, dz) + weave * Math.min(1, d / 6);
-  const step = Math.min(d, (angry ? RAID.charge : RAID.march) * (c.pace ?? 1) * hold * dt), nx = c.x + Math.sin(a) * step, nz = c.z + Math.cos(a) * step;
+  const step = Math.min(d, (angry ? RAID.charge : RAID.march) * (c.pace ?? 1) * hold * (c.martian ? surge(c, dt) : 1) * dt), nx = c.x + Math.sin(a) * step, nz = c.z + Math.cos(a) * step;
   if (openAt(grid, nx, nz)) { c.x = nx; c.z = nz; c.speed = step / dt; } else c.speed = 0;
   let turn = a - c.facing; turn = Math.atan2(Math.sin(turn), Math.cos(turn)); c.facing += turn * Math.min(1, dt * 8);
   return c.speed > 0;
@@ -230,7 +232,7 @@ function march(c, goal, dt, grid, hold = 1) {
 export function stepRaiders(state, dt, fires = [], rng = Math.random) {
   const list = raiders(state), events = [];
   if (!list.length) return events;
-  const p = state.player, surface = p.cave == null, grid = raidGrid(state);
+  const p = state.player, surface = p.cave == null, grid = raidGrid(state), mars = planetOf(state.seed) === 'mars', stepCrawler = mars ? stepHorror : stepOne;
   const androids = (state.robots ?? []).filter(r => r.kind === 'android' && !r.down);
   const people = [...(surface ? [p] : []), ...androids].filter(o => openAt(grid, o.x, o.z));
   const built = state.buildings.filter(b => b.built);
@@ -239,6 +241,7 @@ export function stepRaiders(state, dt, fires = [], rng = Math.random) {
   const packs = new Map();
   for (const c of list) if (c.pack != null && c.state === 'march' && c.retreat == null) { const g = packs.get(c.pack) ?? { x: 0, z: 0, n: 0 }; g.x += c.x; g.z += c.z; g.n++; packs.set(c.pack, g); }
   for (const c of list) {
+    if (mars) c.martian = true;
     if (c.state === 'dead') {
       if (!c.burst && KINDS[c.kind]?.burst) { c.burst = true; const n = burst(state, c, rng); if (n) events.push({ type: 'burst', crawler: c, count: n }); }
       if (c.kind === 'centipede') stepCentipede(c, dt, { rng }); else stepCrawler(c, { cave: grid, player: { x: c.x, z: c.z, facing: 0 } }, dt, rng);
