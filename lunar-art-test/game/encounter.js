@@ -53,7 +53,7 @@ const turnTo = (c, x, z) => { c.facing = Math.atan2(x - c.x, z - c.z); };
  */
 export function stepEncounter(e, state, dt) {
   const m = state.mission, p = state.player;
-  if (m.met || (m.salvage ?? 0) >= 1) { e.crawler = null; e.phase = null; return null; }
+  if (m.met || (m.salvage ?? 0) >= 1 || !terrainData(state.seed).site) { e.crawler = null; e.phase = null; return null; }
   if (!e.crawler || e.seed !== state.seed) {
     const [x, z] = encounterTrail(state.seed)[0], bay = landerBay();
     e.crawler = Object.assign(createCrawler(x, z), { state: 'slash', speed: 0 }); turnTo(e.crawler, bay.x, bay.z);

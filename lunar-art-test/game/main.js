@@ -16,7 +16,8 @@ import {createWorld} from './world.js';
 import {createUI} from './ui.js';
 import {objective,missionAction,salvage,installCore,processorUnlocked} from './mission.js';
 import {createEncounter,stepEncounter,ENCOUNTER_SAY} from './encounter.js';
-import {shipAction,holdLaunch,releaseLaunch,loadSatellite,recallShip,unlockResearch,machineAction,lockedReason,SATELLITE_POINTS} from './space.js';
+import {shipAction,holdLaunch,holdVoyage,loadGoo,releaseLaunch,loadSatellite,recallShip,unlockResearch,machineAction,lockedReason,SATELLITE_POINTS} from './space.js';
+import {PLANETS,gravityOf,planetOf} from './planets.js';
 import {createOrbitView} from './orbit-view.js';
 import {createResearchView} from './research-view.js';
 import {createHunt,stepHunt,fire,release,roll,wrench,pinned,grabbedBy,rouse} from './hunt.js';
@@ -33,7 +34,7 @@ const SHORTCUTS={...Object.fromEntries(Object.entries(DEFS).filter(([,def])=>def
 const canvas=document.querySelector('#game'),boot=document.querySelector('#boot');
 let state=createState(),selectedType=null,rotation=0,world,ui,selectedSlot=0;
 let placeOk=true,placeFar=null,pointerIn=false,placementReason='',constructionReason='',hover=null,targetId=null,constructing=false,speed=1,saveStatus='Not saved',beltPath=null,paintPath=null,erasing=null;
-let orbit=null,research=null,shipStatus='pad',shipCargo=0,stationId=null;
+let orbit=null,research=null,shipStatus='pad',shipCrew=false,shipCargo=0,stationId=null;
 let jumpVelocity=0,accumulator=0,last=performance.now(),uiClock=0,autoClock=0,salvageReason='';
 const encounter=createEncounter();
 const keys=new Set();
@@ -326,6 +327,8 @@ function fixedUpdate(dt){
  const dx=(keys.has('d')?1:0)-(keys.has('a')?1:0),dz=(keys.has('s')?1:0)-(keys.has('w')?1:0);
  previousPose={...state.player};
  const p=state.player,caving=p.cave!=null;
+ // Aboard the Starship the player has no hands: the colony runs on while the ship flies.
+ if(p.aboard){Object.assign(p,{vx:0,vz:0,speed:0,animation:'idle'});release(hunt);hunt.drawn=false;constructing=false;tick(state,dt*speed);while(androidNews.length)notify(androidNews.shift());return;}
  if(hunt.rolling||caving&&pinned(hunt)){p.vx=0;p.vz=0;p.speed=0;}
  else movePlayer(state,dx,dz,dt,DEFS);
  hunt.drawn=drawn();if(!hunt.drawn)release(hunt);
@@ -343,11 +346,11 @@ function fixedUpdate(dt){
  world.defended(stepDefenses(state,dt,state.power.powered!==false));
  updatePortals(dt);
  updatePeril(dt);
- if((state.player.y??0)>0||jumpVelocity>0){jumpVelocity-=1.62*dt;state.player.y=Math.max(0,(state.player.y??0)+jumpVelocity*dt);if(state.player.y===0)jumpVelocity=0;}
+ if((state.player.y??0)>0||jumpVelocity>0){jumpVelocity-=gravityOf(state.seed)*dt;state.player.y=Math.max(0,(state.player.y??0)+jumpVelocity*dt);if(state.player.y===0)jumpVelocity=0;}
  constructing=false;constructionReason='';
  const mission=keys.has('e')?missionAction(state):null,ship=keys.has('e')&&!mission?shipAction(state):null;
  if(ship?.hold){
-  const r=holdLaunch(state,dt);constructing=r.ok&&!r.done;
+  const r=ship.voyage?holdVoyage(state,dt):holdLaunch(state,dt);constructing=r.ok&&!r.done;
   if(r.done){notify(r.reason);keys.delete('e');}
  }else releaseLaunch(state);
  const action=mission;
@@ -410,7 +413,7 @@ async function start(){
   canvas.addEventListener('pointerdown',e=>{
    canvas.focus({preventScroll:true});
    if(e.button===2){select(null);return;}
-   if(e.button!==0)return;
+   if(e.button!==0||state.player.aboard)return;
    aimClient={x:e.clientX,y:e.clientY};
    if(!selectedType&&state.player.cave==null&&clickStation(world.pick(e.clientX,e.clientY)))return;
    if(!selectedType&&useHeld())return;
@@ -436,6 +439,7 @@ async function start(){
    if(k==='t'&&!e.repeat){e.preventDefault();orbit.close();research.toggle();return;}
    if(orbit.open){if(k==='escape')orbit.close();return;}
    if(research.open){if(k==='escape')research.close();return;}
+   if(state.player.aboard)return;
    if(['w','a','s','d','e','x',' ','r','b','g','i','escape'].includes(k)||SHORTCUTS[k]||/^[0-9]$/.test(k))e.preventDefault();
    keys.add(k);if(e.repeat)return;
    if(state.player.cave!=null&&caveKey(k))return;
@@ -449,7 +453,7 @@ async function start(){
    const mission=k==='e'?missionAction(state):null;
    const ship=k==='e'&&!mission?shipAction(state):null;
    if(mission&&!mission.hold)notify(installCore(state).reason);
-   else if(ship&&!ship.hold)notify(loadSatellite(state).reason);
+   else if(ship&&!ship.hold)notify(ship.use==='goo'?loadGoo(state).reason:ship.use==='blocked'?ship.reason:loadSatellite(state).reason);
    else if(k==='e'&&!mission&&!ship&&!nearby())useNearby();
    if(k==='x')notify(craftFlares(state).reason);
    if(k==='delete'||k==='backspace')cancel();
@@ -476,7 +480,14 @@ async function start(){
    const cursor=cursorMode();if(canvas.dataset.cursor!==cursor)canvas.dataset.cursor=cursor;world.setLogistics(showLogistics());world.setZones(selectedType==='mine'||!!ui?.robotsOpen?.());world.setPorts(selectedType==='conveyor');
    reticle.update(cursor==='none'&&pointerIn?reticleState():null,dt);
    if(state.ship.status==='ascent')shipCargo=state.ship.payload;
-   if(state.ship.status!==shipStatus){if(state.ship.status==='orbit'&&shipStatus==='ascent'){notify(`Satellite${shipCargo>1?'s':''} deployed · +${shipCargo*SATELLITE_POINTS} research points (T).`);orbit.show();}if(state.ship.status==='pad'&&shipStatus==='descent')notify('The Starship is back on the pad.');shipStatus=state.ship.status;}
+   if(state.ship.status!==shipStatus){
+    const s=state.ship,place=PLANETS[s.dest??planetOf(state.seed)]?.name;
+    if(s.status==='orbit'&&shipStatus==='ascent'){notify(`Satellite${shipCargo>1?'s':''} deployed · +${shipCargo*SATELLITE_POINTS} research points (T).`);orbit.show();}
+    if(s.status==='transfer'){notify(`Escape burn complete. Coasting the Hohmann transfer to ${place}…`);research.close();orbit.show();orbit.goTo('system');}
+    if(s.status==='descent'&&s.crew){orbit.close();notify(`Aerocapture, then powered descent onto ${place}.`);}
+    if(s.status==='pad'&&shipStatus==='descent')notify(!shipCrew?'The Starship is back on the pad.':planetOf(state.seed)==='mars'?'Touchdown. Welcome to Mars.':'Touchdown. Home again on the Moon.');
+    shipStatus=s.status;shipCrew=!!s.crew;
+   }
    if((state.goo?.breaches??0)>breaches){breaches=state.goo.breaches;notify('Containment breach! The goo vat lost power.');ui.say('The vat has breached. Goo is spreading through the base and something hatched. Flares burn both: press X for flares, then click with them in hand to throw.');}
    orbit.update(state,dt);research.update(state);
    if(ui.crateId!=null){const b=state.buildings.find(o=>o.id===ui.crateId);if(!b||state.player.cave!=null||crateDistance(state,b)>3.6)ui.closeStore();}

@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mars • art direction</title>
+<base href="../">
+<link rel="stylesheet" href="./game.css">
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#140906}#game{display:block;position:fixed;inset:0;width:100%;height:100%;outline:none;touch-action:none}
+#mars-lab{position:fixed;left:12px;bottom:12px;z-index:60;width:248px;padding:10px 12px 12px;border-radius:10px;background:#140b08e6;border:1px solid #ff7a3a55;color:#efe2da;font:12px/1.35 system-ui;box-shadow:0 6px 24px #0008}
+#mars-lab h2{margin:0 0 6px;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#ff8a4f}
+#mars-lab .row{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0}
+#mars-lab button{font:inherit;color:#efe2da;background:#2a1710;border:1px solid #4a2c20;border-radius:6px;padding:3px 7px;cursor:pointer}
+#mars-lab button:hover{border-color:#ff8a4f}#mars-lab button.on{background:#5a2412;border-color:#ff7a3a}
+#mars-lab .note{color:#c4aea2;margin:4px 0 6px;min-height:2.6em}
+#mars-lab .readout{font:11px ui-monospace,monospace;color:#e0cfc5;white-space:pre;margin-top:6px}
+#mars-lab .fold{float:right;background:none;border:none;color:#c4aea2;padding:0}
+#mars-lab.min>*:not(h2){display:none}
+#mars-lab h3{margin:10px 0 2px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#ffa57a;font-weight:600}
+</style>
+<script type="importmap">{"imports":{"three":"../node_modules/three/build/three.module.js","three/addons/":"../node_modules/three/examples/jsm/"}}</script>
+<script>
+// The real game against empty, in-memory storage: it never reads or writes the colony saves.
+(()=>{const mem=new Map();
+ const store={getItem:k=>mem.has(k)?mem.get(k):null,setItem:(k,v)=>{mem.set(k,String(v));},removeItem:k=>{mem.delete(k);},clear:()=>mem.clear(),key:i=>[...mem.keys()][i]??null,get length(){return mem.size;}};
+ Object.defineProperty(window,'localStorage',{value:store,configurable:true});
+ window.sandboxed=window.localStorage===store;window.bootErrors=[];window.debugGame=true;
+ addEventListener('error',e=>bootErrors.push(String(e.error?.stack||e.message)));addEventListener('unhandledrejection',e=>bootErrors.push(String(e.reason?.stack||e.reason)));})();
+</script>
+</head>
+<body>
+<canvas id="game" tabindex="0"></canvas>
+<div id="ui"></div>
+<div id="boot" style="position:fixed;inset:0;display:grid;place-content:center;background:#140906;color:#efe2da;font:14px system-ui;z-index:100">Preparing Martian landing…</div>
+<aside id="mars-lab">
+ <h2>Mars lab <button class="fold" title="Fold">–</button></h2>
+ <div class="row" data-scenarios></div>
+ <div class="note" data-note></div>
+ <h3>Time</h3>
+ <div class="row"><button data-act="noon">Noon</button><button data-act="dusk">Dusk</button><button data-act="night">Night</button></div>
+ <h3>Go to</h3>
+ <div class="row"><button data-go="pad">Pad</button><button data-go="iron">Iron</button><button data-go="titanium">Titanium</button><button data-go="gold">Gold</button><button data-go="ice">Ice</button><button data-go="cave">Cave mouth</button></div>
+ <div class="row"><button data-act="land" title="Skip the rest of the flight">Skip flight</button><button data-act="zoom" title="Zoom out over the site">Zoom out</button></div>
+ <div class="readout" data-readout></div>
+</aside>
+<script type="module">
+if(!window.sandboxed){document.body.innerHTML='<p style="color:#fff">Storage sandbox failed; not starting.</p>';throw new Error('no sandbox');}
+const params=new URLSearchParams(location.search);
+// URLs are written against this page's own path: the <base> above would send a bare `?…` to the real game.
+const here=()=>`${location.pathname}?${params}`;
+if(!params.has('sandbox')){params.set('sandbox','1');history.replaceState(null,'',here());}
+let id=params.get('scenario')??'landed';
+const {SCENARIOS,makeSave,depositOf,NOON,DUSK}=await import('./art-direction/mars-scenarios.js');
+const {terrainData}=await import('./terrain.js');
+const {VOYAGE}=await import('./space.js');
+const {planetOf}=await import('./planets.js');
+const save=makeSave(id);
+for(const key of ['lunar-frontier.sandbox','lunar-frontier.phase-a.v1'])localStorage.setItem(key,save);
+await import('./main.js');
+const lab=document.querySelector('#mars-lab'),canvas=document.querySelector('#game');
+lab.querySelector('[data-scenarios]').innerHTML=Object.entries(SCENARIOS).map(([k,s])=>`<button data-scenario="${k}">${s.name}</button>`).join('');
+const show=()=>{lab.querySelectorAll('[data-scenario]').forEach(b=>b.classList.toggle('on',b.dataset.scenario===id));lab.querySelector('[data-note]').textContent=SCENARIOS[id]?.note??'';};
+show();
+function play(next){
+ id=next;params.set('scenario',id);history.replaceState(null,'',here());
+ const raw=makeSave(id);
+ for(const key of ['lunar-frontier.sandbox','lunar-frontier.phase-a.v1'])localStorage.setItem(key,raw);
+ window.game.restore(raw);show();
+}
+const state=()=>window.game?.state;
+const DAY=240,cycle=t=>Math.floor(t/DAY);
+const acts={
+ noon(s){s.time=cycle(s.time)*DAY+DAY+NOON;},
+ dusk(s){s.time=cycle(s.time)*DAY+DAY+DUSK-4;},
+ night(s){s.time=cycle(s.time)*DAY+DAY+150;},
+ land(s){if(s.ship.status==='transfer')s.ship.t=VOYAGE.transfer;else if(s.ship.status==='ascent')s.ship.t=8.9;else if(s.ship.status==='descent')s.ship.t=9.9;},
+ zoom(){canvas.dispatchEvent(new WheelEvent('wheel',{deltaY:900,bubbles:true,cancelable:true}));},
+};
+lab.addEventListener('click',e=>{
+ const b=e.target.closest('button');if(!b)return;
+ if(b.classList.contains('fold')){lab.classList.toggle('min');b.textContent=lab.classList.contains('min')?'+':'–';return;}
+ if(b.dataset.scenario){play(b.dataset.scenario);canvas.focus({preventScroll:true});return;}
+ const s=state();if(!s)return;
+ if(b.dataset.go){
+  const g=b.dataset.go,p=s.player;if(p.cave!=null)return;
+  const to=g==='pad'?{x:0,z:-2.6}:g==='cave'?(c=>({x:c.x-Math.sin(c.angle)*9,z:c.z-Math.cos(c.angle)*9}))(terrainData(s.seed).caves[0]):(d=>d&&{x:d.x+d.radius+1.5,z:d.z})(depositOf(s,g));
+  if(to)Object.assign(p,{x:to.x,z:to.z});
+ }
+ if(acts[b.dataset.act])acts[b.dataset.act](s,b);
+ canvas.focus({preventScroll:true});
+});
+setInterval(()=>{const s=state();if(!s)return;
+ const light=Math.max(0,Math.sin(s.time/DAY*Math.PI*2+Math.PI/3));
+ lab.querySelector('[data-readout]').textContent=[
+  `${planetOf(s.seed)} · seed ${s.seed} · ${light>0?'day':'night'}`,
+  `Ship ${s.ship.status}${s.ship.crew?` (crewed → ${s.ship.dest})`:''} · fuel ${Math.round(s.ship.fuel)} · goo ${s.ship.goo??0}`,
+  `Player ${s.player.aboard?'aboard':s.player.cave!=null?`cave ${s.player.cave}:${s.player.zone??0}`:`${s.player.x.toFixed(1)}, ${s.player.z.toFixed(1)}`}`,
+  `Away: ${Object.keys(s.away??{}).join(', ')||'none'} · buildings ${s.buildings.length} · robots ${s.robots.length}`,
+ ].join('\n');
+},250);
+</script>
+</body>
+</html>

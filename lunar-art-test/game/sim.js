@@ -1,6 +1,6 @@
 import { restoreArms } from './arms.js';
 import { caveWalkable, caveLayout, CAVE_ZONES } from './caves.js';
-import { surfaceHeightAt, terrainReason } from './terrain.js';
+import { surfaceHeightAt, terrainData, terrainReason } from './terrain.js';
 import { CELL_SIZE, DEFS, DIRS, ITEMS, ITEM_INFO, dims, footprint } from './defs.js';
 import { airlockApron, habitatLayout, isRoom, trapsPlayer } from './habitat.js';
 import * as inv from './inventory.js';
@@ -8,7 +8,8 @@ import { LIFE, STARTING, ensureLifeState, hunger, jobProduct, lifeDemand, roomSt
 import { STOCK_TARGET_MAX, androidDemand, restoreAndroid, stepAndroids } from './android.js';
 import { CROPS, RECIPES as DISHES, isGrower, restoreBuffs } from './farm.js';
 import { createRover, ensureBuildingState, productionDemand, stepProduction, MINING_RADIUS, MAX_MINING_AREAS, REGOLITH_PER_CELL, ROVER, PROCESSOR_INPUT_CAP, PROCESSOR_OUTPUT_CAP, BELT_SPACING, MELT, FAB, ASSEMBLY, RECIPES, KIT, cycleRecipe, robotTopology } from './production.js';
-import { createResearch, createShip, robotRoom, spawnRobot, ROBOT_LIMIT, ROBOT_NAME, lockedReason, restoreResearch, restoreShip, spaceDemand, stepSpace, studyFinds, touchesPad, REACTOR_POWER } from './space.js';
+import { createResearch, createShip, robotRoom, spawnRobot, ROBOT_LIMIT, ROBOT_NAME, lockedReason, restoreResearch, restoreShip, spaceDemand, stepSpace, studyFinds, touchesPad, REACTOR_POWER, VOYAGE } from './space.js';
+import { PLANETS, planetOf, seedOn } from './planets.js';
 import { restoreDelve } from './delve.js';
 import { restorePeril } from './peril.js';
 import { restoreInfest } from './infest.js';
@@ -291,6 +292,7 @@ export function rotateBelt(state, id, rotation) {
 /** Why a mining zone can't be centred on cell x,z, or null. */
 export function miningAreaReason(state, x, z) {
   if (state.player.cave != null) return 'Mining zones are set on the surface.';
+  if (planetOf(state.seed) === 'mars') return 'No regolith worth digging on Mars. Build drills on the mineral deposits.';
   if (!Number.isSafeInteger(x) || !Number.isSafeInteger(z) || Math.abs(x) > 58 - MINING_RADIUS || Math.abs(z) > 58 - MINING_RADIUS) return 'Outside the mining range.';
   if (state.miningAreas.length >= MAX_MINING_AREAS) return `At most ${MAX_MINING_AREAS} mining zones. Remove one in the Robots panel.`;
   const clash = state.miningAreas.find(a => Math.abs(a.x - x) <= MINING_RADIUS * 2 && Math.abs(a.z - z) <= MINING_RADIUS * 2);
@@ -334,13 +336,64 @@ export function grantStarterAndroid(state) {
   }
   return null;
 }
+/**
+ * What belongs to one world's colony. Everything else (the player and what they carry, research, finds, the ship and
+ * the mission) travels with the player. The colony left behind waits, frozen, in `state.away[planet]`.
+ */
+export const COLONY_FIELDS = Object.freeze(['seed', 'buildings', 'robots', 'miningAreas', 'nextAreaId', 'mined', 'drilled', 'power', 'reserves', 'exploredCaves', 'caveLoot', 'burnt', 'scraped', 'goo', 'brood', 'raid', 'flares', 'drops', 'starter']);
+/** What a first landing on `planet` finds: bare ground, a crate of supplies by the pad, and an android to work it. */
+function freshColony(state, planet) {
+  const fresh = createState(seedOn(state.seed, planet));
+  fresh.robots = [];
+  const colony = Object.fromEntries(COLONY_FIELDS.filter(k => fresh[k] !== undefined).map(k => [k, fresh[k]]));
+  return { colony, kit: planet === 'mars' };
+}
+/** The first clear spot for `type` nearest cell (x, z), or null. */
+function clearSpot(state, type, x0, z0) {
+  for (let ring = 0; ring < 12; ring++) for (let dx = -ring; dx <= ring; dx++) for (let dz = -ring; dz <= ring; dz++) {
+    if (Math.max(Math.abs(dx), Math.abs(dz)) !== ring) continue;
+    const x = x0 + dx, z = z0 + dz;
+    if (!geometryReason(state, type, x, z, 0) && !terrainReason(state.seed, footprint(type, x, z, 0)) && !roomReason(state, type, x, z, 0)) return { x, z };
+  }
+  return null;
+}
+export const MARS_KIT = Object.freeze({ metal: 160, silicon: 60, rounds: 24 });
+/** Moves the colony the player stands in to `state.away` and brings up the one on `planet`, new if never visited. */
+export function settle(state, planet) {
+  const from = planetOf(state.seed);
+  if (from === planet) return;
+  const away = state.away ?? {}, stored = away[planet], { colony, kit } = stored ? { colony: stored, kit: false } : freshColony(state, planet);
+  const here = {};
+  for (const k of COLONY_FIELDS) if (state[k] !== undefined) { here[k] = state[k]; delete state[k]; }
+  delete away[planet]; away[from] = here;
+  Object.assign(state, colony); state.away = away;
+  if (kit) {
+    const at = clearSpot(state, 'storage', 4, -4);
+    if (at) {
+      const crate = { id: state.nextId++, type: 'storage', x: at.x, z: at.z, rotation: 0, progress: 1, built: true, serial: nextSerial(state.buildings, 'storage') };
+      state.buildings.push(crate); ensureState(crate);
+      for (const [item, n] of Object.entries(MARS_KIT)) inv.add(crate.slots, item, n);
+    }
+    grantStarterAndroid(state);
+  }
+  tick(state, 0);
+}
+/** The transfer ends: the other world's colony comes up and the Starship starts down to its pad. */
+function arrive(state) {
+  settle(state, state.ship.dest);
+  Object.assign(state.ship, { status: 'descent', t: 0 });
+}
 export function daylightAt(time) { return Math.max(0, Math.sin(time / DAY_DURATION * Math.PI * 2 + Math.PI / 3)); }
 export function tick(state, dt) {
   if (!finite(dt) || dt < 0) throw new Error('Simulation time must be nonnegative and finite.');
   state.time += dt;
   // Machines run on the previous tick's supply state, so derived power always matches the saved state.
   const powered = state.power.powered !== false;
-  if (dt > 0) { stepProduction(state, dt, powered); stepHaulers(state, dt, powered, robotTopology(state)); stepAndroids(state, dt, powered, androidHooks(state)); stepSpace(state, dt, powered); stepLife(state, dt, powered); stepGoo(state, dt, powered); stepRaid(state, dt); }
+  if (dt > 0) {
+    stepProduction(state, dt, powered); stepHaulers(state, dt, powered, robotTopology(state)); stepAndroids(state, dt, powered, androidHooks(state)); stepSpace(state, dt, powered);
+    if (state.ship.status === 'transfer' && state.ship.t >= VOYAGE.transfer) { arrive(state); return; }
+    stepLife(state, dt, powered); stepGoo(state, dt, powered); stepRaid(state, dt);
+  }
   stepMission(state);
   const daylight = daylightAt(state.time);
   let generation = steadyGeneration(state), demand = productionDemand(state) + spaceDemand(state) + haulerDemand(state) + androidDemand(state) + lifeDemand(state, roomStatus(state)) + gooDemand(state) + defenseDemand(state), capacity = thermalCapacity(state);
@@ -566,8 +619,33 @@ export function deserialize(text) {
   restoreInfest(state, raw);
   restoreGoo(state, raw);
   restoreRaid(state, raw);
+  if (raw.drilled != null) {
+    const deposits = terrainData(raw.seed).deposits;
+    if (typeof raw.drilled !== 'object' || Array.isArray(raw.drilled)) throw new Error('Invalid deposits.');
+    state.drilled = {};
+    for (const [id, n] of Object.entries(raw.drilled)) { const d = deposits[Number(id)]; if (!d || !count(n, d.amount)) throw new Error('Invalid deposits.'); state.drilled[id] = n; }
+  }
   if (raw.starter === true) state.starter = true;
   if (new Set(state.robots.map(r => r.id)).size !== state.robots.length) throw new Error('Invalid robots.');
+  if (state.ship.crew) Object.assign(state.player, { aboard: true, x: 0, z: -8.8, y: 0 }), delete state.player.cave, delete state.player.zone;
+  if (raw.away != null) state.away = restoreAway(raw, state);
   tick(state, 0);
   return state;
+}
+/**
+ * The colonies the player isn't on. Each is checked as a save of its own: the travelling fields from this save, its
+ * own colony fields, and the player standing on the surface.
+ */
+function restoreAway(raw, state) {
+  const here = planetOf(raw.seed), away = {};
+  if (typeof raw.away !== 'object' || Array.isArray(raw.away)) throw new Error('Invalid colonies.');
+  for (const [planet, colony] of Object.entries(raw.away)) {
+    if (!PLANETS[planet] || planet === here || !colony || typeof colony !== 'object' || colony.seed !== seedOn(raw.seed, planet)) throw new Error('Invalid colonies.');
+    const merged = { ...raw, ...Object.fromEntries(COLONY_FIELDS.map(k => [k, colony[k]])), player: { ...raw.player, x: 0, z: 8, y: 0, cave: undefined, zone: undefined }, ship: undefined, away: undefined };
+    const restored = deserialize(JSON.stringify(merged));
+    away[planet] = Object.fromEntries(COLONY_FIELDS.filter(k => restored[k] !== undefined).map(k => [k, restored[k]]));
+    const ids = new Set(state.buildings.map(b => b.id));
+    if (restored.buildings.some(b => ids.has(b.id))) throw new Error('Invalid colonies.');
+  }
+  return away;
 }

@@ -13,6 +13,7 @@ export function createBurrowFx(parent, { groundAt = () => 0, dim = false } = {})
   const craterMat = new THREE.MeshBasicMaterial({ color: '#050506', transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, fog: false });
   const CRATERS = 32, craters = new THREE.InstancedMesh(craterGeo, craterMat, CRATERS); craters.frustumCulled = false; root.add(craters);
   const holes = [...Array(CRATERS)].map(() => ({ x: 0, y: 0, z: 0, r: 1, age: 99, life: 8, spin: 0 }));
+  { const none = new THREE.Matrix4().makeScale(0, 0, 0); for (let i = 0; i < CRATERS; i++) craters.setMatrixAt(i, none); }
   let nextHole = 0;
   const DIRT = 500, dirtPos = new Float32Array(DIRT * 3), dirtVel = new Float32Array(DIRT * 3), dirtLife = new Float32Array(DIRT), dirtAlpha = new Float32Array(DIRT), dirtFloor = new Float32Array(DIRT);
   const dirtGeo = new THREE.BufferGeometry(); dirtGeo.setAttribute('position', new THREE.BufferAttribute(dirtPos, 3)); dirtGeo.setAttribute('aAlpha', new THREE.BufferAttribute(dirtAlpha, 1));

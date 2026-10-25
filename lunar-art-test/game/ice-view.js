@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { FACET, facetFlip, iceAt, iceDeposits, latticeHeight, surfaceHeightAt } from './terrain.js';
 import { REGOLITH_PER_CELL } from './production.js';
+import { planetOf } from './planets.js';
 
 const hash = (x, z, k = 0) => Math.abs(Math.sin(x * 12.9898 + z * 78.233 + k * 37.719) * 43758.5453) % 1;
 const smooth = t => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
@@ -90,6 +91,8 @@ export function createIceView(scene) {
   }
 
   function update(state) {
+    root.visible = planetOf(state.seed) === 'moon';
+    if (!root.visible) return;
     if (seed !== state.seed) build(state);
     const entries = Object.entries(state.mined ?? {}), key = `${entries.length}:${Math.round(entries.reduce((s, [, n]) => s + n, 0) * 4)}`;
     if (key !== minedKey) { minedKey = key; paint(state); }

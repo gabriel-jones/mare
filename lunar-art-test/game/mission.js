@@ -1,6 +1,7 @@
 import { missionSite, terrainData } from './terrain.js';
 import * as inv from './inventory.js';
 import { LAUNCH } from './space.js';
+import { planetOf } from './planets.js';
 
 /** The ship AI's objectives, in order. Each starts with a message; `done` is checked every tick, so
  * work finished early simply skips ahead. `target` names where the waypoint points; `parts` counts
@@ -35,25 +36,44 @@ export const STEPS = Object.freeze([
   { id: 'reactor', objective: 'Research and build the resonance reactor', message: "Research the reactor (T); artifacts studied at the xeno lab count too. It'll want titanium and rare-earth crystals from the Hollows.", done: s => has(s, 'reactor') },
 ]);
 export const FINALE = "Reactor online: ten kilowatts straight through the lunar night. The Deep is still down there, and so is whatever carved those walls.";
+const bars = (s, item) => inv.count(s.inventory, item) + s.buildings.reduce((n, b) => n + (b.type === 'storage' ? inv.count(b.slots ?? [], item) : (b.out?.[item] ?? 0)), 0);
+/** The Martian objectives, from the first landing. They count what the Martian colony holds. */
+export const MARS_STEPS = Object.freeze([
+  { id: 'drill', objective: 'Build a drill on the iron deposit', message: "Welcome to Mars. No regolith worth a rover's time here, but the ground is shot through with ore. Build a mining drill (Mars menu) on the iron deposit. Androids run the drills.", target: 'iron', done: s => has(s, 'drill') },
+  { id: 'furnace', objective: 'Build a furnace and smelt 10 iron bars', message: "Ore's coming up. Build a furnace: it smelts ore into bars. The android stokes it, or belt the drill straight in.", parts: s => [Math.min(10, bars(s, 'ironbar')), 10], done: s => bars(s, 'ironbar') >= 10 },
+  { id: 'titanium', objective: 'Drill and smelt titanium', message: 'Iron is only the start. Titanium lies further out: drill it and smelt it into bars. Gold sits furthest of all.', target: 'titanium', parts: s => [Math.min(5, bars(s, 'titaniumbar')), 5], done: s => bars(s, 'titaniumbar') >= 5 },
+  { id: 'caves', objective: 'Go down into a Martian cave', message: "Something is glowing at the bottom of those cave mouths. Green. Go and see, and take the flamethrower.", target: 'cave', done: s => Object.keys(s.exploredCaves ?? {}).length > 0 },
+]);
+export const MARS_FINALE = "The Martian colony is drilling, smelting and holding its own. Fill the tanks and load goo whenever you're ready to fly home.";
 
 export function createMission(legacy = false) {
-  return { step: 0, visited: false, salvage: 0, installed: false, legacy, melted: 0, met: false };
+  return { step: 0, visited: false, salvage: 0, installed: false, legacy, melted: 0, met: false, mars: 0 };
 }
 /** Colonies from before the crater mission keep their processors; new ones must repair the ship first. */
 export const processorUnlocked = state => !!(state.mission?.installed || state.mission?.legacy);
 
 const distance = (p, q) => Math.hypot(p.x - q.x, p.z - q.z);
 const onSurface = state => state.player.cave == null;
-export const nearLander = state => { const l = missionSite().lander; return onSurface(state) && distance(state.player, l) < l.radius + 1.6; };
+const onMoon = state => planetOf(state.seed) === 'moon';
+export const nearLander = state => { const l = missionSite().lander; return onMoon(state) && onSurface(state) && distance(state.player, l) < l.radius + 1.6; };
 export const nearShip = state => onSurface(state) && distance(state.player, SHIP) < SHIP.reach;
 
 export function stepMission(state) {
   const m = state.mission, site = missionSite();
+  if (!onMoon(state)) { m.mars ??= 0; while (m.mars < MARS_STEPS.length && MARS_STEPS[m.mars].done(state)) m.mars++; return; }
   if (onSurface(state) && distance(state.player, site.lander) < 12) m.visited = true;
   while (m.step < STEPS.length && STEPS[m.step].done(state)) m.step++;
 }
+const nearest = (list, p) => [...list].sort((a, b) => distance(a, p) - distance(b, p))[0] ?? null;
+function marsObjective(state) {
+  const m = state.mission, step = MARS_STEPS[m.mars ?? 0];
+  if (!step) return { done: true, message: MARS_FINALE, step: m.mars, count: MARS_STEPS.length };
+  const data = terrainData(state.seed), target = step.target === 'cave' ? nearest(data.caves, state.player) : step.target ? nearest(data.deposits.filter(d => d.kind === step.target), state.player) : null;
+  return { id: `mars-${step.id}`, objective: step.objective, message: step.message, step: m.mars ?? 0, count: MARS_STEPS.length, parts: step.parts?.(state) ?? [0, 1], target: target && { x: target.x, z: target.z } };
+}
 /** The current objective for the HUD, or the closing message once every step is done. */
 export function objective(state) {
+  if (!onMoon(state)) return marsObjective(state);
   const m = state.mission, step = STEPS[m.step];
   if (!step) return { done: true, message: FINALE, step: m.step, count: STEPS.length };
   const site = missionSite();
@@ -92,7 +112,8 @@ export function restoreMission(raw) {
   const bool = v => typeof v === 'boolean';
   if (!raw || !Number.isInteger(raw.step) || raw.step < 0 || raw.step > STEPS.length || !bool(raw.visited) || !bool(raw.installed) || !bool(raw.legacy)
     || typeof raw.salvage !== 'number' || !(raw.salvage >= 0 && raw.salvage <= 1) || typeof raw.melted !== 'number' || !(raw.melted >= 0 && raw.melted < 1e9) || (raw.met != null && !bool(raw.met))) throw new Error('Invalid mission.');
-  for (const k of Object.keys(m)) if (k !== 'met') m[k] = raw[k];
+  for (const k of Object.keys(m)) if (k !== 'met' && k !== 'mars') m[k] = raw[k];
+  if (raw.mars != null) { if (!Number.isInteger(raw.mars) || raw.mars < 0 || raw.mars > MARS_STEPS.length) throw new Error('Invalid mission.'); m.mars = raw.mars; }
   // Saves from before the encounter: anyone who has already been to the lander has missed it.
   m.met = raw.met ?? (raw.visited || raw.salvage > 0);
   return m;

@@ -2,6 +2,7 @@ import { fuelBurning } from './power.js';
 import { CELL_SIZE, DEFS, PARTS, footprint } from './defs.js';
 import { RECIPES, createRover } from './production.js';
 import * as inv from './inventory.js';
+import { PLANETS, planetOf } from './planets.js';
 
 /** Starship fuelling, launches, orbit and research. Pure and serializable, like the rest of the sim. */
 export const SHIP_PAD = Object.freeze({ x: 0, z: -10, reach: 6.5 });
@@ -11,7 +12,13 @@ export const ELECTROLYSIS = Object.freeze({ time: 2, power: 3, waterFloor: 20 })
 /** Research points each satellite earns once it is deployed in orbit. */
 export const SATELLITE_POINTS = 12;
 /** Research branches, in display order. */
-export const BRANCHES = Object.freeze({ farming: 'Farming', industry: 'Industry', deep: 'Deep', arms: 'Ballistics', energy: 'Energy' });
+export const BRANCHES = Object.freeze({ farming: 'Farming', industry: 'Industry', deep: 'Deep', arms: 'Ballistics', energy: 'Energy', orbital: 'Astrodynamics' });
+/**
+ * Flying the colony's Starship to another world, with the player aboard. Every orbital manoeuvre in `techs` must be
+ * researched, the tanks full, and `goo` units of black goo loaded for the goo drive (the bay holds `gooHold`, enough
+ * for the way back). The ship climbs (LAUNCH.ascent), coasts the Hohmann transfer for `transfer` seconds, and lands.
+ */
+export const VOYAGE = Object.freeze({ techs: ['escape', 'hohmann', 'aerocapture', 'edl'], goo: 6, gooHold: 12, transfer: 26 });
 /** The research tree. A tech is bought outright with points once everything it `requires` is done; `schematic` techs also need their find. */
 export const TECHS = Object.freeze({
   hydroponics: { name: 'Hydroponics', branch: 'farming', cost: 14, description: 'A hydroponic rack for greenhouses.' },
@@ -36,6 +43,10 @@ export const TECHS = Object.freeze({
   androids: { name: 'Androids', branch: 'industry', cost: 36, requires: ['roverbay'], description: 'An android foundry and charging pads. Androids build, carry, harvest, keep stations stocked and take up arms when the brood comes.' },
   reactor: { name: 'Resonance reactor', branch: 'deep', cost: 40, schematic: true, hint: 'Needs a schematic from deep in the caves', description: 'Steady power from a rare-earth lattice, day and night.' },
   containment: { name: 'Goo containment', branch: 'deep', cost: 30, schematic: true, hint: 'Study the Heart of the Deep at a xeno lab', description: 'A sealed vat that cultures black goo. Scrape a sample from a live nest (E).' },
+  escape: { name: 'Escape burn', branch: 'orbital', cost: 30, requires: ['containment'], description: 'Black goo burned in a sealed chamber: the goo drive. Enough push to leave lunar orbit for good.' },
+  hohmann: { name: 'Hohmann transfer', branch: 'orbital', cost: 36, requires: ['escape'], description: 'The cheapest road between two orbits: one burn stretches the orbit out to Mars, a second rounds it off.' },
+  aerocapture: { name: 'Aerocapture', branch: 'orbital', cost: 40, requires: ['hohmann'], description: "Brake in Mars's thin air instead of with fuel, behind the heat shield." },
+  edl: { name: 'Powered descent', branch: 'orbital', cost: 44, requires: ['aerocapture'], description: 'Entry, descent and landing on retro-burn to a Martian pad. Opens the flight to Mars, and its drills and furnaces.' },
 });
 /** Prerequisites not yet researched. */
 export const missingFor = (state, id) => (TECHS[id].requires ?? []).filter(r => !techDone(state, r));
@@ -48,7 +59,8 @@ export const ROBOT_TYPE = Object.freeze({ hauler: 'hauler', miner: 'rover', andr
 export const ROBOT_LIMIT = Object.freeze({ hauler: 3, miner: 4 });
 export const ANDROID_COST = Object.freeze({ metal: 45, silicon: 20, chip: 2 });
 
-export const createShip = () => ({ status: 'pad', t: 0, fuel: 0, payload: 0, hold: 0 });
+/** `goo` is the goo drive's load; `crew` is set while the player flies aboard, bound for `dest`. */
+export const createShip = () => ({ status: 'pad', t: 0, fuel: 0, payload: 0, hold: 0, goo: 0 });
 export const createResearch = () => ({ bank: 0, done: [] });
 export const techDone = (state, id) => !!TECHS[id]?.innate || state.research.done.includes(id);
 export const hasSchematic = (state, id) => !TECHS[id]?.schematic || (state.blueprints ?? []).includes(id);
@@ -90,8 +102,17 @@ export function stepSpace(state, dt, powered) {
   } else if (ship.status === 'ascent' && (ship.t += dt) >= LAUNCH.ascent) {
     state.satellites += ship.payload;
     state.research.bank += ship.payload * SATELLITE_POINTS;
-    Object.assign(ship, { status: 'orbit', t: 0, payload: 0, fuel: 0 });
-  } else if (ship.status === 'descent' && (ship.t += dt) >= LAUNCH.descent) Object.assign(ship, { status: 'pad', t: 0 });
+    Object.assign(ship, { status: ship.crew ? 'transfer' : 'orbit', t: 0, payload: 0, fuel: 0 });
+  } else if (ship.status === 'transfer') ship.t = Math.min(VOYAGE.transfer, ship.t + dt);
+  else if (ship.status === 'descent' && (ship.t += dt) >= LAUNCH.descent) {
+    Object.assign(ship, { status: 'pad', t: 0 });
+    if (ship.crew) disembark(state);
+  }
+}
+/** Off the ship at the foot of the pad, on whatever world it has come down on. */
+function disembark(state) {
+  delete state.ship.crew; delete state.ship.dest; delete state.player.aboard;
+  Object.assign(state.player, { x: 0, z: -2.6, y: 0, facing: 0 }); delete state.player.cave; delete state.player.zone;
 }
 const dist = (b, o) => Math.hypot(b.x - o.x, b.z - o.z);
 
@@ -113,13 +134,50 @@ export function unlockResearch(state, id) {
   return { ok: true, reason: `${TECHS[id].name} unlocked.` };
 }
 
-const nearShip = state => state.player.cave == null && Math.hypot(state.player.x - SHIP_PAD.x, state.player.z - SHIP_PAD.z) < SHIP_PAD.reach;
-/** What E does at the pad terminal, or null. */
+const nearShip = state => state.player.cave == null && !state.player.aboard && Math.hypot(state.player.x - SHIP_PAD.x, state.player.z - SHIP_PAD.z) < SHIP_PAD.reach;
+/** Where the Starship flies with the player aboard: Mars from the Moon, home again from Mars. */
+export const voyageTo = state => planetOf(state.seed) === 'mars' ? 'moon' : 'mars';
+/** The pad offers the flight once the first manoeuvre is researched. */
+export const voyageKnown = state => techDone(state, VOYAGE.techs[0]);
+/** Why the Starship can't take the player to the other world yet, or null. */
+export function voyageBlock(state) {
+  const missing = VOYAGE.techs.filter(t => !techDone(state, t));
+  if (missing.length) return `Research ${missing.map(t => TECHS[t].name).join(', ')} first (T).`;
+  if (state.ship.fuel < LAUNCH.fuel) return `The tanks must be full (${Math.floor(state.ship.fuel)}/${LAUNCH.fuel}).`;
+  if ((state.ship.goo ?? 0) < VOYAGE.goo) return `The goo drive needs ${VOYAGE.goo} black goo (${state.ship.goo ?? 0} aboard).`;
+  return null;
+}
+/** What E does at the pad terminal, or null. `use` says which: a satellite, goo, the flight, or a note on what's missing. */
 export function shipAction(state) {
   if (!nearShip(state) || !shipOnPad(state)) return null;
-  if (inv.count(state.inventory, 'satellite') > 0 && state.ship.payload < LAUNCH.payload) return { verb: 'Load the satellite aboard' };
+  if (inv.count(state.inventory, 'satellite') > 0 && state.ship.payload < LAUNCH.payload) return { verb: 'Load the satellite aboard', use: 'satellite' };
   if (launchReady(state)) return { verb: `Hold to launch (${state.ship.payload} satellite${state.ship.payload > 1 ? 's' : ''})`, hold: true, progress: state.ship.hold / LAUNCH.hold };
-  return null;
+  if (!voyageKnown(state)) return null;
+  const goo = state.ship.goo ?? 0, place = PLANETS[voyageTo(state)].name;
+  if (inv.count(state.inventory, 'goo') > 0 && goo < VOYAGE.gooHold) return { verb: `Load black goo for the goo drive (${goo}/${VOYAGE.gooHold})`, use: 'goo' };
+  const block = voyageBlock(state);
+  if (block) return { verb: `Fly to ${place}: ${block}`, use: 'blocked', reason: block };
+  return { verb: `Hold to board and fly to ${place}`, hold: true, voyage: true, progress: state.ship.hold / LAUNCH.hold };
+}
+/** Every unit of goo in the player's pockets goes into the goo drive, up to what it holds. */
+export function loadGoo(state) {
+  if (!nearShip(state) || !shipOnPad(state)) return { ok: false, reason: 'Move to the Starship on its pad.' };
+  const room = VOYAGE.gooHold - (state.ship.goo ?? 0), n = Math.min(room, inv.count(state.inventory, 'goo'));
+  if (room <= 0) return { ok: false, reason: `The goo drive holds ${VOYAGE.gooHold}.` };
+  if (n <= 0) return { ok: false, reason: "You aren't carrying any black goo." };
+  inv.remove(state.inventory, 'goo', n); state.ship.goo = (state.ship.goo ?? 0) + n;
+  return { ok: true, reason: `Goo loaded (${state.ship.goo}/${VOYAGE.gooHold}). ${VOYAGE.goo} burns each way.` };
+}
+/** Holding E at the terminal with everything ready: the player boards and the Starship lifts off for the other world. */
+export function holdVoyage(state, dt) {
+  const block = !nearShip(state) || !shipOnPad(state) ? 'Move to the Starship on its pad.' : voyageBlock(state);
+  if (block) { state.ship.hold = 0; return { ok: false, reason: block }; }
+  state.ship.hold = Math.min(LAUNCH.hold, state.ship.hold + dt);
+  if (state.ship.hold < LAUNCH.hold) return { ok: true, reason: 'Boarding…' };
+  const dest = voyageTo(state);
+  Object.assign(state.ship, { status: 'ascent', t: 0, hold: 0, crew: true, dest, goo: state.ship.goo - VOYAGE.goo });
+  Object.assign(state.player, { aboard: true, x: SHIP_PAD.x, z: SHIP_PAD.z + 1.2, y: 0 });
+  return { ok: true, done: true, reason: `Liftoff! Bound for ${PLANETS[dest].name}.` };
 }
 export function loadSatellite(state) {
   if (!nearShip(state) || !shipOnPad(state)) return { ok: false, reason: 'Move to the Starship on its pad.' };
@@ -204,9 +262,14 @@ const finite = n => typeof n === 'number' && Number.isFinite(n);
 export function restoreShip(raw) {
   const ship = createShip();
   if (raw == null) return ship;
-  if (!['pad', 'ascent', 'orbit', 'descent'].includes(raw.status) || !(finite(raw.t) && raw.t >= 0 && raw.t <= 60) || !(finite(raw.fuel) && raw.fuel >= 0 && raw.fuel <= LAUNCH.fuel)
-    || !(Number.isInteger(raw.payload) && raw.payload >= 0 && raw.payload <= LAUNCH.payload) || !(finite(raw.hold) && raw.hold >= 0 && raw.hold <= LAUNCH.hold)) throw new Error('Invalid ship.');
-  return Object.assign(ship, { status: raw.status, t: raw.t, fuel: raw.fuel, payload: raw.payload, hold: raw.hold });
+  if (!['pad', 'ascent', 'orbit', 'descent', 'transfer'].includes(raw.status) || !(finite(raw.t) && raw.t >= 0 && raw.t <= 60) || !(finite(raw.fuel) && raw.fuel >= 0 && raw.fuel <= LAUNCH.fuel)
+    || !(Number.isInteger(raw.payload) && raw.payload >= 0 && raw.payload <= LAUNCH.payload) || !(finite(raw.hold) && raw.hold >= 0 && raw.hold <= LAUNCH.hold)
+    || (raw.goo != null && !(Number.isInteger(raw.goo) && raw.goo >= 0 && raw.goo <= VOYAGE.gooHold))
+    || (raw.crew != null && (raw.crew !== true || !PLANETS[raw.dest])) || (raw.status === 'transfer' && !raw.crew)) throw new Error('Invalid ship.');
+  Object.assign(ship, { status: raw.status, t: raw.t, fuel: raw.fuel, payload: raw.payload, hold: raw.hold, goo: raw.goo ?? 0 });
+  // A crewed ship is only ever climbing away, coasting or coming down.
+  if (raw.crew && ['ascent', 'transfer', 'descent'].includes(raw.status)) Object.assign(ship, { crew: true, dest: raw.dest });
+  return ship;
 }
 export function restoreResearch(raw) {
   const r = createResearch();

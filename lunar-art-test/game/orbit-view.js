@@ -5,7 +5,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { LAUNCH } from './space.js';
+import { LAUNCH, VOYAGE } from './space.js';
 import { BODIES, createSolarSystem } from './celestial.js';
 
 const PARKING = 1.32;
@@ -17,6 +17,29 @@ const TARGETS = [SYSTEM, ...BODIES];
 const viewDistance = id => id === 'system' ? 2900 : id === 'moon' ? 4.8 : id === 'belt' ? 11 : id === 'saturn' ? 13.5 * 6.2 : id === 'sun' ? 26 * 3.6 : BODIES.find(b => b.id === id).radius * 3.6;
 const zoomRange = id => id === 'system' ? [500, 6000] : id === 'belt' ? [3, 60] : (r => [r * 1.4, r * 40])(BODIES.find(b => b.id === id).radius);
 const ease = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+const TRANSFER_STEPS = 129;
+/** A soft round dot for the Starship on its transfer, bright enough to bloom. */
+function glowTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d'), r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(.25, 'rgba(255,220,170,.9)'); r.addColorStop(1, 'rgba(255,160,80,0)');
+  g.fillStyle = r; g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+}
+/**
+ * Where a Hohmann transfer from a circular orbit of radius `r1` to one of `r2` is after fraction `k` of the flight,
+ * leaving at angle `from` (radians about the Sun). Half an ellipse with the Sun at one focus, swept faster near
+ * perihelion as Kepler's second law has it.
+ */
+function hohmannPoint(r1, r2, from, k, out) {
+  const a = (r1 + r2) / 2, e = Math.abs(r2 - r1) / (r1 + r2), outward = r2 > r1;
+  // Mean anomaly runs evenly in time; solve Kepler's equation for the eccentric anomaly, then the true anomaly.
+  const M = Math.PI * k + (outward ? 0 : Math.PI);
+  let E = M; for (let i = 0; i < 8; i++) E -= (E - e * Math.sin(E) - M) / (1 - e * Math.cos(E));
+  const nu = 2 * Math.atan2(Math.sqrt(1 + e) * Math.sin(E / 2), Math.sqrt(1 - e) * Math.cos(E / 2)) - (outward ? 0 : Math.PI);
+  const r = a * (1 - e * Math.cos(E)), angle = from + nu;
+  return out.set(Math.cos(angle) * r, 0, Math.sin(angle) * r);
+}
 
 /** Full-screen 3D view of the solar system and lunar orbit: satellites, the Starship and the Return order. */
 export function createOrbitView(callbacks = {}) {
@@ -35,6 +58,7 @@ export function createOrbitView(callbacks = {}) {
   const returnButton = root.querySelector('.orbit-return'), labelLayer = root.querySelector('.orbit-labels');
   const labels = new Map(BODIES.map(b => { const el = document.createElement('button'); el.type = 'button'; el.className = 'orbit-label'; el.dataset.focus = b.id; el.innerHTML = `<i></i>${b.name}`; labelLayer.append(el); return [b.id, el]; }));
   let renderer = null, composer, scene, camera, system, network, ringGroup, satGroup, ship, flame, satTemplate = null, colony, itemModels = null, disposed = false;
+  let transfer, flown, craft, voyage = null;
   let yaw = .6, pitch = .32, distance = viewDistance('moon'), focusId = 'moon', flight = null, drag = null, time = 0, ringKey = -1;
   const target = new THREE.Vector3(), goal = new THREE.Vector3();
   const disposables = [];
@@ -64,6 +88,16 @@ export function createOrbitView(callbacks = {}) {
     const loader = new GLTFLoader();
     loadItemLibrary(loader).then(library => { if(disposed){library?.dispose();return;}itemModels=library;satTemplate=library?.get('satellite')??null;ringKey=-1; });
     loader.loadAsync('./assets/starship.glb').then(g => { const model = g.scene.clone(true); model.scale.setScalar(.013); ship.add(model); }).catch(() => {});
+
+    // The Hohmann transfer between the two worlds' orbits, in solar-system space: the whole ellipse half faint, the
+    // stretch already flown bright, and the Starship as a bright point on it.
+    const pathPoints = new Float32Array(TRANSFER_STEPS * 3), pathGeo = keep(new THREE.BufferGeometry());
+    pathGeo.setAttribute('position', new THREE.BufferAttribute(pathPoints, 3));
+    transfer = new THREE.Group(); transfer.visible = false; scene.add(transfer);
+    transfer.add(new THREE.Line(pathGeo, keep(new THREE.LineDashedMaterial({ color: '#ffb35c', transparent: true, opacity: .35, dashSize: 8, gapSize: 6, depthWrite: false }))));
+    flown = new THREE.Line(pathGeo, keep(new THREE.LineBasicMaterial({ color: new THREE.Color(3, 1.8, .8), transparent: true, opacity: .95, depthWrite: false }))); transfer.add(flown);
+    craft = new THREE.Sprite(keep(new THREE.SpriteMaterial({ map: keep(glowTexture()), color: new THREE.Color(1.6, 1.1, .6), sizeAttenuation: false, depthWrite: false, blending: THREE.AdditiveBlending })));
+    craft.scale.set(.016, .016, 1); transfer.add(craft);
 
     canvas.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY, moved: 0 }; canvas.setPointerCapture(e.pointerId); });
     canvas.addEventListener('pointermove', e => {
@@ -205,8 +239,27 @@ export function createOrbitView(callbacks = {}) {
         flame.visible = s.status !== 'orbit'; flame.scale.setScalar(.8 + Math.random() * .3);
       }
       colony.scale.setScalar(1 + .25 * Math.sin(time * 3));
+      // On a voyage the ship leaves the lunar frame for the transfer ellipse between the two worlds' orbits.
+      const voyaging = s.status === 'transfer';
+      if (voyaging && !voyage) {
+        const from = s.dest === 'mars' ? 'earth' : 'mars', to = s.dest === 'mars' ? 'mars' : 'earth', arrival = system.bodies.get(to);
+        const meet = arrival.def.phase + (time + Math.max(0, VOYAGE.transfer - s.t)) * arrival.speed;
+        voyage = { r1: BODIES.find(b => b.id === from).orbit, r2: BODIES.find(b => b.id === to).orbit, from: meet - Math.PI };
+        for (let i = 0; i < TRANSFER_STEPS; i++) { hohmannPoint(voyage.r1, voyage.r2, voyage.from, i / (TRANSFER_STEPS - 1), point); point.toArray(transfer.children[0].geometry.attributes.position.array, i * 3); }
+        transfer.children[0].geometry.attributes.position.needsUpdate = true; transfer.children[0].computeLineDistances();
+      } else if (!voyaging) voyage = null;
+      transfer.visible = voyaging;
+      if (voyaging) {
+        const k = Math.min(1, s.t / VOYAGE.transfer);
+        hohmannPoint(voyage.r1, voyage.r2, voyage.from, k, craft.position);
+        flown.geometry.setDrawRange(0, Math.max(2, Math.round(k * (TRANSFER_STEPS - 1)) + 1));
+        ship.visible = false;
+      }
       fields.satellites.textContent = String(state.satellites);
-      fields.ship.textContent = { pad: s.payload ? `Starship on the pad · ${s.payload} satellite${s.payload > 1 ? 's' : ''} aboard` : 'Starship on the pad', ascent: 'Starship climbing to orbit…', orbit: 'Starship in parking orbit', descent: 'Starship descending…' }[s.status];
+      const where = s.dest === 'mars' ? 'Mars' : 'the Moon';
+      fields.ship.textContent = voyaging ? `Hohmann transfer to ${where} · ${Math.round(Math.min(1, s.t / VOYAGE.transfer) * 100)}%`
+        : s.crew ? (s.status === 'ascent' ? `Escape burn: leaving for ${where}…` : `Powered descent onto ${where}…`)
+        : { pad: s.payload ? `Starship on the pad · ${s.payload} satellite${s.payload > 1 ? 's' : ''} aboard` : 'Starship on the pad', ascent: 'Starship climbing to orbit…', orbit: 'Starship in parking orbit', descent: 'Starship descending…' }[s.status];
       returnButton.hidden = s.status !== 'orbit';
       placeLabels();
       composer.render();

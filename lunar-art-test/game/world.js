@@ -14,6 +14,7 @@ import { createLaunchFx } from './launch-fx.js';
 import { growBeds } from './life.js';
 import { airlockOf, habitatLayout, isRoom } from './habitat.js';
 import { surfaceHeightAt as heightAt, terrainData } from './terrain.js';
+import { planetOf } from './planets.js';
 import { melterReady, processorReady, PROCESSOR_INPUT_CAP } from './production.js';
 import { createExpeditionView } from './expedition-view.js';
 import { createIceView } from './ice-view.js';
@@ -92,7 +93,7 @@ export async function createWorld(canvas, initialState, options = {}) {
   scene.fog=new THREE.FogExp2('#172131',.006);
   const camera=new THREE.OrthographicCamera(-20,20,20,-20,.1,600);
   const follow=new THREE.Vector3(initialState.player.x,0,initialState.player.z);
-  let viewHeight=48, state=initialState, disposed=false, lastSeed=initialState.seed;
+  let viewHeight=48, state=initialState, disposed=false, lastSeed=initialState.seed, look=null;
   const lightBudget=createLightBudget(scene,6),resolution=createAdaptiveResolution(renderer,()=>resize());let shadowClock=1;
   const sun=new THREE.DirectionalLight('#ffe4bc',3.0);
   sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);
@@ -297,7 +298,7 @@ export async function createWorld(canvas, initialState, options = {}) {
     let altitude=0;
     if(s.status==='ascent')altitude=.5*(2*170/LAUNCH.ascent**2)*s.t**2;
     if(s.status==='descent')altitude=170*(1-Math.min(1,s.t/LAUNCH.descent))**2;
-    starship.visible=s.status!=='orbit';
+    starship.visible=s.status!=='orbit'&&s.status!=='transfer';
     const shake=flying&&altitude<4?(Math.random()-.5)*.08:0;
     starship.position.set(shake,PAD_DECK+altitude,-10+shake);
     flame.visible=flying;burnLight.intensity=flying?60+Math.random()*25:0;
@@ -312,7 +313,7 @@ export async function createWorld(canvas, initialState, options = {}) {
     let altitude=0;
     if(s.status==='ascent')altitude=.5*(2*170/LAUNCH.ascent**2)*s.t**2;
     if(s.status==='descent')altitude=170*(1-Math.min(1,s.t/LAUNCH.descent))**2;
-    starship.visible=s.status!=='orbit';
+    starship.visible=s.status!=='orbit'&&s.status!=='transfer';
     const thrust=s.status==='ascent'?Math.min(1,.35+s.t*1.6):s.status==='descent'?.45+.55*Math.min(1,s.t/LAUNCH.descent)**2:0;
     thrustLeft=flying?thrust:Math.max(0,thrustLeft-dt*2.5);
     const shake=thrustLeft>0&&altitude<6?(Math.random()-.5)*.1*thrustLeft:0;
@@ -551,8 +552,13 @@ export async function createWorld(canvas, initialState, options = {}) {
     suitFill.intensity=2+(1-daylight)*3;headlamp.intensity=8+(1-daylight)*62;padLight.intensity=state.power.powered===false?0:(5+(1-daylight)*22)*surfaceLight;
     for(const m of padLamps)m.emissiveIntensity=state.power.powered===false?0:m.userData.baseEmission;
     sun.position.copy(sunDir).multiplyScalar(70).add(follow);sun.target.position.set(follow.x,0,follow.z);sun.target.updateMatrixWorld();
-    scene.background.setRGB((.01+daylight*.05)*surfaceLight,(.016+daylight*.072)*surfaceLight,(.03+daylight*.11)*surfaceLight);scene.fog.color.copy(scene.background);
-    scene.fog.density=.0012;suitFill.distance=underground?6:8;headlamp.distance=underground?20:18;
+    const mars=planetOf(state.seed)==='mars';
+    if(look!==mars){look=mars;sun.color.set(mars?'#ffd2a0':'#ffe4bc');fill.color.set(mars?'#e2b190':'#b3cbed');fill.groundColor.set(mars?'#3d1d12':'#272a3d');}
+    // Mars hangs a butterscotch dust haze over everything by day, rust-dark by night; the Moon's sky is black.
+    if(mars)scene.background.setRGB((.018+daylight*.36)*surfaceLight,(.01+daylight*.21)*surfaceLight,(.008+daylight*.13)*surfaceLight);
+    else scene.background.setRGB((.01+daylight*.05)*surfaceLight,(.016+daylight*.072)*surfaceLight,(.03+daylight*.11)*surfaceLight);
+    scene.fog.color.copy(scene.background);
+    scene.fog.density=mars&&!underground?.0042:.0012;suitFill.distance=underground?6:8;headlamp.distance=underground?20:18;
     if(underground){suitFill.intensity=9;headlamp.intensity=145;}
     const position=underground?caveToWorld(state.seed,state.player.cave,renderPose.x,renderPose.z,zone):{x:renderPose.x,y:habitatView.floorAt(state,renderPose.x,renderPose.z)??heightAt(state.seed,renderPose.x,renderPose.z),z:renderPose.z};
     if(smoothedGround==null||Math.abs(position.y-smoothedGround)>2)smoothedGround=position.y;
@@ -629,7 +635,10 @@ export async function createWorld(canvas, initialState, options = {}) {
     lampClock+=dt;lamps.update(lampClock,daylight,updateLights(daylight,dt));
     productionView.update(state,dt,daylight);androidView?.update(state,dt);for(const [id,view] of productionView.rovers)if(view.display)groundMarks.drive(state.seed,id,view.display.x,view.display.z,.73);groundMarks.update();logistics.update(state.player.cave==null?storageCrates(state).map(crateCentre):[],logisticsShown,dt);buildFx.update(dt);portLinks.update(state,structures,dt,state.time);groundPads.update(state,padBase);pipes.update(state);
     updateShip(dt,daylight);
+    player.visible=!state.player.aboard;
     follow.set(player.position.x,player.position.y+1.05,player.position.z);
+    // Aboard, the camera rides up with the Starship for the first stretch of the climb, and meets it coming down.
+    if(state.player.aboard&&starship?.visible)follow.y+=Math.min(28,Math.max(0,starship.position.y-PAD_DECK))*.85;
     if(hunting&&combat.shake){follow.x+=(Math.random()-.5)*combat.shake;follow.z+=(Math.random()-.5)*combat.shake;}
     if(!underground&&surfaceBurrows.shake){const k=surfaceBurrows.shake*.35;follow.x+=(Math.random()-.5)*k;follow.y+=(Math.random()-.5)*k;follow.z+=(Math.random()-.5)*k;}
     if(!underground&&raidFx.shake){const k=raidFx.shake*.4;follow.x+=(Math.random()-.5)*k;follow.y+=(Math.random()-.5)*k;follow.z+=(Math.random()-.5)*k;}

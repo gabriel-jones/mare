@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { surfaceHeightAt as heightAt, missionSite } from './terrain.js';
+import { planetOf } from './planets.js';
 import { objective } from './mission.js';
 import { encounterTrail } from './encounter.js';
 import { createInfestationMaterials } from './infestation.js';
@@ -78,6 +79,8 @@ export function createExpeditionView(scene, models, itemModels = null) {
   }
   let time = 0;
   function update(state, dt) {
+    root.visible = planetOf(state.seed) === 'moon';
+    if (!root.visible) return;
     time += dt;
     if (seed !== state.seed) place(state);
     const salvaged = (state.mission?.salvage ?? 0) >= 1;
