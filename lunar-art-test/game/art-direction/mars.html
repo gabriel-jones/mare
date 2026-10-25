@@ -57,6 +57,12 @@ const {VOYAGE}=await import('./space.js');
 const {planetOf}=await import('./planets.js');
 const save=makeSave(id);
 for(const key of ['lunar-frontier.sandbox','lunar-frontier.phase-a.v1'])localStorage.setItem(key,save);
+// ?film=1 hands the clock to window.film: the game only moves when film.tick() is called, and each tick draws one frame,
+// so footage can be captured at a steady frame rate however slowly the page renders.
+if(params.has('film')){
+ let now=performance.now(),queue=[];performance.now=()=>now;window.requestAnimationFrame=cb=>queue.push(cb);
+ window.film={tick(ms=1000/30){now+=ms;const due=queue;queue=[];due.forEach(cb=>cb(now));}};
+}
 await import('./main.js');
 const lab=document.querySelector('#mars-lab'),canvas=document.querySelector('#game');
 lab.querySelector('[data-scenarios]').innerHTML=Object.entries(SCENARIOS).map(([k,s])=>`<button data-scenario="${k}">${s.name}</button>`).join('');
