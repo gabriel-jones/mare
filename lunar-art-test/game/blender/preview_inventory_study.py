@@ -20,7 +20,7 @@ items = [('metal','METAL','Cast lunar alloy'),('crop','POTATOES','Colony-grown f
          ('chip','COMPUTE CHIP','Satellite electronics'),('artifact','ALIEN ARTIFACT','Ember-lit mineral shell')]
 board = Image.new('RGBA',(1200,690),'#11171c')
 d = ImageDraw.Draw(board)
-d.text((36,28),'LUNAR FRONTIER',font=font(14),fill='#aab5b9')
+d.text((36,28),'MARE',font=font(14),fill='#aab5b9')
 d.text((36,52),'Inventory icon study',font=font(30),fill='#eeeede')
 d.text((1164,38),'01 / FOUR MATERIAL FAMILIES',font=font(12),fill='#aab5b9',anchor='ra')
 d.line((36,99,1164,99),fill='#334047',width=1)

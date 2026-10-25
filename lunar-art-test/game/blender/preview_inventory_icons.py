@@ -27,7 +27,7 @@ assert ids==[key for key,_ in items],(ids,items)
 W=34*2+COLS*CARD+(COLS-1)*12; H=115+ROWS*(CARD+52)+20
 board=Image.new('RGBA',(W,H),'#11171c')
 d=ImageDraw.Draw(board)
-d.text((34,25),'LUNAR FRONTIER / INVENTORY',font=font(14),fill='#aab5b9')
+d.text((34,25),'MARE / INVENTORY',font=font(14),fill='#aab5b9')
 d.text((34,49),'The complete item set',font=font(28),fill='#eeeede')
 d.text((W-34,43),f'{len(items)} BLENDER-RENDERED ICONS',font=font(12),fill='#aab5b9',anchor='ra')
 d.line((34,94,W-34,94),fill='#334047')
