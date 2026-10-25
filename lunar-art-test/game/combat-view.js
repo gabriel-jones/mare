@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import {createCrawlerView,scaled} from './crawler-view.js';
+import {createHorrorView} from './horror-view.js';
+import {planetOf} from './planets.js';
 import {createCentipedeView} from './centipede-view.js';
 import {createBurrowFx} from './burrow-fx.js';
 import {SHAPE} from './centipede.js';
@@ -159,10 +161,12 @@ export function createCombatView({actor,player,headlamp,crawlerGLTF,lookup=null}
 
  /** A crawler drawn at its kind's size: its view walks a cave scaled about the origin by the same factor (see scaled). */
  function sized(c,look){
-  const s=c.size??1,kind=KINDS[c.kind];
-  if(s===1)return createCrawlerView(crawlerGLTF,caveView.root,{...look,girth:kind?.belly??0});
+  const s=c.size??1,kind=KINDS[c.kind],mars=planetOf(seed)==='mars';
+  // On Mars the same hunters are tentacled jelly (horror-view.js).
+  const make=(parent,opts)=>mars?createHorrorView(parent,{...look,...opts,size:s}):createCrawlerView(crawlerGLTF,parent,{...look,girth:kind?.belly??0,...opts});
+  if(s===1)return make(caveView.root,{});
   const holder=new THREE.Group();holder.scale.setScalar(s);caveView.root.add(holder);
-  const view=createCrawlerView(crawlerGLTF,holder,{...look,girth:kind?.belly??0,lite:s<1,size:s}),at=new THREE.Vector3();
+  const view=make(holder,{lite:s<1,size:s}),at=new THREE.Vector3();
   return {
    update:(c,dt,ctx={})=>view.update(scaled(c,s),dt,{...ctx,player:ctx.player&&{x:ctx.player.x/s,z:ctx.player.z/s}}),
    get position(){return at.copy(view.position).multiplyScalar(s);},

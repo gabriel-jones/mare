@@ -8,6 +8,7 @@ import { ensurePower } from '../power.js';
 import { LAUNCH, VOYAGE } from '../space.js';
 import { caveLayout, CAVE_CELL } from '../caves.js';
 import { terrainData } from '../terrain.js';
+import { launchRaid } from '../raid.js';
 
 export const NOON = 60, DUSK = 81;
 const TECHS = ['reactor', 'androids', 'containment', 'smg', 'rifle', 'railgun', 'katana', 'turret', 'fence', 'flamethrower', 'escape', 'hohmann', 'aerocapture', 'edl'];
@@ -92,6 +93,7 @@ export const SCENARIOS = {
   landed: { name: 'Landed', note: 'Fresh Martian colony: the landing kit crate and an android beside the pad. Deposits marked on the ground.', make: landed },
   mining: { name: 'Drill & furnace', note: 'A drill on the nearest iron deposit belting ore into a furnace; the android works the controls. E at the furnace loads, takes or switches it.', make: mining },
   dusk: { name: 'Martian dusk', note: 'The landing site as the Sun goes down.', make() { const s = landed(); s.time = DUSK - 6; return s; } },
+  raid: { name: 'Martian raid', note: 'Dusk at the drill: the fifth wave comes out of the caves, tentacled.', make() { const s = mining(); s.time = DUSK; launchRaid(s, 5, 3); return s; } },
   upper: { name: 'Cave · upper', note: 'Inside the first Martian cave, upper zone.', make: () => cave(0, 0) },
   hollows: { name: 'Cave · hollows', note: 'Inside the first Martian cave, the Hollows.', make: () => cave(0, 1) },
   deep: { name: 'Cave · deep', note: 'Inside the first Martian cave, the Deep.', make: () => cave(0, 2) },

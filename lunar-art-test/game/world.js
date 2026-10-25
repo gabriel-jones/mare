@@ -14,7 +14,7 @@ import { createLaunchFx } from './launch-fx.js';
 import { growBeds } from './life.js';
 import { airlockOf, habitatLayout, isRoom } from './habitat.js';
 import { surfaceHeightAt as heightAt, terrainData } from './terrain.js';
-import { planetOf } from './planets.js';
+import { onMars, planetOf } from './planets.js';
 import { melterReady, processorReady, PROCESSOR_INPUT_CAP } from './production.js';
 import { crewed, drillWants, furnaceReady } from './ore.js';
 import { createExpeditionView } from './expedition-view.js';
@@ -30,6 +30,7 @@ import { ALARM_RED, createAlarmView } from './alarm-view.js';
 import { raidAlert } from './raid.js';
 import { createHeadlamp } from './headlamp.js';
 import { createCrawlerView, scaled } from './crawler-view.js';
+import { createHorrorView } from './horror-view.js';
 import { createRaidFx } from './raid-fx.js';
 import { createDefenseFx } from './defense-fx.js';
 import { createCentipedeView } from './centipede-view.js';
@@ -352,7 +353,7 @@ export async function createWorld(canvas, initialState, options = {}) {
     // Each crawler is drawn at its own size: the view walks a world shrunk (or grown) about the origin by the same
     // factor, so its feet stay planted and its strides scale with its legs.
     for(const c of brood)if(c.kind==='centipede'&&!broodViews.has(c)&&crawlerGLTF){const holder=new THREE.Group();surfaceFx.add(holder);const view=createCentipedeView(crawlerGLTF,holder,{style:SHAPE.style,freak:SHAPE.freak,groundAt:onSurfaceFx,clip:false});broodViews.set(c,{holder,view,scale:1,update:(c,dt)=>view.update(c,dt),dispose:()=>{view.dispose();holder.removeFromParent();}});}
-    for(const c of brood)if(c.kind!=='centipede'&&!broodViews.has(c)&&crawlerGLTF){const scale=c.raider?c.size??(c.small?HATCHLING:1):HATCHLING,holder=new THREE.Group();holder.scale.setScalar(scale);surfaceFx.add(holder);const view=createCrawlerView(crawlerGLTF,holder,{mode:'studio',girth:c.raider?KINDS[c.kind]?.belly??0:0,lite:scale<1,size:scale});broodViews.set(c,{holder,view,scale,update:(c,dt,ctx)=>{holder.position.set(0,broodGround(c.x,c.z)-surfaceFx.position.y,0);view.update(scaled(c,scale),dt,ctx);},dispose:()=>{view.dispose();holder.removeFromParent();}});}
+    for(const c of brood)if(c.kind!=='centipede'&&!broodViews.has(c)&&crawlerGLTF){const scale=c.raider?c.size??(c.small?HATCHLING:1):HATCHLING,holder=new THREE.Group();holder.scale.setScalar(scale);surfaceFx.add(holder);const view=onMars(state)?createHorrorView(holder,{mode:'studio',lite:scale<1,size:scale}):createCrawlerView(crawlerGLTF,holder,{mode:'studio',girth:c.raider?KINDS[c.kind]?.belly??0:0,lite:scale<1,size:scale});broodViews.set(c,{holder,view,scale,update:(c,dt,ctx)=>{holder.position.set(0,broodGround(c.x,c.z)-surfaceFx.position.y,0);view.update(scaled(c,scale),dt,ctx);},dispose:()=>{view.dispose();holder.removeFromParent();}});}
     for(const [c,v] of broodViews)if(!brood.includes(c)){v.dispose();broodViews.delete(c);}
     if(underground)return;
     surfaceFx.position.y=smoothedGround??0;
