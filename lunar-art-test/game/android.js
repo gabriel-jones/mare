@@ -12,13 +12,14 @@ import { createAndroid, freePad } from './space.js';
 import { mend } from './raid.js';
 import { surfaceHeightAt } from './terrain.js';
 import { FENCE, TURRET, fouled, scrape } from './defense.js';
+import { ORE, ORES, drillOre, drillWants, furnaceRoom } from './ore.js';
 
 /**
  * Androids: humanoid workers that do the colony's chores in a fixed order of priority. They take up arms from the
  * armory (or a crate) while hatchlings are loose, then put them back; get a downed android back on its feet;
  * build blueprints, carrying the materials over from the crates; keep turrets loaded with rounds; patch up raid damage;
- * scrape black goo off fouled fences; feed bioreactors; carry finished goods from stations
- * to the crates; harvest ripe crops (the plot replants itself); and keep stations crafting up to each recipe's stock
+ * scrape black goo off fouled fences; feed bioreactors; haul ore from Martian drills to the furnaces and bars to the crates;
+ * work a drill's controls; carry finished goods from stations to the crates; harvest ripe crops (the plot replants itself); and keep stations crafting up to each recipe's stock
  * target. Each docks at its own charging pad. Unlike the wheeled robots they walk into rooms, through the airlocks.
  *
  * Saved: position, charge, health, `down`, what it carries (`carry`, `weapon`, `mag`, `ammo`, `kit`) and its pad.
@@ -28,6 +29,8 @@ export const ANDROID = Object.freeze({
   speed: 2.6, drain: 1 / 480, chargeRate: 1 / 40, chargePower: 1.2, low: .22, hp: 60,
   harvest: 1.4, craft: 1.5, collect: .6, repair: 5, repairCost: Object.freeze({ metal: 10, silicon: 4 }),
   calm: 6, hit: .85, mend: 15, damage: .55,
+  /** How long a stint at a drill's controls lasts before the android looks round for other chores. */
+  shift: 30,
 });
 /** A test android and its pad are handed to every colony once, new or loaded. Turn off to make them a mid-game unlock only. */
 export const STARTER_ANDROID = true;
@@ -245,6 +248,36 @@ function feedJob(state, r) {
   }
   return null;
 }
+const furnaceFor = (state, r, item) => nearest(r, state.buildings.filter(b => furnaceRoom(b, item) >= 1 && !isStuck(state, r, b.id)));
+/** Ore off a drill once a load has piled up, bars out of a furnace, and ore (or iron bars for plate) from the crates into a hungry furnace. */
+function haulJob(state, r) {
+  for (const b of state.buildings) {
+    if (!b.built || claimed(state, r, `collect:${b.id}`) || isStuck(state, r, b.id)) continue;
+    if (b.type === 'drill' && (b.out >= ORE.drill.haul || (b.out >= 1 && !drillWants(state, b)))) {
+      const item = drillOre(state, b);
+      if (item && (furnaceFor(state, r, item) || crateFor(state, r, item))) return job('collect', b, { item });
+    }
+    if (b.type === 'furnace') {
+      const item = Object.keys(b.out).find(i => b.out[i] >= 1);
+      if (item && crateFor(state, r, item)) return job('collect', b, { item });
+    }
+  }
+  for (const b of state.buildings) {
+    if (b.type !== 'furnace' || !b.built || claimed(state, r, `stoke:${b.id}`) || isStuck(state, r, b.id)) continue;
+    for (const item of [...ORES, 'ironbar']) {
+      const room = furnaceRoom(b, item);
+      if (room < ORE.furnace.input || b.inv[item] >= ORE.furnace.input * 2) continue;
+      const crate = crateWith(state, r, item);
+      if (crate) return { ...job('fetch', crate, { item, n: Math.min(room, ITEM_INFO[item].stack), tag: `stoke:${b.id}` }), next: job('deliver', b, { item, tag: `stoke:${b.id}` }) };
+    }
+  }
+  return null;
+}
+/** A drill with ore left and room inside needs a hand on its controls. */
+function operateJob(state, r) {
+  const b = nearest(r, state.buildings.filter(b => drillWants(state, b) && !claimed(state, r, `operate:${b.id}`) && !isStuck(state, r, b.id)));
+  return b && job('operate', b);
+}
 function collectJob(state, r) {
   for (const b of state.buildings) {
     if (!b.built || claimed(state, r, `collect:${b.id}`) || isStuck(state, r, b.id)) continue;
@@ -306,8 +339,12 @@ function plan(state, r) {
       if (!r.weapon && !r.carry) { const arm = armSource(state, r); if (arm) return arm; }
     }
     if (r.weapon && !loose && (r.calm ?? 0) >= ANDROID.calm) { const crate = crateFor(state, r, r.weapon); if (crate) return job('disarm', crate, { tag: `disarm:${r.id}` }); }
-    if (r.carry) { const crate = crateFor(state, r, r.carry.item); return crate ? job('stow', crate, { tag: `stow:${r.id}` }) : null; }
-    return rescueJob(state, r) ?? stockJob(state, r) ?? buildJob(state, r) ?? mendJob(state, r) ?? cleanJob(state, r) ?? feedJob(state, r) ?? collectJob(state, r) ?? harvestJob(state, r) ?? craftJob(state, r) ?? (pad ? job('charge', pad) : null);
+    if (r.carry) {
+      const furnace = furnaceFor(state, r, r.carry.item);
+      if (furnace) return job('deliver', furnace, { item: r.carry.item, tag: `stoke:${furnace.id}` });
+      const crate = crateFor(state, r, r.carry.item); return crate ? job('stow', crate, { tag: `stow:${r.id}` }) : null;
+    }
+    return rescueJob(state, r) ?? stockJob(state, r) ?? buildJob(state, r) ?? mendJob(state, r) ?? cleanJob(state, r) ?? feedJob(state, r) ?? haulJob(state, r) ?? operateJob(state, r) ?? collectJob(state, r) ?? harvestJob(state, r) ?? craftJob(state, r) ?? (pad ? job('charge', pad) : null);
   };
   const next = choose();
   if (!next) return;
@@ -351,6 +388,7 @@ function act(state, r, dt, powered, hooks) {
     case 'deliver': {
       if (!r.carry || r.carry.item !== j.item) return 'done';
       if (b.type === 'bioreactor') { const n = Math.min(r.carry.n, BIO.cap - b.stock); if (n > 0) { Object.assign(b, { stock: b.stock + n, fed: true, starve: 0 }); r.carry.n -= n; } }
+      else if (b.type === 'furnace' && b.built) { const n = Math.min(r.carry.n, furnaceRoom(b, j.item)); if (n > 0) { b.inv[j.item] += n; r.carry.n -= n; } }
       else if (b.type === 'turret' && b.built) { const n = Math.min(r.carry.n, TURRET.cap - (b.ammo ?? 0)); if (n > 0) { b.ammo = (b.ammo ?? 0) + n; r.carry.n -= n; } }
       else if (!b.built && b.paid) { const n = Math.min(r.carry.n, (DEFS[b.type].cost[j.item] ?? 0) - (b.paid[j.item] ?? 0)); if (n > 0) { b.paid[j.item] = (b.paid[j.item] ?? 0) + n; r.carry.n -= n; } }
       if (r.carry.n <= 0) r.carry = null;
@@ -368,6 +406,8 @@ function act(state, r, dt, powered, hooks) {
     case 'collect': {
       if ((j.t += dt) < ANDROID.collect) return 'working';
       if (b.type === 'goovat') { const n = Math.min(Math.floor(b.stock), ITEM_INFO.goo.stack); if (n >= 1) { b.stock -= n; r.carry = { item: 'goo', n }; } return 'done'; }
+      if (b.type === 'drill') { const n = Math.min(b.out, ITEM_INFO[j.item].stack); if (n >= 1) { b.out -= n; r.carry = { item: j.item, n }; } return 'done'; }
+      if (b.type === 'furnace') { const n = Math.min(b.out[j.item] ?? 0, ITEM_INFO[j.item].stack); if (n >= 1) { b.out[j.item] -= n; r.carry = { item: j.item, n }; } return 'done'; }
       const n = Math.min(b.ready?.[j.item] ?? 0, ITEM_INFO[j.item].stack);
       if (n >= 1) { r.carry = { item: j.item, n }; if ((b.ready[j.item] -= n) <= 0) delete b.ready[j.item]; }
       return 'done';
@@ -412,6 +452,10 @@ function act(state, r, dt, powered, hooks) {
       r.kit = true;
       return 'done';
     }
+    case 'operate':
+      if (!drillWants(state, b) || r.charge < ANDROID.low || (j.t += dt) > ANDROID.shift) return 'done';
+      b.crewed = state.time;
+      return 'working';
     case 'clean':
       if (!fouled(b)) return 'done';
       if ((j.t += dt) < FENCE.clean) return 'working';

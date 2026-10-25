@@ -5,6 +5,7 @@ import { stepPeril, dropAction, recoverDrop, craftFlares, throwFlare, flareNow, 
 import { sampleAction, takeSample, stepBrood, vatAction } from './goo.js';
 import { buildingHp, damagedNear, mend, raidNews, stepRaiders } from './raid.js';
 import { defenseAction, stepDefenses } from './defense.js';
+import { oreAction } from './ore.js';
 import {DEFS,createState,validatePlacement,placeBlueprint,construct,tick,serialize,deserialize,cancelBlueprint,deconstruct,collectStorage,setMiningArea,miningAreaReason,removeMiningArea,assignRover,rotateBelt,playerObstructs,interact,removalCheck,PROCESSOR_LOCKED,grantStarterAndroid} from './sim.js';
 import {STARTER_ANDROID,androidNews,wreckAction,repairWreck,setStockTarget} from './android.js';
 import {DIRS,ITEM_INFO,footprint} from './defs.js';
@@ -93,7 +94,7 @@ function nearbyUse(){
  let best=null,distance=2.8;const rooms=habitatLayout(state.buildings),plots=new Map();
  for(const b of state.buildings){
   if(!b.built)continue;
-  const action=b.type==='storage'?{verb:ui?.crateId===b.id?'Close crate':'Open crate'}:machineAction(state,b)??lifeAction(state,b)??vatAction(state,b)??defenseAction(state,b);
+  const action=b.type==='storage'?{verb:ui?.crateId===b.id?'Close crate':'Open crate'}:machineAction(state,b)??lifeAction(state,b)??vatAction(state,b)??defenseAction(state,b)??oreAction(state,b);
   if(!action||!sameRoom(b,rooms))continue;
   const d=reachOf(b,plots);
   if(d<distance){best={building:b,...action};distance=d;}
@@ -134,7 +135,7 @@ function view(){
  const nearest=state.player.cave==null?nearestBlueprint(state,DEFS,100):null,c=nearest?buildingCenter(nearest,DEFS):null;
  const guidance=nearest?`${DEFS[nearest.type].name} blueprint: ${Math.ceil(Math.hypot(c.x-state.player.x,c.z-state.player.z))}m away. Walk within 5m, then hold E.`:null;
  const goal=objective(state),distance=goal.target&&state.player.cave==null?Math.round(Math.hypot(goal.target.x-state.player.x,goal.target.z-state.player.z)):null;
- return {objective:{...goal,distance},missionUse:missionAction(state)??shipAction(state),locked:{...(processorUnlocked(state)?{}:{processor:PROCESSOR_LOCKED}),...Object.fromEntries(Object.keys(DEFS).map(type=>[type,lockedReason(state,type)]).filter(([,reason])=>reason))},selectedType,rotation,placementReason,constructionReason,blueprintTip:blueprintTip(),nearbyBuilding:nearby(),use:nearbyUse(),station:openStation(),selectedSlot,foodSlot:foodSlot(),guidance,constructing,night:Math.sin(state.time/240*Math.PI*2+Math.PI/3)<=0,paused:false,saveStatus:saveStatus+(speed>1?' · Time ×12':''),timeScale:speed};
+ return {objective:{...goal,distance},missionUse:missionAction(state)??shipAction(state),locked:{...(processorUnlocked(state)?{}:{processor:PROCESSOR_LOCKED}),...Object.fromEntries(Object.keys(DEFS).map(type=>[type,lockedReason(state,type)??(DEFS[type].planet&&DEFS[type].planet!==planetOf(state.seed)?'elsewhere':null)]).filter(([,reason])=>reason))},selectedType,rotation,placementReason,constructionReason,blueprintTip:blueprintTip(),nearbyBuilding:nearby(),use:nearbyUse(),station:openStation(),selectedSlot,foodSlot:foodSlot(),guidance,constructing,night:Math.sin(state.time/240*Math.PI*2+Math.PI/3)<=0,paused:false,saveStatus:saveStatus+(speed>1?' · Time ×12':''),timeScale:speed};
 }
 function point(event){hover=world?.pick(event.clientX,event.clientY);canvas.dataset.hoverCell=hover?`${hover.x},${hover.z}`:'';if(!hover){world?.clearGhost();return;}if(beltPath)extendBeltPath(hover);if(paintPath)extendPaintPath(hover);targetId=hover.buildingId??null;canvas.dataset.targetId=String(targetId??'');if(erasing)eraseAt();refreshGhost();}
 const MAX_PAINT=120;

@@ -49,6 +49,23 @@ function landed() {
   s.time = NOON; tick(s, 0);
   return s;
 }
+/** A drill on the nearest iron deposit belting ore into a furnace, a reactor to run them and the android at the controls. */
+function mining() {
+  const s = landed(), d = depositOf(s, 'iron'), x = Math.round(d.x / 2 - .5), z = Math.round(d.z / 2 - .5);
+  s.inventory = createInventory({ metal: 400, silicon: 200 });
+  put(s, 'reactor', x - 4, z - 1);
+  const drill = put(s, 'drill', x, z);
+  put(s, 'conveyor', x + 1, z + 2);
+  const furnace = put(s, 'furnace', x + 1, z + 3);
+  s.inventory = createInventory({ rifle: 1, flamethrower: 1, rounds: 120, flare: 6, meal: 4, ironore: 20, goldore: 8 });
+  if (drill) drill.out = 6;
+  if (furnace) furnace.inv.ironore = 8;
+  const android = s.robots.find(r => r.kind === 'android');
+  if (android && drill) Object.assign(android, { x: (x - 1) * 2, z: z * 2 });
+  Object.assign(s.player, { x: x * 2 - 5, z: z * 2 + 6, facing: Math.PI * .75 });
+  tick(s, 0);
+  return s;
+}
 /** On Mars, `zone` levels down cave `id`, at the zone's start. */
 function cave(id, zone) {
   const s = landed(), c = caveLayout(s.seed, id, zone);
@@ -61,6 +78,7 @@ export const SCENARIOS = {
   pad: { name: 'Ready to fly', note: 'Moon base, every manoeuvre researched, tanks full, goo drive loaded. Hold E at the Starship to board.', make: moon },
   transfer: { name: 'In transfer', note: 'Mid-way along the Hohmann transfer to Mars. Opens the orbital view.', make() { const s = moon(); Object.assign(s.ship, { status: 'transfer', t: 9, crew: true, dest: 'mars', fuel: 0, goo: VOYAGE.gooHold - VOYAGE.goo }); s.player.aboard = true; return s; } },
   landed: { name: 'Landed', note: 'Fresh Martian colony: the landing kit crate and an android beside the pad. Deposits marked on the ground.', make: landed },
+  mining: { name: 'Drill & furnace', note: 'A drill on the nearest iron deposit belting ore into a furnace; the android works the controls. E at the furnace loads, takes or switches it.', make: mining },
   dusk: { name: 'Martian dusk', note: 'The landing site as the Sun goes down.', make() { const s = landed(); s.time = DUSK - 6; return s; } },
   upper: { name: 'Cave · upper', note: 'Inside the first Martian cave, upper zone.', make: () => cave(0, 0) },
   hollows: { name: 'Cave · hollows', note: 'Inside the first Martian cave, the Hollows.', make: () => cave(0, 1) },

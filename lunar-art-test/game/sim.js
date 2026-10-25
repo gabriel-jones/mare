@@ -15,6 +15,7 @@ import { restorePeril } from './peril.js';
 import { restoreInfest } from './infest.js';
 import { GOO, ensureVat, gooDemand, restoreGoo, stepGoo, useVat } from './goo.js';
 import { defenseDemand, restoreDefense, useDefense } from './defense.js';
+import { drillReason, oreContents, restoreOre, useOre } from './ore.js';
 import { BIO, THERMAL, ensurePower, steadyGeneration, stepFuelCells, thermalCapacity } from './power.js';
 import { haulerDemand, restoreHauler, stepHaulers } from './hauler.js';
 import { buildingHp, restoreRaid, stepRaid } from './raid.js';
@@ -98,6 +99,8 @@ export function validatePlacement(state, type, x, z, rotation = 0) {
   if (state.player.cave != null) return { ok: false, reason: 'Construction is unavailable underground.' };
   if (!DEFS[type]) return { ok: false, reason: 'Invalid building or grid position.' };
   if (type === 'processor' && !processorUnlocked(state)) return { ok: false, reason: PROCESSOR_LOCKED };
+  const planet = DEFS[type].planet;
+  if (planet && planet !== planetOf(state.seed)) return { ok: false, reason: `Only on ${PLANETS[planet].name}.` };
   const locked = lockedReason(state, type);
   if (locked) return { ok: false, reason: locked };
   if (DEFS[type].nearPad && !touchesPad({ type, x, z, rotation })) return { ok: false, reason: 'Place the tank right beside the landing pad.' };
@@ -107,7 +110,7 @@ export function validatePlacement(state, type, x, z, rotation = 0) {
   const reason = geometryReason(state, type, x, z, rotation);
   if (reason) return { ok: false, reason };
   if (DEFS[type].layer !== 'interior') {
-    const groundReason = terrainReason(state.seed, footprint(type, x, z, rotation));
+    const groundReason = terrainReason(state.seed, footprint(type, x, z, rotation)) ?? (type === 'drill' ? drillReason(state, footprint(type, x, z, rotation)) : null);
     if (groundReason) return { ok: false, reason: groundReason };
   }
   const placeReason = roomReason(state, type, x, z, rotation);
@@ -239,7 +242,8 @@ export function deconstruct(state, id) {
   }
   if (!refund(state, b)) return { ok: false, reason: NO_ROOM };
   const contents = {}, give = (item, n) => { if (n > 0 && ITEM_INFO[item]) contents[item] = (contents[item] ?? 0) + n; };
-  for (const store of [b.inv, b.out]) for (const item of ['metal', 'silicon', 'frame', 'wing', 'chip', 'satellite']) give(item, Math.floor(store?.[item] ?? 0));
+  for (const store of b.type === 'furnace' ? [] : [b.inv, b.out]) for (const item of ['metal', 'silicon', 'frame', 'wing', 'chip', 'satellite']) give(item, Math.floor(store?.[item] ?? 0));
+  for (const [item, n] of Object.entries(oreContents(state, b))) give(item, n);
   for (const item of b.items ?? []) if (['metal', 'silicon', 'frame', 'wing', 'chip', 'satellite'].includes(item.type)) give(item.type, 1);
   // Farm machines hand back what they hold: finished goods, and the ingredients of anything not yet made.
   for (const [item, n] of Object.entries(b.ready ?? {})) give(item, n);
@@ -279,6 +283,7 @@ export function interact(state, id) {
   if (b.type === 'xenolab') return studyFinds(state, id);
   if (b.type === 'goovat' || b.type === 'bioreactor') return useVat(state, b);
   if (b.type === 'turret' || b.type === 'fence') return useDefense(state, b);
+  if (b.type === 'drill' || b.type === 'furnace') return useOre(state, b);
   return useLife(state, b);
 }
 /** Turns an existing belt (blueprint or finished) to face `rotation`; items on it are kept. */
@@ -496,7 +501,7 @@ function restoreBuilding(raw) {
   }
   if (b.type === 'electrolyser') check('work', v => count(v, 1));
   if (b.type === 'tank') check('fuel', v => count(v, DEFS.tank.capacity));
-  restoreDefense(b, raw);
+  restoreDefense(b, raw); restoreOre(b, raw);
   return ensureState(b);
 }
 function restoreRobot(raw, index) {

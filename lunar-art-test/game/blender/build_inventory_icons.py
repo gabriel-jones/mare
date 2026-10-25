@@ -172,6 +172,56 @@ def titanium(p):
     beam('Titanium / exposed vein',(-.38,-.24,.49),(-.04,-.27,.66),.055,p['rust'])
 
 
+def mars_materials(p):
+    p.setdefault('hematite', mat('martian iron ore', (.32,.09,.04), .3,.7))
+    p.setdefault('hematite_dark', mat('hematite facet', (.07,.05,.05), .65,.35))
+    p.setdefault('gangue', mat('grey host rock', (.2,.18,.17), .05,.85))
+    p.setdefault('gold_vein', mat('native gold vein', (1.,.66,.18), 1.,.25))
+    p.setdefault('iron_bar', mat('cast iron ingot', (.11,.11,.12), .85,.42))
+    p.setdefault('titanium_bar', mat('titanium ingot', (.52,.58,.64), .9,.3))
+    p.setdefault('gold_bar', mat('gold ingot', (1.,.62,.16), 1.,.18))
+
+
+def ore_cluster(p,label,body,vein,seed):
+    for i,(loc,scale) in enumerate([((-.2,.08,.3),(.42,.38,.34)),((.28,-.05,.24),(.33,.3,.27)),((-.04,-.28,.18),(.26,.24,.2))]):
+        o=ico(f'{label} / lump',loc,scale,p[body],seed+i)
+        o.data.materials.append(p[vein])
+        for face in o.data.polygons:
+            if face.index%3==i%3: face.material_index=1
+
+
+def ironore(p):
+    materials(p); mars_materials(p)
+    ore_cluster(p,'Iron ore','hematite','hematite_dark',51)
+
+
+def goldore(p):
+    materials(p); mars_materials(p)
+    ore_cluster(p,'Gold ore','gangue','gold_vein',61)
+    beam('Gold ore / vein',(-.36,-.2,.44),(-.02,-.24,.6),.05,p['gold_vein'])
+
+
+def ingot(name,loc,material,yaw=0):
+    bpy.ops.mesh.primitive_cube_add(size=1,location=loc)
+    o=bpy.context.object
+    o.scale=(.62,.3,.2)
+    for v in o.data.vertices:
+        if v.co.z>0: v.co.x*=.82; v.co.y*=.72
+    o.rotation_euler=(0,0,yaw)
+    return finish(o,name,material,.02)
+
+
+def bar_stack(p,label,material):
+    materials(p); mars_materials(p)
+    for x in (-.17,.17): ingot(f'{label} / ingot',(x*1.05,0,.1),p[material],math.pi/2)
+    ingot(f'{label} / top ingot',(0,0,.3),p[material])
+
+
+def ironbar(p): bar_stack(p,'Iron bar','iron_bar')
+def titaniumbar(p): bar_stack(p,'Titanium bar','titanium_bar')
+def goldbar(p): bar_stack(p,'Gold bar','gold_bar')
+
+
 def regolith(p):
     materials(p)
     p.setdefault('regolith', mat('lunar regolith', (.11,.1,.088), 0,.97))
@@ -583,6 +633,7 @@ BUILDERS = [('metal',study['metal']),('silicon',silicon),('regolith',regolith),(
             ('flour',flour),('protein',protein),('meal',meal),('salad',salad),('bread',bread),('stew',stew),
             ('broth',broth),('algaecake',algaecake),('pizza',pizza),('medkit',medkit),('core',core),
             ('frame',frame),('wing',wing),('chip',study['chip']),('satellite',satellite),('titanium',titanium),
+            ('ironore',ironore),('goldore',goldore),('ironbar',ironbar),('titaniumbar',titaniumbar),('goldbar',goldbar),
             ('rareearth',rareearth),('artifact',study['artifact']),('heart',heart),('goo',goo),('flare',flare),('rounds',rounds),('fuel',fuel),('charge',charge),('pistol',pistol),('smg',smg),('katana',katana),('rifle',rifle),('flamethrower',flamethrower),('arc',arc),('railgun',railgun)]
 
 

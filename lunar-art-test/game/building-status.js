@@ -9,6 +9,7 @@ import { GOO, gooOn } from './goo.js';
 import { BIO, FUELCELL, RTG_POWER, THERMAL } from './power.js';
 import { buildingHp } from './raid.js';
 import { FENCE, TURRET, fenceRuns } from './defense.js';
+import { MODES, ORE, crewed, depositLeft, drillDeposit, drillOre, furnaceReady } from './ore.js';
 
 const roomCache={state:null,time:-1,result:null};
 function roomsOf(state){
@@ -50,6 +51,20 @@ export function buildingStatus(building,state){
   if(!building.fed)return {text:'Unfed',read:'PRESS E WITH BLACK GOO',tone:'inactive'};
   if(building.stock<1)return {text:`Breach in ${Math.ceil(BIO.starveAfter-building.starve)}s`,read:'CULTURE STARVING · FEED IT GOO',tone:'warning'};
   return {text:`${BIO.power} kW`,read:`DIGESTING · GOO ${building.stock} / ${BIO.cap}${building.stock<=1?' · FEED SOON':''}`,tone:building.stock<=1?'low':'charge',fill:building.stock/BIO.cap};
+ }
+ if(building.type==='drill'){
+  const d=drillDeposit(state,building),left=d?depositLeft(state,d):0,ore=ITEM_INFO[drillOre(state,building)]?.name.toUpperCase()??'ORE',read=`${ore} ${building.out} / ${ORE.drill.cap} · ${Math.floor(left)} LEFT IN THE GROUND`;
+  if(!d||left<1)return {text:'Worked out',read:'DEPOSIT EXHAUSTED · DISMANTLE AND MOVE IT',tone:'inactive'};
+  if(building.out>=ORE.drill.cap)return {text:'Full',read:'BELT IT AWAY OR LET AN ANDROID HAUL IT',tone:'low',fill:1};
+  if(state.power.powered===false)return noPower;
+  if(!crewed(state,building))return {text:'No operator',read:`AN ANDROID MUST WORK THE CONTROLS · ${read}`,tone:'inactive',fill:building.out/ORE.drill.cap};
+  return {text:'Drilling',read,tone:'charge',fill:building.out/ORE.drill.cap};
+ }
+ if(building.type==='furnace'){
+  const ore=Object.entries(building.inv??{}).filter(([,n])=>n>0).map(([i,n])=>`${ITEM_INFO[i].name.toUpperCase()} ${n}`).join(' · '),made=Object.entries(building.out??{}).filter(([,n])=>n>0).map(([i,n])=>`${n} ${ITEM_INFO[i].name.toUpperCase()}`).join(' · ');
+  if(furnaceReady(building)){if(state.power.powered===false)return noPower;return {text:building.mode==='plate'?'Rolling plate':'Smelting',read:[ore,made&&`READY: ${made}`].filter(Boolean).join(' · '),tone:'charge',fill:building.work};}
+  if(made)return {text:total(building.out)>=ORE.furnace.cap?'Output full':'Ready',read:`READY: ${made} · PRESS E OR BELT IT AWAY`,tone:'low'};
+  return {text:'Cold',read:building.mode==='plate'?'ROLLING PLATE · NEEDS IRON BARS':`${MODES.bars.toUpperCase()} · NEEDS 2 ORE`,tone:'inactive'};
  }
  if(building.type==='turret'){
   const ammo=building.ammo??0,read=`ROUNDS ${ammo} / ${TURRET.cap}`;

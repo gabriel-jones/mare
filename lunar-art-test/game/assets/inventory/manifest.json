@@ -43,6 +43,11 @@
     "rifle": "Semi-auto rifle",
     "flamethrower": "Flamethrower",
     "arc": "Arc projector",
-    "railgun": "Railgun"
+    "railgun": "Railgun",
+    "ironore": "Iron ore",
+    "goldore": "Gold ore",
+    "ironbar": "Iron bar",
+    "titaniumbar": "Titanium bar",
+    "goldbar": "Gold bar"
   }
 }

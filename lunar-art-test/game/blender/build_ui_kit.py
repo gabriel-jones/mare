@@ -259,7 +259,7 @@ HUD = [('build', build_tool), ('robots', building('rover')), ('stock', crate_sta
        ('suit', helmet), ('food', ration), ('comms', comms), ('lock', padlock)]
 GLB_BUILDINGS = ['solar', 'battery', 'hopper', 'habitat', 'growbed', 'hydrorack', 'verticalfarm', 'mushroomtray', 'galley',
                  'armory', 'goovat', 'mill', 'recycler', 'conveyor', 'processor', 'melter', 'storage', 'fabricator',
-                 'assembler', 'electrolyser', 'tank', 'dock', 'roverbay', 'hauler', 'rover', 'xenolab', 'reactor', 'fuelcell', 'thermal', 'rtg', 'bioreactor', 'foundry', 'chargepad', 'turret']
+                 'assembler', 'electrolyser', 'tank', 'dock', 'roverbay', 'hauler', 'rover', 'xenolab', 'reactor', 'fuelcell', 'thermal', 'rtg', 'bioreactor', 'foundry', 'chargepad', 'turret', 'drill', 'furnace']
 BUILD = [(k, open_tray if k == 'growbed' else building(k)) for k in GLB_BUILDINGS] + [('fence', fence_run), ('android', android_figure), ('greenhouse', greenhouse), ('airlock', airlock), ('mine', mine), ('dismantle', dismantle)]
 
 

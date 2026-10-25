@@ -3,6 +3,7 @@ import { CELL_SIZE, DEFS, DIRS, ITEMS, PARTS, footprint, ports } from './defs.js
 import { findPath, robotBlockedCells, cellPassable } from './paths.js';
 import * as inv from './inventory.js';
 import { iceAt } from './terrain.js';
+import { ensureOre, furnaceAccept, oreDemand, stepOre } from './ore.js';
 
 // Provisional tuning. One item is one abstract unit of bulk material.
 export const BELT_SPEED = 1.5;
@@ -39,7 +40,7 @@ export function ensureBuildingState(b) {
   if (b.type === 'electrolyser') b.work ??= 0;
   if (b.type === 'tank') b.fuel ??= 0;
   if (b.type === 'dock' || b.type === 'roverbay') b.work ??= 0;
-  return b;
+  return ensureOre(b);
 }
 const key = (x, z) => `${x},${z}`;
 export const total = inv => Object.values(inv ?? {}).reduce((s, n) => s + n, 0);
@@ -68,7 +69,7 @@ export function productionDemand(state) {
   for (const b of state.buildings) if (b.type === 'fabricator' && fabricatorReady(b)) kw += FAB.power;
   for (const b of state.buildings) if (b.type === 'assembler' && assemblerReady(b)) kw += ASSEMBLY.power;
   for (const r of state.robots ?? []) if (r.kind === 'miner' && roverCharging(r)) kw += ROVER.chargePower;
-  return kw;
+  return kw + oreDemand(state);
 }
 
 /** Whether something at `from` delivers into the cell `to` travelling in direction `dir`. */
@@ -104,6 +105,7 @@ function machineAccept(b, item) {
   if (b.type === 'melter' && item === 'ice' && b.inv.ice < MELT.cap) { b.inv.ice += 1; return true; }
   if (b.type === 'thermal' && item === 'regolith' && b.inv.regolith < THERMAL.cap) { b.inv.regolith += 1; return true; }
   if ((b.type === 'fabricator' || b.type === 'assembler') && machineRoom(b, item) >= 1) { b.inv[item] += 1; return true; }
+  if (b.type === 'furnace') return furnaceAccept(b, item);
   return false;
 }
 /** Where the item at the front of `belt` would go, or null. */
@@ -155,6 +157,7 @@ function stepMachines(state, index, dt, powered) {
   for (const b of state.buildings) {
     if (!b.built) continue;
     if (b.type === 'storage') pullFromCrate(b, index);
+    if (b.type === 'drill' || b.type === 'furnace') stepOre(state, b, dt, powered, take => pushOutputs(b, index, take));
     if (b.type === 'hopper') pushOutputs(b, index, () => { const item = b.inv.ice > b.inv.regolith ? 'ice' : 'regolith'; return b.inv[item] > 0 ? (b.inv[item]--, item) : null; });
     if (b.type === 'melter' && melterReady(state, b) && powered) {
       b.work = Math.min(1, b.work + dt / MELT.time);

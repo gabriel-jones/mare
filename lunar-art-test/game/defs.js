@@ -3,7 +3,7 @@ export const CELL_SIZE = 2;
 // Facing index matches Three.js rotation.y = facing * PI/2 applied to a model whose front is +Z.
 export const DIRS = Object.freeze([[0, 1], [1, 0], [0, -1], [-1, 0]]);
 /** Items that travel on belts and fill machines. */
-export const ITEMS = Object.freeze(['regolith', 'metal', 'silicon', 'ice', 'frame', 'wing', 'chip', 'satellite']);
+export const ITEMS = Object.freeze(['regolith', 'metal', 'silicon', 'ice', 'frame', 'wing', 'chip', 'satellite', 'ironore', 'titanium', 'goldore', 'ironbar', 'titaniumbar', 'goldbar']);
 /** Satellite parts a fabricator can make, and what each costs. */
 export const PARTS = Object.freeze({
   frame: { name: 'Satellite frame', input: { metal: 4 } },
@@ -39,6 +39,11 @@ export const ITEM_INFO = Object.freeze({
   chip: { name: 'Compute chip', stack: 10 },
   satellite: { name: 'AI satellite', stack: 1 },
   titanium: { name: 'Titanium ore', stack: 40 },
+  ironore: { name: 'Iron ore', stack: 60 },
+  goldore: { name: 'Gold ore', stack: 40 },
+  ironbar: { name: 'Iron bar', stack: 50 },
+  titaniumbar: { name: 'Titanium bar', stack: 30 },
+  goldbar: { name: 'Gold bar', stack: 20 },
   rareearth: { name: 'Rare-earth crystal', stack: 10 },
   artifact: { name: 'Alien artifact', stack: 5 },
   heart: { name: 'Heart of the Deep', stack: 1 },
@@ -62,7 +67,7 @@ const allSides = [0, 1, 2, 3].map(dir => ({ x: 0, z: 0, dir }));
 export const DEFS = Object.freeze({
   solar: { name: 'Solar array', w: 2, d: 2, cost: { metal: 18, silicon: 8 }, buildTime: 4, description: 'Generates up to 8 kW in sunlight.' },
   battery: { name: 'Battery bank', w: 1, d: 2, cost: { metal: 14, silicon: 5 }, buildTime: 3, description: 'Stores 180 kJ of surplus power for the lunar night.' },
-  hopper: { name: 'Regolith hopper', w: 2, d: 2, cost: { metal: 20, silicon: 2 }, buildTime: 4, capacity: 120, outputs: [{ x: 0, z: 1, dir: 0 }], description: 'The mining rover unloads and recharges here. Feeds regolith onto a belt at its marked output.' },
+  hopper: { name: 'Regolith hopper', w: 2, d: 2, cost: { metal: 20, silicon: 2 }, planet: 'moon', buildTime: 4, capacity: 120, outputs: [{ x: 0, z: 1, dir: 0 }], description: 'The mining rover unloads and recharges here. Feeds regolith onto a belt at its marked output.' },
   habitat: { name: 'Habitat', key: 'h', w: 1, d: 1, cost: { metal: 8, silicon: 2 }, buildTime: 1.5, layer: 'floor', room: 'habitat', paint: true, walkable: true, enclosed: true, power: 0.25, description: 'Drag to paint living space. Walls and roof form around the shape. 0.25 kW per square.' },
   greenhouse: { name: 'Greenhouse', w: 1, d: 1, cost: { metal: 4, silicon: 6 }, buildTime: 1.5, layer: 'floor', room: 'greenhouse', paint: true, walkable: true, enclosed: true, power: 0.25, description: 'Drag to paint glazed growing space. Joins habitats into one building.' },
   airlock: { name: 'Airlock', w: 1, d: 1, cost: { metal: 12, silicon: 4 }, buildTime: 3, layer: 'floor', room: 'airlock', airlock: true, walkable: true, enclosed: true, power: 0.2, description: 'Place against a room with its arrow facing out. The only way in or out.' },
@@ -76,7 +81,7 @@ export const DEFS = Object.freeze({
   mill: { name: 'Mill', w: 1, d: 1, inset: 0.25, cost: { metal: 16, silicon: 4 }, buildTime: 3, layer: 'interior', needs: 'habitat', research: 'processing', description: 'Grinds wheat into flour and soybeans into protein. Uses 1 kW while milling.' },
   recycler: { name: 'Water recycler', w: 1, d: 1, inset: 0.25, cost: { metal: 10, silicon: 6 }, buildTime: 3, layer: 'interior', needs: 'habitat', description: 'Reclaims water inside a pressurised habitat. Uses 0.5 kW.' },
   conveyor: { name: 'Conveyor belt', key: 'c', w: 1, d: 1, cost: { metal: 1 }, buildTime: 0.25, walkable: true, description: 'Carries items forward. Drag a route; it can turn corners.' },
-  processor: { name: 'Regolith processor', w: 2, d: 3, cost: { metal: 45, silicon: 15 }, buildTime: 7, inputs: [{ x: 0, z: 0, dir: 2 }], outputs: [{ x: 0, z: 2, dir: 0 }], description: 'Refines regolith into metal and silicon, venting oxygen to colony reserves. Uses 3 kW while running.' },
+  processor: { name: 'Regolith processor', w: 2, d: 3, cost: { metal: 45, silicon: 15 }, planet: 'moon', buildTime: 7, inputs: [{ x: 0, z: 0, dir: 2 }], outputs: [{ x: 0, z: 2, dir: 0 }], description: 'Refines regolith into metal and silicon, venting oxygen to colony reserves. Uses 3 kW while running.' },
   melter: { name: 'Ice melter', w: 1, d: 2, cost: { metal: 24, silicon: 6 }, buildTime: 4, inputs: [{ x: 0, z: 0, dir: 2 }], description: 'Melts ice from a belt into the colony water reserve. Uses 1.5 kW while melting.' },
   storage: { name: 'Storage crate', w: 1, d: 1, cost: { metal: 10 }, buildTime: 2, slots: 12, inputs: allSides, description: 'Holds 12 stacks of anything. Belts and haulers fill it, and a belt leading away pulls items out; press E to move things in and out. Every crate adds to one base stock that building and crafting draw on.' },
   fabricator: { name: 'Fabricator', w: 2, d: 2, cost: { metal: 30, silicon: 10 }, buildTime: 5, inputs: [{ x: 0, z: 0, dir: 2 }], outputs: [{ x: 1, z: 1, dir: 0 }], description: 'Makes satellite frames, solar wings or compute chips from metal and silicon. Press E to change part. Uses 2 kW.' },
@@ -87,21 +92,24 @@ export const DEFS = Object.freeze({
   roverbay: { name: 'Robot bay', w: 2, d: 2, cost: { metal: 40, silicon: 15 }, buildTime: 6, research: 'roverbay', description: 'Assembles haulers and rovers on its own from base stock. Click it to queue robots. Uses 1 kW while working.' },
   // Robots are put together like a blueprint; the finished one drives off and the pad is gone.
   hauler: { name: 'Hauler', w: 1, d: 1, cost: { metal: 25, silicon: 10 }, buildTime: 6, robot: 'hauler', description: 'Carries materials, parts and satellites between crates, machines and the Starship. Needs a robot dock to recharge.' },
-  rover: { name: 'Mining rover', w: 1, d: 1, cost: { metal: 30, silicon: 12 }, buildTime: 8, robot: 'miner', description: 'Digs regolith or ice in mining zones and hauls it to hoppers and melters.' },
+  rover: { name: 'Mining rover', w: 1, d: 1, cost: { metal: 30, silicon: 12 }, planet: 'moon', buildTime: 8, robot: 'miner', description: 'Digs regolith or ice in mining zones and hauls it to hoppers and melters.' },
   foundry: { name: 'Android foundry', w: 2, d: 2, cost: { metal: 60, silicon: 24 }, buildTime: 8, research: 'androids', description: 'Assembles androids from base stock: click it to queue one. Each android needs its own charging pad. Uses 2 kW while working.' },
   chargepad: { name: 'Charging pad', w: 1, d: 1, cost: { metal: 12, silicon: 6 }, buildTime: 2, walkable: true, research: 'androids', description: 'One android docks and recharges here. Every pad lets the colony run one more android.' },
   xenolab: { name: 'Xeno lab', w: 2, d: 2, cost: { metal: 35, silicon: 12, titanium: 6 }, buildTime: 6, description: 'Studies alien artifacts from the caves (press E) and turns them into research points. Needs titanium ore from underground.' },
   reactor: { name: 'Resonance reactor', w: 2, d: 2, cost: { metal: 30, titanium: 12, rareearth: 4 }, buildTime: 8, research: 'reactor', description: 'An alien design: a rare-earth lattice that gives a steady 10 kW, day and night. Needs its schematic from the caves, then research.' },
   fuelcell: { name: 'Fuel cell stack', w: 2, d: 2, cost: { metal: 28, silicon: 10 }, buildTime: 5, description: 'Burns tank propellant for up to 6 kW once the batteries run low. Gets back two thirds of what the electrolyser spent; electrolysers stand down while it runs.' },
-  thermal: { name: 'Thermal store', w: 2, d: 2, cost: { metal: 16, silicon: 2 }, buildTime: 4, inputs: [{ x: 0, z: 0, dir: 2 }], description: 'Packed regolith banks surplus heat by day and runs a Stirling engine at night. Rovers and belts fill it: 12 kJ of storage per load, up to 480 kJ.' },
+  thermal: { name: 'Thermal store', w: 2, d: 2, cost: { metal: 16, silicon: 2 }, planet: 'moon', buildTime: 4, inputs: [{ x: 0, z: 0, dir: 2 }], description: 'Packed regolith banks surplus heat by day and runs a Stirling engine at night. Rovers and belts fill it: 12 kJ of storage per load, up to 480 kJ.' },
   rtg: { name: 'RTG', w: 1, d: 1, cost: { metal: 10, titanium: 6, rareearth: 2 }, buildTime: 4, description: 'A radioisotope core: a steady 2 kW forever, nothing to feed, nothing to break. Needs cave titanium and rare earth.' },
   bioreactor: { name: 'Goo bioreactor', w: 2, d: 2, cost: { metal: 30, silicon: 8, titanium: 6 }, buildTime: 7, research: 'containment', description: 'Digests black goo for 12 kW, one goo every 40 s; press E to feed it. Starve a live culture for 30 s and it breaches.' },
   // Defences: they fight raiders and hatchlings on their own while the grid holds up.
   turret: { name: 'Sentry turret', w: 2, d: 2, cost: { metal: 45, silicon: 16 }, buildTime: 6, research: 'turret', description: 'Twin cannons that track and fire on anything that comes for the base, barrel after barrel. Needs power and rounds: press E to load it, and androids keep it stocked from the crates. 0.8 kW.' },
   fence: { name: 'Electric fence', w: 1, d: 1, cost: { metal: 6, silicon: 1 }, buildTime: 1, research: 'fence', paint: true, unit: 'segment', description: 'Drag a line of live wire. It shocks whatever comes close, and blocks the way. Black goo from the bodies fouls it until it shorts out (and may catch fire); scrape it clean with E, or androids will. 0.06 kW a segment.' },
+  // Mars: `planet` buildings stand only on that world.
+  drill: { name: 'Mining drill', w: 2, d: 2, cost: { metal: 40, silicon: 10 }, buildTime: 6, research: 'edl', planet: 'mars', outputs: [{ x: 1, z: 1, dir: 0 }], description: 'Bores ore out of a mineral deposit it stands on: iron, titanium, gold or ice. Turns only while an android works the controls. Belt it away from the marked output, or androids haul it. 2.5 kW while drilling.' },
+  furnace: { name: 'Furnace', w: 2, d: 2, cost: { metal: 36, silicon: 6 }, buildTime: 5, research: 'edl', planet: 'mars', inputs: [{ x: 0, z: 0, dir: 2 }], outputs: [{ x: 1, z: 1, dir: 0 }], description: 'Smelts two ore into a bar of iron, titanium or gold; the slag gives up a little silicon. Press E to load or take, or to switch to rolling iron bars into metal plate. 3 kW while hot.' },
 });
 /** Stencil codes for machine callouts: `MLT-02` is the second ice melter built. */
-export const CODES = Object.freeze({ solar: 'SOL', battery: 'BAT', hopper: 'HOP', habitat: 'HAB', greenhouse: 'GRN', airlock: 'ALK', growbed: 'BED', hydrorack: 'HYD', verticalfarm: 'VRT', mushroomtray: 'MSH', mill: 'MIL', goovat: 'VAT', armory: 'ARM', galley: 'GAL', recycler: 'RCY', conveyor: 'BLT', processor: 'PRC', melter: 'MLT', storage: 'CRT', fabricator: 'FAB', assembler: 'ASM', electrolyser: 'ELY', tank: 'TNK', dock: 'DCK', roverbay: 'RVB', hauler: 'HLR', rover: 'RVR', foundry: 'FDY', chargepad: 'CHG', xenolab: 'XEN', reactor: 'RCT', fuelcell: 'FCS', thermal: 'THS', rtg: 'RTG', bioreactor: 'BIO', turret: 'TUR', fence: 'FNC' });
+export const CODES = Object.freeze({ solar: 'SOL', battery: 'BAT', hopper: 'HOP', habitat: 'HAB', greenhouse: 'GRN', airlock: 'ALK', growbed: 'BED', hydrorack: 'HYD', verticalfarm: 'VRT', mushroomtray: 'MSH', mill: 'MIL', goovat: 'VAT', armory: 'ARM', galley: 'GAL', recycler: 'RCY', conveyor: 'BLT', processor: 'PRC', melter: 'MLT', storage: 'CRT', fabricator: 'FAB', assembler: 'ASM', electrolyser: 'ELY', tank: 'TNK', dock: 'DCK', roverbay: 'RVB', hauler: 'HLR', rover: 'RVR', foundry: 'FDY', chargepad: 'CHG', xenolab: 'XEN', reactor: 'RCT', fuelcell: 'FCS', thermal: 'THS', rtg: 'RTG', bioreactor: 'BIO', turret: 'TUR', fence: 'FNC', drill: 'DRL', furnace: 'FRN' });
 export const tagOf = b => `${CODES[b.type] ?? 'UNT'}-${String(b.serial ?? 0).padStart(2, '0')}`;
 export const ROOM_TYPES = Object.freeze(Object.keys(DEFS).filter(type => DEFS[type].layer === 'floor'));
 

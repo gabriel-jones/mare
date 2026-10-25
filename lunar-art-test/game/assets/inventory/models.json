@@ -208,5 +208,30 @@
     "triangles": 60,
     "materialParts": 1,
     "originalTriangles": 60
+  },
+  "ironore": {
+    "triangles": 60,
+    "materialParts": 2,
+    "originalTriangles": 60
+  },
+  "goldore": {
+    "triangles": 168,
+    "materialParts": 2,
+    "originalTriangles": 168
+  },
+  "ironbar": {
+    "triangles": 324,
+    "materialParts": 1,
+    "originalTriangles": 324
+  },
+  "titaniumbar": {
+    "triangles": 324,
+    "materialParts": 1,
+    "originalTriangles": 324
+  },
+  "goldbar": {
+    "triangles": 324,
+    "materialParts": 1,
+    "originalTriangles": 324
   }
 }

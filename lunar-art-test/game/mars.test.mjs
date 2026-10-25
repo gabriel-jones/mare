@@ -130,3 +130,91 @@ test('a save whose away colony is tampered with is refused', () => {
   raw.away.moon.seed = 1847; raw.away.moon.buildings = [{ id: 'x' }];
   assert.throws(() => deserialize(JSON.stringify(raw)));
 });
+
+// --- Mining -----------------------------------------------------------------
+import { validatePlacement } from './sim.js';
+import { ensureBuildingState } from './production.js';
+import { ORE, depositLeft, drillDeposit } from './ore.js';
+
+function mars() {
+  const s = ready();
+  settle(s, 'mars');
+  return s;
+}
+const ironDeposit = s => terrainData(s.seed).deposits.find(d => d.kind === 'iron');
+const drillCell = d => ({ x: Math.round(d.x / 2 - .5), z: Math.round(d.z / 2 - .5) });
+function put(s, type, x, z, extra = {}) {
+  const b = ensureBuildingState({ id: s.nextId++, type, x, z, rotation: 0, progress: 1, built: true, serial: 1, ...extra });
+  s.buildings.push(b);
+  return b;
+}
+
+test('drills stand only on Martian deposits, once powered descent is researched', () => {
+  const moon = ready(), s = mars(), d = ironDeposit(s), c = drillCell(d);
+  assert.match(validatePlacement(moon, 'drill', 10, 10).reason, /Only on Mars/);
+  assert.match(validatePlacement(moon, 'furnace', 10, 10).reason, /Only on Mars/);
+  assert.equal(validatePlacement(s, 'drill', c.x, c.z).ok, true);
+  assert.match(validatePlacement(s, 'drill', 6, 6).reason, /mineral deposit/);
+  s.research.done = s.research.done.filter(t => t !== 'edl');
+  assert.match(validatePlacement(s, 'drill', c.x, c.z).reason, /Powered descent/);
+});
+
+test('an android works the drill, hauls the ore to the furnace, and the bars reach the crate', () => {
+  const s = mars(), d = ironDeposit(s), c = drillCell(d);
+  put(s, 'reactor', -6, 4);
+  const drill = put(s, 'drill', c.x, c.z), furnace = put(s, 'furnace', c.x + 4, c.z);
+  assert.equal(drillDeposit(s, drill), d);
+  const crate = s.buildings.find(b => b.type === 'storage'), start = depositLeft(s, d);
+  for (let t = 0; t < 600; t += .1) tick(s, .1);
+  assert.ok(depositLeft(s, d) < start - 20, `drilled ${start - depositLeft(s, d)}`);
+  const bars = count(crate.slots, 'ironbar') + furnace.out.ironbar + (s.robots[0].carry?.item === 'ironbar' ? s.robots[0].carry.n : 0);
+  assert.ok(bars >= 5, `bars ${bars}`);
+  assert.ok(furnace.out.silicon + count(crate.slots, 'silicon') > MARS_KIT.silicon - 1, 'slag silicon');
+  // Drill, furnace and the deposit all survive a save.
+  const back = deserialize(serialize(s));
+  assert.equal(depositLeft(back, d), depositLeft(s, d));
+  const f2 = back.buildings.find(b => b.type === 'furnace');
+  assert.deepEqual(f2.inv, furnace.inv);
+  assert.equal(f2.mode, 'bars');
+  const raw = JSON.parse(serialize(s));
+  raw.buildings.find(b => b.type === 'drill').out = ORE.drill.cap + 1;
+  assert.throws(() => deserialize(JSON.stringify(raw)), /drill or furnace/);
+});
+
+test('a furnace on plate rolls iron bars into metal, and E loads, takes and switches it', async () => {
+  const { interact } = await import('./sim.js');
+  const s = mars();
+  put(s, 'reactor', -6, 4);
+  const furnace = put(s, 'furnace', 6, 2);
+  s.robots.length = 0;
+  Object.assign(s.player, { x: 13, z: 5 });
+  add(s.inventory, 'ironore', 10);
+  assert.match(interact(s, furnace.id).reason, /Loaded 10 iron ore/);
+  for (let t = 0; t < ORE.furnace.time * 5 + 1; t += .1) tick(s, .1);
+  assert.equal(furnace.out.ironbar, 5);
+  assert.match(interact(s, furnace.id).reason, /Took 5 iron bars, 1 silicon/);
+  assert.match(interact(s, furnace.id).reason, /rolling metal plate/);
+  assert.match(interact(s, furnace.id).reason, /Loaded 5 iron bars/);
+  for (let t = 0; t < ORE.furnace.plateTime * 5 + 1; t += .1) tick(s, .1);
+  // It stops once its output is full, with the last bar still waiting.
+  assert.equal(furnace.out.metal, ORE.furnace.cap);
+  assert.equal(furnace.inv.ironbar, 5 - ORE.furnace.cap / ORE.furnace.plate);
+});
+
+test('a belt carries ore from the drill output straight into the furnace', () => {
+  const s = mars(), d = ironDeposit(s), c = drillCell(d);
+  put(s, 'reactor', -6, 4);
+  const drill = put(s, 'drill', c.x, c.z);
+  // Drill output: local (1,1) facing +Z, so the belt starts at (x+1, z+2) and runs on into a furnace's input at local (0,0) facing -Z.
+  put(s, 'conveyor', c.x + 1, c.z + 2, { items: [] });
+  const furnace = put(s, 'furnace', c.x + 1, c.z + 3);
+  s.robots[0].x = c.x * 2 - 2; s.robots[0].z = c.z * 2;
+  const start = depositLeft(s, d);
+  for (let t = 0; t < 120; t += .1) tick(s, .1);
+  // The belt drains the drill faster than a load piles up, so every smelt was belt-fed.
+  assert.ok(start - depositLeft(s, d) >= 6);
+  assert.ok(drill.out < ORE.drill.haul);
+  const crate = s.buildings.find(b => b.type === 'storage'), carry = s.robots[0].carry;
+  const bars = furnace.out.ironbar + count(crate.slots, 'ironbar') + (carry?.item === 'ironbar' ? carry.n : 0);
+  assert.ok(bars >= 2, JSON.stringify(furnace));
+});

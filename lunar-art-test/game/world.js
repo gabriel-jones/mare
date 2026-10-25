@@ -16,6 +16,7 @@ import { airlockOf, habitatLayout, isRoom } from './habitat.js';
 import { surfaceHeightAt as heightAt, terrainData } from './terrain.js';
 import { planetOf } from './planets.js';
 import { melterReady, processorReady, PROCESSOR_INPUT_CAP } from './production.js';
+import { crewed, drillWants, furnaceReady } from './ore.js';
 import { createExpeditionView } from './expedition-view.js';
 import { createIceView } from './ice-view.js';
 import { createTerrainView } from './terrain-view.js';
@@ -72,7 +73,7 @@ export async function createWorld(canvas, initialState, options = {}) {
   renderer.toneMapping=THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure=1.12;
   const loader=new GLTFLoader();
-  const assetNames=['starship','launchpad','solar','battery','hopper','habitat-kit','conveyor','conveyor-corner','processor','storage','growbed','hydrorack','verticalfarm','mushroomtray','mill','goovat','armory','galley','recycler','melter','fabricator','assembler','electrolyser','tank','dock','roverbay','foundry','chargepad','xenolab','reactor','fuelcell','thermal','rtg','bioreactor','turret','fence','lander','rover','hauler','rock-a','rock-b','rock-c','cave-mouth'];
+  const assetNames=['starship','launchpad','solar','battery','hopper','habitat-kit','conveyor','conveyor-corner','processor','storage','growbed','hydrorack','verticalfarm','mushroomtray','mill','goovat','armory','galley','recycler','melter','fabricator','assembler','electrolyser','tank','dock','roverbay','foundry','chargepad','xenolab','reactor','fuelcell','thermal','rtg','bioreactor','turret','fence','drill','furnace','lander','rover','hauler','rock-a','rock-b','rock-c','cave-mouth'];
   const [loaded,itemModels]=await Promise.all([
     Promise.all(assetNames.map(name=>loader.loadAsync(`./assets/${siteV2&&name==='launchpad'?padFile:name}.glb`).then(g=>[name,g.scene]).catch(e=>{console.error('Asset failed:',name,e);return [name,null];}))),
     loadItemLibrary(loader),
@@ -389,7 +390,7 @@ export async function createWorld(canvas, initialState, options = {}) {
       // Ripe produce shows as the crop's own item model, laid where each grower holds it.
       const crops=RIPE_SPOTS[type]&&itemModels?new THREE.Group():null;
       if(crops){crops.name='Ripe crop';root.add(crops);}
-      return {root,roof:null,emits:DEFS[type].layer==='interior',plants:part('Plants'),crops,cropKind:null,tray,level:type==='goovat'?part('Level'):null,heater:part('Heater'),panel:type==='solar'?part('Panel'):null,kiln:part('Kiln'),fill:part('Fill')};
+      return {root,roof:null,emits:DEFS[type].layer==='interior',plants:part('Plants'),crops,cropKind:null,tray,level:type==='goovat'?part('Level'):null,heater:part('Heater'),panel:type==='solar'?part('Panel'):null,kiln:part('Kiln'),fill:part('Fill'),bit:part('Bit'),glow:type==='furnace'?part('Glow'):null};
     }
     const root=new THREE.Group(),w=DEFS[type].w*2,d=DEFS[type].d*2;
     box(root,dark,0,.12,0,w-.12,.24,d-.12);
@@ -627,6 +628,16 @@ export async function createWorld(canvas, initialState, options = {}) {
         const on=processorReady(b)&&state.power.powered!==false?1:0;o.spin=(o.spin??0)+(on-(o.spin??0))*Math.min(1,dt*.8);
         o.kiln.rotation.z-=dt*1.4*o.spin;o.root.position.y+=Math.sin(state.time*47+b.id)*.008*o.spin;
         if(o.fill){const f=Math.min(1,b.inv.regolith/PROCESSOR_INPUT_CAP);o.fill.visible=f>0;o.fill.scale.set(.6+.4*f,Math.max(.05,f),.6+.4*f);}
+      }
+      if(o.bit&&b.built){
+        // The string turns and works up and down while an android has the controls and the grid holds.
+        const on=crewed(state,b)&&drillWants(state,b)&&state.power.powered!==false?1:0;o.spin=(o.spin??0)+(on-(o.spin??0))*Math.min(1,dt*1.2);
+        o.bitY??=o.bit.position.y;o.bit.rotation.y-=dt*7*o.spin;o.bit.position.y=o.bitY+Math.sin(state.time*1.7+b.id)*.12*o.spin;
+        o.root.position.y+=Math.sin(state.time*53+b.id)*.006*o.spin;
+      }
+      if(o.glow&&b.built){
+        const on=furnaceReady(b)&&state.power.powered!==false?1:0;o.heat=(o.heat??0)+(on-(o.heat??0))*Math.min(1,dt*(on?.8:.3));
+        o.glow.traverse(n=>{if(n.isMesh)n.material.emissiveIntensity=(n.material.userData.baseEmission||0)*(.08+.92*o.heat)*(.88+.12*Math.sin(state.time*11+b.id));});
       }
       if(o.head||o.spans)defenseFx.pose(o,b,dt,state,fenceFrame.cells,fenceFrame.dead.has(b));
     }
