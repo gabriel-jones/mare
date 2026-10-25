@@ -73,6 +73,12 @@ const {SCENARIOS,makeSave,DUSK,DAWN,fortify}=await import('./art-direction/raid-
 const {TURRET,FENCE,scrape}=await import('./defense.js');
 const save=makeSave(id);
 for(const key of ['lunar-frontier.sandbox','lunar-frontier.phase-a.v1'])localStorage.setItem(key,save);
+// ?film=1 hands the clock to window.film: the game only moves when film.tick() is called, and each tick draws one frame,
+// so footage can be captured at a steady frame rate however slowly the page renders.
+if(params.has('film')){
+ let now=performance.now(),queue=[];performance.now=()=>now;window.requestAnimationFrame=cb=>queue.push(cb);
+ window.film={tick(ms=1000/30){now+=ms;const due=queue;queue=[];due.forEach(cb=>cb(now));}};
+}
 await import('./main.js');
 const raid=await import('./raid.js');
 const {roster,rosterCount,ROSTER_KINDS}=await import('./roster.js');
