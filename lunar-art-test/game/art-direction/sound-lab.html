@@ -1,0 +1,302 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Mare · Sound lab</title>
+<style>
+html{background:#0a0b0d}
+body{margin:0;font:13px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;color:#e4e1dc}
+header{position:sticky;top:0;z-index:5;display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:10px 18px;background:#121418ee;border-bottom:1px solid #2a2e35;backdrop-filter:blur(6px)}
+header h1{margin:0;font-size:13px;letter-spacing:.16em;font-weight:700}
+header small{color:#8d939c;letter-spacing:.12em}
+button{font:inherit;color:#e4e1dc;background:#1d2127;border:1px solid #363c45;border-radius:7px;padding:5px 9px;cursor:pointer}
+button:hover{background:#262b33}
+button.on{background:#20492b;border-color:#4fbf62;color:#fff}
+button.play{width:30px;padding:5px 0}
+label{display:inline-flex;gap:6px;align-items:center;cursor:pointer}
+input[type=range]{accent-color:#c9a36a}
+.scenes{padding:12px 18px;border-bottom:1px solid #22262c;display:grid;gap:8px}
+.scenes .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.caption{font:12px ui-monospace,monospace;color:#c9a36a;min-height:1.4em}
+.bar{height:4px;background:#22262c;border-radius:2px;overflow:hidden;width:260px}.bar i{display:block;height:100%;width:0;background:#c9a36a}
+main{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:12px;padding:14px 18px 40px}
+.slot{background:#121418;border:1px solid #262a31;border-radius:10px;padding:10px 12px}
+.slot h2{margin:0;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#c9a36a}
+.slot p{margin:3px 0 8px;color:#8d939c;font-size:12px}
+.slot .fx{float:right;font-size:11px;color:#8d939c}
+.role{margin:8px 0 3px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#7f8792}
+.cand{display:grid;grid-template-columns:30px 1fr auto auto;gap:8px;align-items:center;padding:4px 6px;border:1px solid transparent;border-radius:7px}
+.cand.picked{border-color:#4fbf62;background:#16241a}
+.cand.playing{background:#1c2129}
+.cand .meta{color:#7f8792;font-size:11px}
+.tag{font-size:10px;letter-spacing:.06em;padding:1px 5px;border-radius:4px;border:1px solid #3a4049;color:#aab1bb}
+.tag.pd{border-color:#3d6a8a;color:#8cc3e6}.tag.cc{border-color:#8a6a3d;color:#e6c08c}
+footer{padding:0 18px 30px;color:#7f8792;font-size:11px}
+textarea{width:100%;height:110px;background:#0d0f12;color:#cfd3d9;border:1px solid #2a2e35;border-radius:6px;font:11px ui-monospace,monospace}
+</style></head>
+<body>
+<header>
+ <h1>MARE</h1><small>SOUND LAB · AMBIENCE</small>
+ <label>Volume <input type="range" id="vol" min="0" max="1" step=".01" value=".8"></label>
+ <button id="stop">Stop all (space)</button>
+ <button id="copy">Copy picks</button>
+ <span id="summary" class="caption"></span>
+</header>
+<section class="scenes">
+ <div class="row"><b>Hear it together</b> (uses your picks; slots without a pick use their first option):
+  <button data-scene="day">Day outside</button><button data-scene="nightfall">Nightfall (30 s)</button><button data-scene="raid">Night raid</button>
+  <button data-scene="cave">Cave</button><button data-scene="habitat">Inside a habitat</button><button data-scene="mars">Mars</button></div>
+ <div class="row"><label>Breathing <input type="range" id="intensity" min="0" max="1" step=".01" value="0"></label><span class="caption" id="intensity-label">calm</span>
+  <div class="bar"><i id="progress"></i></div><span class="caption" id="caption"></span></div>
+</section>
+<main id="slots"></main>
+<footer><b>Credits needed if picked</b> <span id="credits"></span><br><br>Picks are saved in this browser. "Copy picks" puts them on the clipboard as JSON.<textarea id="out" readonly></textarea></footer>
+<script type="module">
+const BASE = '../assets/audio/lab/', KEY = 'mare.sound-lab.picks';
+const lab = await (await fetch(BASE + 'lab.json', { cache: 'no-store' })).json();
+const slots = Object.fromEntries(lab.slots.map(s => [s.id, s]));
+const picks = JSON.parse(localStorage.getItem(KEY) || '{}');
+const ROLES = { breath: ['calm', 'exerted', 'panic'] };
+// Slots heard through an in-game effect by default.
+const FX = { breath: 'helmet', chatter: 'radio', static: 'radio', clicks: 'radio', skitter: 'cave3d' };
+const fxOn = Object.fromEntries(Object.keys(FX).map(k => [k, true]));
+const $ = id => document.getElementById(id), rand = (a, b) => a + Math.random() * (b - a), clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const pickKey = (slot, c) => c.role ? `${slot}.${c.role}` : slot;
+
+// ---------- audio graph ----------
+let ctx, master;
+function audio() {
+  if (ctx) return ctx;
+  ctx = new AudioContext();
+  master = ctx.createGain(); master.gain.value = +$('vol').value;
+  const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -12; comp.ratio.value = 3;
+  master.connect(comp).connect(ctx.destination);
+  return ctx;
+}
+const buffers = new Map();
+function buffer(c) {
+  if (!buffers.has(c.file)) buffers.set(c.file, fetch(BASE + c.file).then(r => r.arrayBuffer()).then(b => ctx.decodeAudioData(b)).then(buf => {
+    // AAC can decode with encoder priming silence in front; loop from the first real sample.
+    const d = buf.getChannelData(0); let i = 0; while (i < Math.min(d.length, 8192) && Math.abs(d[i]) < 1e-6) i++;
+    buf.start = i / buf.sampleRate; buf.end = Math.min(buf.duration, buf.start + c.duration); return buf;
+  }));
+  return buffers.get(c.file);
+}
+const biquad = (type, f, q = .7, g = 0) => { const n = ctx.createBiquadFilter(); n.type = type; n.frequency.value = f; n.Q.value = q; n.gain.value = g; return n; };
+function chain(kind, dest = master) {
+  const out = ctx.createGain(); out.connect(dest);
+  if (kind === 'helmet') {
+    // Inside a helmet: no lows, boxy mids, a few milliseconds of visor reflection.
+    const hp = biquad('highpass', 140), box = biquad('peaking', 1100, 1.2, 4), lp = biquad('lowpass', 7500), d = ctx.createDelay(.05), fb = ctx.createGain(), wet = ctx.createGain();
+    d.delayTime.value = .007; fb.gain.value = .3; wet.gain.value = .35;
+    hp.connect(box).connect(lp).connect(out); lp.connect(d); d.connect(fb).connect(d); d.connect(wet).connect(out);
+    return { input: hp, output: out };
+  }
+  if (kind === 'radio') {
+    const hp = biquad('highpass', 380, .8), mid = biquad('peaking', 1700, 1, 5), lp = biquad('lowpass', 3200, .8), sh = ctx.createWaveShaper();
+    const n = 1024, k = 3, curve = new Float32Array(n);
+    for (let i = 0; i < n; i++) { const x = i / (n - 1) * 2 - 1; curve[i] = (1 + k) * x / (1 + k * Math.abs(x)); }
+    sh.curve = curve; sh.oversample = '2x';
+    hp.connect(mid).connect(sh).connect(lp).connect(out);
+    return { input: hp, output: out };
+  }
+  if (kind === 'cave3d') {
+    // Close rock walls: dense early reflections and a short tail.
+    const input = ctx.createGain(), conv = ctx.createConvolver(), wet = ctx.createGain();
+    const sr = ctx.sampleRate, len = sr * 1.1 | 0, ir = ctx.createBuffer(2, len, sr);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = ir.getChannelData(ch);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / sr * 5.5) * .35;
+      for (const [t, a] of [[.009, .7], [.014, .5], [.023, .45], [.031, .35], [.047, .3]]) d[(t * sr | 0) + ch * 41] += a;
+    }
+    conv.buffer = ir; wet.gain.value = .45;
+    input.connect(out); input.connect(conv).connect(wet).connect(out);
+    return { input, output: out, spatial: true };
+  }
+  return { input: out, output: out };
+}
+
+// A looping layer with its own gain, fed into an effect chain.
+async function loopLayer(c, fx, gain = 1) {
+  const buf = await buffer(c), g = ctx.createGain(), ch = chain(fx), src = ctx.createBufferSource();
+  g.gain.value = 0; g.connect(ch.input);
+  src.buffer = buf; src.loop = true; src.loopStart = buf.start; src.loopEnd = buf.end;
+  src.connect(g);
+  const t0 = ctx.currentTime + .05; src.start(t0, buf.start);
+  g.gain.setTargetAtTime(gain, t0, .15);
+  return { c, g, t0, period: buf.end - buf.start, input: ch.input, set(v, tc = .3) { g.gain.cancelScheduledValues(ctx.currentTime); g.gain.setTargetAtTime(v, ctx.currentTime, tc); },
+    stop(f = .25) { g.gain.cancelScheduledValues(ctx.currentTime); g.gain.setTargetAtTime(0, ctx.currentTime, f / 3); src.stop(ctx.currentTime + f + .1); setTimeout(() => ch.output.disconnect(), (f + .3) * 1000); }, tick() {} };
+}
+
+// Short slices of a recording scheduled at random intervals (creatures, skitters).
+async function grainLayer(c, fx, gain = 1, gap = [1.2, 3.5]) {
+  const buf = await buffer(c), g = ctx.createGain(), ch = chain(fx);
+  g.gain.value = gain; g.connect(ch.input);
+  let next = ctx.currentTime + .1, alive = true;
+  const layer = { c, g, density: 1, set(v, tc = .3) { g.gain.setTargetAtTime(v, ctx.currentTime, tc); },
+    stop(f = .25) { alive = false; g.gain.setTargetAtTime(0, ctx.currentTime, f / 3); setTimeout(() => ch.output.disconnect(), (f + 3) * 1000); },
+    tick(now) {
+      while (alive && next < now + .4) {
+        const span = buf.end - buf.start, len = span < 3 ? span : rand(.6, Math.min(2.6, span)), off = buf.start + (span < 3 ? 0 : rand(0, span - len));
+        const src = ctx.createBufferSource(), env = ctx.createGain(); src.buffer = buf;
+        env.gain.setValueAtTime(0, next); env.gain.linearRampToValueAtTime(1, next + .012);
+        env.gain.setValueAtTime(1, next + len - .03); env.gain.linearRampToValueAtTime(0, next + len);
+        src.connect(env);
+        if (ch.spatial) {
+          // Somewhere in the walls around you, scuttling a little way while it sounds.
+          const p = ctx.createPanner(); p.panningModel = 'HRTF'; p.distanceModel = 'inverse'; p.refDistance = 1.5;
+          const a = rand(0, Math.PI * 2), r = rand(2, 7), da = rand(-.6, .6);
+          p.positionX.setValueAtTime(Math.sin(a) * r, next); p.positionZ.setValueAtTime(-Math.cos(a) * r, next); p.positionY.value = rand(-.5, 1.5);
+          p.positionX.linearRampToValueAtTime(Math.sin(a + da) * r, next + len); p.positionZ.linearRampToValueAtTime(-Math.cos(a + da) * r, next + len);
+          env.connect(p).connect(g);
+        } else env.connect(g);
+        src.start(next, off, len);
+        next += len + rand(gap[0], gap[1]) / layer.density;
+      }
+    } };
+  return layer;
+}
+
+// Quindar tones: 2525 Hz on push-to-talk, 2475 Hz on release, 250 ms each, sent down the same radio.
+function quindar(t, f, dest) {
+  const o = ctx.createOscillator(), e = ctx.createGain(); o.frequency.value = f;
+  e.gain.setValueAtTime(0, t); e.gain.linearRampToValueAtTime(.12, t + .005); e.gain.setValueAtTime(.12, t + .245); e.gain.linearRampToValueAtTime(0, t + .25);
+  o.connect(e).connect(dest); o.start(t); o.stop(t + .26);
+}
+function withQuindar(layer) {
+  let k = 0, i = 0, rnd = ctx.currentTime + 2;
+  const talk = layer.c.talk || [], tick = layer.tick;
+  layer.tick = now => {
+    tick(now);
+    if (!talk.length) { // no speech map: key the mic every so often
+      if (rnd < now + .5) { quindar(rnd, 2525, layer.input); quindar(rnd + rand(3, 6), 2475, layer.input); rnd += rand(8, 14); }
+      return;
+    }
+    for (;;) {
+      const [a, b] = talk[i], base = layer.t0 + k * layer.period;
+      if (base + a - .3 > now + .6) break;
+      if (base + a - .3 > now) quindar(base + a - .3, 2525, layer.input);
+      if (base + b + .05 > now) quindar(base + b + .05, 2475, layer.input);
+      if (++i === talk.length) { i = 0; k++; }
+    }
+  };
+  return layer;
+}
+
+// ---------- audition ----------
+let audition = null, scene = null;
+function stopAll() {
+  audition?.layer.stop(); audition?.row.classList.remove('playing'); audition?.btn && (audition.btn.textContent = '▶'); audition = null;
+  scene?.stop(); scene = null;
+  document.querySelectorAll('[data-scene]').forEach(b => b.classList.remove('on'));
+  $('caption').textContent = ''; $('progress').style.width = '0';
+}
+async function play(slot, c, row, btn) {
+  const same = audition?.c === c; stopAll(); if (same) return;
+  audio(); await ctx.resume();
+  const fx = fxOn[slot] ? FX[slot] : null, grain = slots[slot].mode === 'grain' || !c.loop;
+  let layer = grain ? await grainLayer(c, fx, 1, slot === 'breath' ? [.25, .6] : slot === 'clicks' ? [.6, 2] : [.8, 2.5]) : await loopLayer(c, fx);
+  if (slot === 'chatter' && fxOn.chatter) layer = withQuindar(layer);
+  audition = { c, layer, row, btn }; row.classList.add('playing'); btn.textContent = '■';
+}
+
+// ---------- scenes ----------
+const chosen = (slot, role) => {
+  const list = slots[slot].candidates.filter(c => !role || c.role === role);
+  return list.find(c => c.id === picks[role ? `${slot}.${role}` : slot]) || list[0];
+};
+const layerFor = async (slot, gain, role) => {
+  const c = chosen(slot, role), fx = FX[slot] || null;
+  const l = slots[slot].mode === 'grain' || !c.loop ? await grainLayer(c, fx, gain, slot === 'breath' ? [.25, .6] : slot === 'clicks' ? [.6, 2] : [1, 4]) : await loopLayer(c, fx, gain);
+  return slot === 'chatter' ? withQuindar(l) : l;
+};
+async function breathing(scale = 1) {
+  const layers = await Promise.all(ROLES.breath.map(r => layerFor('breath', 0, r)));
+  const b = { layers, scale, set(x) {
+    const w = [clamp(1 - 2 * x), 1 - Math.abs(2 * x - 1), clamp(2 * x - 1)];
+    layers.forEach((l, i) => l.set(Math.sqrt(w[i]) * b.scale, .4));
+    $('intensity-label').textContent = x < .33 ? 'calm' : x < .7 ? 'exerted' : 'panic';
+  } };
+  b.set(+$('intensity').value);
+  return b;
+}
+const SCENES = {
+  async day() { const L = [await layerFor('day', .9), await layerFor('chatter', .5)], b = await breathing(); return { L: [...L, ...b.layers], b }; },
+  async raid() { $('intensity').value = .85; const L = [await layerFor('dread', 1), await layerFor('static', .3), await layerFor('clicks', .8)], b = await breathing(); L[2].density = 2.5; return { L: [...L, ...b.layers], b }; },
+  async cave() { const L = [await layerFor('cave', .9), await layerFor('skitter', 1)], b = await breathing(1.3); return { L: [...L, ...b.layers], b }; },
+  async habitat() { return { L: [await layerFor('habitat', .9)] }; },
+  async mars() { const L = [await layerFor('mars', 1)], b = await breathing(); return { L: [...L, ...b.layers], b }; },
+  async nightfall() {
+    $('intensity').value = 0;
+    const day = await layerFor('day', .9), chat = await layerFor('chatter', .55), stat = await layerFor('static', 0), clicks = await layerFor('clicks', 0), dread = await layerFor('dread', 0), b = await breathing();
+    clicks.density = .3;
+    const start = ctx.currentTime, LEN = 30; let cut = 0;
+    const steps = [[0, 'Day. Mission radio, the wonder of it.'], [4, 'Sunset. The radio starts to break up.'], [9, 'Something is on the channel.'], [14, 'Night. The channel is theirs now.'], [21, 'They are close.']];
+    return { L: [day, chat, stat, clicks, dread, ...b.layers], b, tick(now) {
+      const t = now - start, s = steps.filter(x => x[0] <= t).pop();
+      $('caption').textContent = s[1]; $('progress').style.width = `${clamp(t / LEN) * 100}%`;
+      day.set(.9 * clamp(1 - (t - 4) / 10), .5);
+      dread.set(Math.pow(clamp((t - 10) / 18), 1.6), .5);
+      stat.set(.45 * clamp((t - 6) / 10), .5);
+      clicks.set(t > 9 ? .8 : 0, .5); clicks.density = .3 + 2.2 * clamp((t - 9) / 18);
+      if (t > 14) chat.set(0, .6);
+      else if (t > 4 && now > cut) { // dropouts: the voice cuts out and the static bursts through
+        if (Math.random() < clamp((t - 4) / 8) * .5) { const d = rand(.15, .6); chat.set(.03, .02); stat.set(.8, .02); cut = now + d; setTimeout(() => { if (scene?.L.includes(chat) && ctx.currentTime - start < 14) chat.set(.55, .05); }, d * 1000); }
+        else cut = now + .25;
+      }
+      const x = t < 14 ? 0 : t < 20 ? .5 * (t - 14) / 6 : .5 + .5 * clamp((t - 20) / 7);
+      $('intensity').value = x; b.set(x);
+    } };
+  },
+};
+async function startScene(name, btn) {
+  stopAll(); audio(); await ctx.resume();
+  btn.classList.add('on');
+  const s = await SCENES[name]();
+  scene = { ...s, stop() { s.L.forEach(l => l.stop(.6)); } };
+}
+setInterval(() => {
+  if (!ctx) return;
+  const now = ctx.currentTime;
+  audition?.layer.tick(now);
+  if (scene) { scene.L.forEach(l => l.tick(now)); scene.tick?.(now); }
+}, 50);
+
+// ---------- UI ----------
+const tag = credit => credit.includes('public domain') ? '<span class="tag pd">PUBLIC DOMAIN</span>' : credit.includes('Creative Commons') ? '<span class="tag cc">CC-BY, CREDIT</span>' : '<span class="tag">SONNISS</span>';
+function render() {
+  $('slots').innerHTML = '';
+  for (const s of lab.slots) {
+    const el = document.createElement('section'); el.className = 'slot';
+    el.innerHTML = `${FX[s.id] ? `<label class="fx"><input type="checkbox" ${fxOn[s.id] ? 'checked' : ''}> through ${FX[s.id] === 'cave3d' ? 'cave echo, 3D' : FX[s.id]}</label>` : ''}<h2>${s.label}</h2><p>${s.description}</p>`;
+    el.querySelector('.fx input')?.addEventListener('change', e => { fxOn[s.id] = e.target.checked; stopAll(); });
+    let role = null;
+    for (const c of s.candidates) {
+      if (c.role && c.role !== role) { role = c.role; el.insertAdjacentHTML('beforeend', `<div class="role">${role}</div>`); }
+      const row = document.createElement('div'), k = pickKey(s.id, c);
+      row.className = 'cand' + (picks[k] === c.id ? ' picked' : '');
+      row.innerHTML = `<button class="play">▶</button><div>${c.label}<div class="meta">${c.loop ? `${c.duration.toFixed(0)} s loop` : `${c.duration.toFixed(1)} s one-shot`}</div></div>${tag(c.credit)}<button class="pick">${picks[k] === c.id ? 'Picked' : 'Pick'}</button>`;
+      const btn = row.querySelector('.play');
+      btn.onclick = () => play(s.id, c, row, btn);
+      row.querySelector('.pick').onclick = () => { picks[k] === c.id ? delete picks[k] : picks[k] = c.id; save(); render(); };
+      el.append(row);
+    }
+    $('slots').append(el);
+  }
+  summary();
+}
+function needed() { return Object.keys(slots).flatMap(s => ROLES[s] ? ROLES[s].map(r => `${s}.${r}`) : [s]); }
+function summary() {
+  const need = needed(), done = need.filter(k => picks[k]);
+  $('summary').textContent = `${done.length} of ${need.length} picked`;
+  const credits = new Set(need.filter(k => picks[k]).map(k => { const [s, r] = k.split('.'); return slots[s].candidates.find(c => c.id === picks[k] && (!r || c.role === r))?.credit; }).filter(c => c && c.includes('Creative Commons')));
+  $('credits').textContent = credits.size ? [...credits].join(' · ') : 'none so far.';
+  $('out').value = JSON.stringify(picks, null, 1);
+}
+function save() { localStorage.setItem(KEY, JSON.stringify(picks)); }
+$('vol').oninput = e => master && master.gain.setTargetAtTime(+e.target.value, ctx.currentTime, .05);
+$('intensity').oninput = e => scene?.b?.set(+e.target.value);
+$('stop').onclick = stopAll;
+$('copy').onclick = async () => { $('out').select(); try { await navigator.clipboard.writeText($('out').value); $('copy').textContent = 'Copied'; } catch { document.execCommand('copy'); } setTimeout(() => $('copy').textContent = 'Copy picks', 1200); };
+document.querySelectorAll('[data-scene]').forEach(b => b.onclick = () => { const on = b.classList.contains('on'); stopAll(); if (!on) startScene(b.dataset.scene, b); });
+addEventListener('keydown', e => { if (e.code === 'Space' && e.target.tagName !== 'TEXTAREA') { e.preventDefault(); stopAll(); } });
+render();
+window.soundLab = { lab, picks, buffer: c => (audio(), buffer(c)), get ctx() { return ctx; } };
+</script>
+</body></html>

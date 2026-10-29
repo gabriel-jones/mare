@@ -1,5 +1,9 @@
 .DS_Store
 __pycache__/
+# Downloaded and processed sound candidates: rebuild with sound/fetch.py then sound/process.py.
+# Sonniss sounds may only ship inside the finished game, never as a library.
+sound/raw/
+lunar-art-test/game/assets/audio/lab/
 
 # Cloudflare deploy output
 site/
