@@ -219,6 +219,14 @@ function crateMove(id,move,report=false){
  const r=move(b);if(!r.ok||report)notify(r.reason);ui.update(state,view());canvas.focus({preventScroll:true});
 }
 function eatSelected(){notify(eat(state,foodSlot()).reason);}
+/** Hotkeys for consumables, used straight from the pockets without selecting their slot: Q eats, F throws a flare at
+ * the pointer, V patches the suit. True when `k` was one of them. */
+function useKey(k){
+ if(k==='q'){const i=foodSlot();notify(ITEM_INFO[state.inventory[i]?.item]?.food?eat(state,i).reason:'Nothing to eat.');return true;}
+ if(k==='f'){const r=throwFlare(state,aimClient&&world.aim(aimClient.x,aimClient.y)).reason;if(r)notify(r);return true;}
+ if(k==='v'){const i=state.inventory.findIndex(s=>ITEM_INFO[s?.item]?.heal);notify(i<0?'No medkits.':eat(state,i).reason);return true;}
+ return false;
+}
 const MAX_BELT_PATH=80;
 /** Grows the dragged belt route to `cell` one grid step at a time, continuing along the current
  * heading before turning, so the route follows the pointer around corners. Backtracking trims it. */
@@ -457,9 +465,10 @@ async function start(){
    if(orbit.open){if(k==='escape')orbit.close();return;}
    if(research.open){if(k==='escape')research.close();return;}
    if(state.player.aboard)return;
-   if(['w','a','s','d','e','x',' ','r','b','g','i','escape'].includes(k)||SHORTCUTS[k]||/^[0-9]$/.test(k))e.preventDefault();
+   if(['w','a','s','d','e','x','q','f','v',' ','r','b','g','i','escape'].includes(k)||SHORTCUTS[k]||/^[0-9]$/.test(k))e.preventDefault();
    keys.add(k);if(e.repeat)return;
    if(state.player.cave!=null&&caveKey(k))return;
+   if(useKey(k))return;
    if(k===' '&&!(state.player.y>0)&&!hunt.rolling&&!pinned(hunt))jumpVelocity=1.8;
    if(k==='shift'&&!ui.storeOpen())dodge();
    if(k==='escape'){if(selectedType||stationId!=null){select(null);stationId=null;}else if(selectedSlot!=null)pickSlot(null);}
@@ -508,7 +517,7 @@ async function start(){
     if(s.status==='pad'&&shipStatus==='descent')notify(!shipCrew?'The Starship is back on the pad.':planetOf(state.seed)==='mars'?'Touchdown. Welcome to Mars.':'Touchdown. Home again on the Moon.');
     shipStatus=s.status;shipCrew=!!s.crew;
    }
-   if((state.goo?.breaches??0)>breaches){breaches=state.goo.breaches;notify('Containment breach! The goo vat lost power.');ui.say('The vat has breached. Goo is spreading through the base and something hatched. Flares burn both: press X for flares, then click with them in hand to throw.');}
+   if((state.goo?.breaches??0)>breaches){breaches=state.goo.breaches;notify('Containment breach! The goo vat lost power.');ui.say('The vat has breached. Goo is spreading through the base and something hatched. Flares burn both: press X to make flares, then F to throw one at the pointer.');}
    orbit.update(state,dt);research.update(state);
    if(ui.crateId!=null){const b=state.buildings.find(o=>o.id===ui.crateId);if(!b||state.player.cave!=null||crateDistance(state,b)>3.6)ui.closeStore();}
    if(uiClock>.1){ui.update(state,view());refreshGhost();uiClock=0;}

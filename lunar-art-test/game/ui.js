@@ -376,7 +376,7 @@ export function createUI(root, callbacks = {}) {
         el.querySelector('.slot-icon').innerHTML = slot ? `<img src="${ITEM_ICON_URLS[slot.item]}" width="256" height="256" alt="" aria-hidden="true" draggable="false">` : '';
         el.querySelector('strong').textContent = slot && slot.count > 1 ? slot.count : '';
         el.dataset.item = slot?.item ?? '';
-        el.title = slot ? `${ITEM_INFO[slot.item].name} × ${slot.count}${ITEM_INFO[slot.item].food ? ' · click to eat' : slot.item === 'flare' ? ' · click to throw' : ''}` : 'Empty';
+        el.title = slot ? `${ITEM_INFO[slot.item].name} × ${slot.count}${ITEM_INFO[slot.item].food ? ' · Q or click to eat' : ITEM_INFO[slot.item].heal ? ' · V or click to heal' : slot.item === 'flare' ? ' · F or click to throw' : ''}` : 'Empty';
         el.setAttribute('aria-label', `Slot ${slotKey(i)}: ${el.title}`);
       });
       tools.hidden = !selected; label.textContent = selected ? TOOLS[selected].name : '';
