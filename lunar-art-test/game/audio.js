@@ -6,9 +6,9 @@ const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
 const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a)); return t * t * (3 - 2 * t); };
 const rand = (a, b) => a + Math.random() * (b - a);
 
-export const LAYERS = ['day', 'static', 'clicks', 'dread', 'cave', 'skitter', 'habitat', 'mars'];
+export const LAYERS = ['day', 'clicks', 'dread', 'cave', 'skitter', 'habitat', 'mars'];
 /** How each layer reaches the ear. Radio layers are the suit radio, so walls don't muffle them. */
-const ROUTE = { day: 'outdoor', mars: 'outdoor', dread: 'direct', static: 'radio', clicks: 'radio', cave: 'direct', skitter: 'cave3d', habitat: 'direct' };
+const ROUTE = { day: 'outdoor', mars: 'outdoor', dread: 'direct', clicks: 'radio', cave: 'direct', skitter: 'cave3d', habitat: 'direct' };
 
 /**
  * Levels (0..1) for every layer, grain densities, how open the outside is (1 = out on the surface) and the breathing
@@ -22,12 +22,11 @@ export function soundMix({ sun = 1, where = 'surface', mars = false, threat = 0,
   const level = Object.fromEntries(LAYERS.map(k => [k, 0]));
   let clicks = .3, skitter = 1, open = 1;
   if (where === 'cave') {
-    Object.assign(level, { cave: .9, skitter: .8 + .2 * threat, dread: .25 + .55 * threat, static: .15 + .35 * threat, clicks: .6 * threat });
+    Object.assign(level, { cave: .9, skitter: .8 + .2 * threat, dread: .25 + .55 * threat, clicks: .6 * threat });
     skitter = .5 + 2.5 * threat; clicks = .5 + 2 * threat; open = 0;
   } else {
     level.day = (mars ? .55 : .85) * day * (1 - .7 * raidLevel);
     level.mars = mars ? 1 : 0;
-    level.static = clamp(.35 * night + .3 * threat + .2 * raidLevel);
     level.clicks = clamp(.8 * night + .4 * threat);
     level.dread = clamp(.55 * night + .35 * raidLevel + .3 * threat);
     clicks = .3 + 2.2 * Math.max(threat, .6 * raidLevel, night * .3);

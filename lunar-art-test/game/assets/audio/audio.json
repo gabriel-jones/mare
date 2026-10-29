@@ -24,12 +24,6 @@
    "loop": false,
    "source": "Panic: single scared breath"
   },
-  "static": {
-   "file": "static.m4a",
-   "duration": 18.0,
-   "loop": true,
-   "source": "SoundMorph Lost Transmissions malfunction"
-  },
   "clicks": {
    "file": "clicks.m4a",
    "duration": 30.0,
