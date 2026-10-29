@@ -26,7 +26,7 @@ main{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:
 .cand.playing{background:#1c2129}
 .cand .meta{color:#7f8792;font-size:11px}
 .tag{font-size:10px;letter-spacing:.06em;padding:1px 5px;border-radius:4px;border:1px solid #3a4049;color:#aab1bb}
-.tag.pd{border-color:#3d6a8a;color:#8cc3e6}.tag.cc{border-color:#8a6a3d;color:#e6c08c}
+.tag.pd{border-color:#3d6a8a;color:#8cc3e6}.tag.cc{border-color:#8a6a3d;color:#e6c08c}.tag.new{border-color:#6a8a3d;color:#c4e68c}
 footer{padding:0 18px 30px;color:#7f8792;font-size:11px}
 textarea{width:100%;height:110px;background:#0d0f12;color:#cfd3d9;border:1px solid #2a2e35;border-radius:6px;font:11px ui-monospace,monospace}
 </style></head>
@@ -133,17 +133,18 @@ async function grainLayer(c, fx, gain = 1, gap = [1.2, 3.5]) {
     stop(f = .25) { alive = false; g.gain.setTargetAtTime(0, ctx.currentTime, f / 3); setTimeout(() => ch.output.disconnect(), (f + 3) * 1000); },
     tick(now) {
       while (alive && next < now + .4) {
-        const span = buf.end - buf.start, len = span < 3 ? span : rand(.6, Math.min(2.6, span)), off = buf.start + (span < 3 ? 0 : rand(0, span - len));
+        const span = buf.end - buf.start, len = span < 3 ? span : ch.spatial ? rand(1.5, Math.min(4, span)) : rand(.6, Math.min(2.6, span)), off = buf.start + (span < 3 ? 0 : rand(0, span - len));
         const src = ctx.createBufferSource(), env = ctx.createGain(); src.buffer = buf;
         env.gain.setValueAtTime(0, next); env.gain.linearRampToValueAtTime(1, next + .012);
         env.gain.setValueAtTime(1, next + len - .03); env.gain.linearRampToValueAtTime(0, next + len);
         src.connect(env);
         if (ch.spatial) {
-          // Somewhere in the walls around you, scuttling a little way while it sounds.
+          // Somewhere in the walls around you, climbing up and across while it sounds.
           const p = ctx.createPanner(); p.panningModel = 'HRTF'; p.distanceModel = 'inverse'; p.refDistance = 1.5;
-          const a = rand(0, Math.PI * 2), r = rand(2, 7), da = rand(-.6, .6);
-          p.positionX.setValueAtTime(Math.sin(a) * r, next); p.positionZ.setValueAtTime(-Math.cos(a) * r, next); p.positionY.value = rand(-.5, 1.5);
+          const a = rand(0, Math.PI * 2), r = rand(2, 6), da = rand(-.4, .4), y = rand(-1, 1);
+          p.positionX.setValueAtTime(Math.sin(a) * r, next); p.positionZ.setValueAtTime(-Math.cos(a) * r, next); p.positionY.setValueAtTime(y, next);
           p.positionX.linearRampToValueAtTime(Math.sin(a + da) * r, next + len); p.positionZ.linearRampToValueAtTime(-Math.cos(a + da) * r, next + len);
+          p.positionY.linearRampToValueAtTime(y + rand(1.5, 3), next + len);
           env.connect(p).connect(g);
         } else env.connect(g);
         src.start(next, off, len);
@@ -267,11 +268,11 @@ function render() {
     el.innerHTML = `${FX[s.id] ? `<label class="fx"><input type="checkbox" ${fxOn[s.id] ? 'checked' : ''}> through ${FX[s.id] === 'cave3d' ? 'cave echo, 3D' : FX[s.id]}</label>` : ''}<h2>${s.label}</h2><p>${s.description}</p>`;
     el.querySelector('.fx input')?.addEventListener('change', e => { fxOn[s.id] = e.target.checked; stopAll(); });
     let role = null;
-    for (const c of s.candidates) {
+    for (const c of [...s.candidates].sort((a, b) => !!b.new - !!a.new)) {
       if (c.role && c.role !== role) { role = c.role; el.insertAdjacentHTML('beforeend', `<div class="role">${role}</div>`); }
       const row = document.createElement('div'), k = pickKey(s.id, c);
       row.className = 'cand' + (picks[k] === c.id ? ' picked' : '');
-      row.innerHTML = `<button class="play">▶</button><div>${c.label}<div class="meta">${c.loop ? `${c.duration.toFixed(0)} s loop` : `${c.duration.toFixed(1)} s one-shot`}</div></div>${tag(c.credit)}<button class="pick">${picks[k] === c.id ? 'Picked' : 'Pick'}</button>`;
+      row.innerHTML = `<button class="play">▶</button><div>${c.new ? '<span class="tag new">NEW</span> ' : ''}${c.label}<div class="meta">${c.loop ? `${c.duration.toFixed(0)} s loop` : `${c.duration.toFixed(1)} s one-shot`}</div></div>${tag(c.credit)}<button class="pick">${picks[k] === c.id ? 'Picked' : 'Pick'}</button>`;
       const btn = row.querySelector('.play');
       btn.onclick = () => play(s.id, c, row, btn);
       row.querySelector('.pick').onclick = () => { picks[k] === c.id ? delete picks[k] : picks[k] = c.id; save(); render(); };

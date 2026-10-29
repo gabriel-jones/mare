@@ -82,6 +82,28 @@ C = [
     ('habitat', 'command-center', 'sonniss/habitat-command-center.wav', 1, 34, 3, 'Bluezone command-centre ambience', SONNISS),
     ('habitat', 'cockpit', 'sonniss/habitat-cockpit.wav', 1, 34, 3, 'Bluezone cargo-ship cockpit ambience', SONNISS),
     ('habitat', 'interior-tone', 'sonniss/habitat-interior-tone.wav', 1, 27, 3, 'Digital Rain Lab abstract interior tone', SONNISS),
+    # Second round: cosmic horror for the night (Annihilation's shimmer), and something bigger in the walls.
+    ('dread', 'tonal-ringing', 'sonniss/dread-tonal-ringing.wav', 3, 60, 5, 'Submerged Tapes tonal granular ringing drone', SONNISS, 'new'),
+    ('dread', 'shimmer-bells', 'sonniss/dread-shimmer-bells.wav', 1, 38, 4, 'Epic Stock Media shimmer: small bells, metal taps', SONNISS, 'new'),
+    ('dread', 'resonant-swells', 'sonniss/dread-resonant-swells.wav', 3, 60, 5, 'Airborne Sound resonant swells, longing, flutter', SONNISS, 'new'),
+    ('dread', 'astral-spirits', 'sonniss/dread-astral-spirits.wav', 1, 20, 2.5, 'The Chris Alan ASTRAL: eerie airy spirits', SONNISS, 'new'),
+    ('dread', 'night-creature', 'sonniss/dread-night-creature.wav', 2, 48, 4, 'Bluezone alien planet: night creature ambience', SONNISS, 'new'),
+    ('dread', 'alien-soundscape', 'sonniss/dread-alien-soundscape.wav', 2, 56, 5, 'SoundMorph Spaces: alien soundscape', SONNISS, 'new'),
+    ('dread', 'bowed-screech', 'sonniss/dread-bowed-screech.wav', .5, 17, 2.5, 'The Noisery: bowed metal, moaning, tonal', SONNISS, 'new'),
+    ('dread', 'spectral-atmos', 'sonniss/dread-spectral-atmos.wav', 1, 27, 3, 'Bluezone Spectral Density synth atmosphere', SONNISS, 'new'),
+    ('dread', 'metal-wail', 'sonniss/dread-metal-wail.wav', .5, 10, 1.5, 'Jake Fielding Haunted Metal: tense metallic wail', SONNISS, 'new'),
+    ('static', 'tonal-noise', 'sonniss/static-tonal-noise.wav', 1, 28, 3, 'SoundMorph Lost Transmissions tonal noise', SONNISS, 'new'),
+    ('static', 'dimension-glitches', 'sonniss/static-dimension-glitches.wav', 2, 50, 4, 'Dimension glitches ambience', SONNISS, 'new'),
+    ('clicks', 'underwater-clicky', 'sonniss/clicks-underwater-clicky.wav', 0, None, 0, 'Submerged Tapes deep, rumbly, low clicky atmos', SONNISS, 'new'),
+    ('clicks', 'alien-bugs', 'sonniss/clicks-alien-bugs.wav', 0, None, 0, 'Soundopolis alien bugs texture', SONNISS, 'new'),
+    ('skitter', 'big-spider', 'designed/skitter-big-spider.wav', 0, None, 0, 'Designed: big spider (crab legs + spider steps, pitched down)', SONNISS, 'new'),
+    ('skitter', 'wall-climber', 'designed/skitter-wall-climber.wav', 0, None, 0, 'Designed: wall climber (talons, nails dragging, carapace cracks)', SONNISS, 'new'),
+    ('skitter', 'crustacean-steps', 'sonniss/skitter-crustacean-steps.wav', 0, None, 0, 'Crustacean legs foley', SONNISS, 'new'),
+    ('skitter', 'talons-concrete', 'sonniss/skitter-talons-concrete.wav', 0, None, 0, 'Talons on concrete', SONNISS, 'new'),
+    ('skitter', 'claws', 'sonniss/skitter-claws.wav', 0, None, 0, 'Paws with claws foley', SONNISS, 'new'),
+    ('skitter', 'scurry', 'sonniss/skitter-scurry.wav', 0, None, 0, 'Reptiles and rodents scurrying', SONNISS, 'new'),
+    ('skitter', 'nails-tile', 'sonniss/skitter-nails-tile.wav', 0, None, 0, 'Fingernails dragged on tile', SONNISS, 'new'),
+    ('skitter', 'nails-metal', 'sonniss/skitter-nails-metal.wav', 0, None, 0, 'Fingernails dragged on metal', SONNISS, 'new'),
     ('mars', 'perseverance-sol4', 'nasa/45827_SCAM_MIC_SOL004_RUN001.wav', .5, 36, 3, 'Perseverance SuperCam, sol 4 (real wind)', NASA_MARS),
     ('mars', 'perseverance-sol1', 'nasa/45824_SCAM_MIC_SOL001_RUN001.wav', .5, 17, 2.5, 'Perseverance SuperCam, sol 1 (muffled)', NASA_MARS),
     ('mars', 'perseverance-filtered', 'nasa/45704_1st_Sounds_from_Mars_filters_out_rover_self-noise.wav', .5, 15, 2, 'Perseverance first sounds, filtered', NASA_MARS),
@@ -89,6 +111,40 @@ C = [
     ('mars', 'eerie-synth-wind', 'sonniss/mars-eerie-synth-wind.wav', 2, 60, 5, 'Eerie howling synth wind (stylised)', SONNISS),
     ('mars', 'tonal-howl', 'sonniss/mars-tonal-howl.wav', 2, 60, 5, 'Sound of Essen tonal howling wind (stylised)', SONNISS),
 ]
+
+
+def pitch(semitones):
+    """Slows and lowers a 96 kHz source together, the way a bigger body would move."""
+    return f'asetrate={96000 * 2 ** (semitones / 12):.0f},aresample=96000'
+
+
+DESIGNED = {
+    # Crab legs and spider steps a few semitones down: something the size of a dog, on many legs.
+    'big-spider': ['sonniss/skitter-crustacean-steps.wav', 'sonniss/skitter-arachnid-steps.wav'],
+    # Talons climbing, with nails dragging and carapace cracking now and then.
+    'wall-climber': ['sonniss/skitter-talons-concrete.wav', 'sonniss/skitter-nails-tile.wav', 'sonniss/skitter-nails-metal.wav',
+                     'sonniss/skitter-carapace-crack.wav', 'sonniss/skitter-cladding-scratch.wav'],
+}
+DESIGN_GRAPH = {
+    'big-spider': f'[0]aresample=96000,{pitch(-4)},volume=2[a];[1]aresample=96000,{pitch(-6)},volume=14dB[b];'
+                  '[a][b]amix=inputs=2:normalize=0:duration=shortest[o]',
+    'wall-climber': f'[0]aresample=96000,{pitch(-3)}[a];'
+                    f'[1]aresample=96000,{pitch(-2)},adelay=2500|2500,volume=-4dB[n1];'
+                    f'[2]aresample=96000,{pitch(-4)},adelay=9000|9000,volume=-4dB[n2];'
+                    f'[3]aresample=96000,{pitch(-5)},asplit[c1][c2];[c1]adelay=5200|5200[k1];[c2]adelay=14800|14800[k2];'
+                    f'[4]aresample=96000,{pitch(-3)},adelay=19000|19000,volume=-2dB[s];'
+                    '[a][n1][n2][k1][k2][s]amix=inputs=6:normalize=0:duration=first[o]',
+}
+
+
+def design():
+    os.makedirs(os.path.join(RAW, 'designed'), exist_ok=True)
+    for name, srcs in DESIGNED.items():
+        dest = os.path.join(RAW, 'designed', f'skitter-{name}.wav')
+        if os.path.exists(dest): continue
+        args = ['ffmpeg', '-loglevel', 'error', '-y']
+        for s in srcs: args += ['-i', os.path.join(RAW, s)]
+        run(args + ['-filter_complex', DESIGN_GRAPH[name], '-map', '[o]', '-c:a', 'pcm_f32le', dest])
 
 
 def run(args):
@@ -147,7 +203,8 @@ def main():
     for slot, (label, target, mode, desc) in SLOTS.items():
         lab['slots'].append({'id': slot, 'label': label, 'mode': mode, 'description': desc, 'candidates': []})
     by_slot = {s['id']: s for s in lab['slots']}
-    for slot, cid, src, start, length, xf, label, credit in C:
+    design()
+    for slot, cid, src, start, length, xf, label, credit, *flags in C:
         tmp = f'/tmp/lab-{slot}-{cid}.wav'
         build(slot, cid, src, start, length, xf, tmp)
         lufs, peak = loudness(tmp)
@@ -164,6 +221,7 @@ def main():
             raise SystemExit(f'could not encode {dest}')
         entry = {'id': cid, 'label': label, 'file': f'{slot}-{cid}.m4a', 'duration': round(dur, 3),
                  'loop': length is not None, 'credit': credit}
+        if 'new' in flags: entry['new'] = True
         if slot == 'breath': entry['role'] = label.split(':')[0].lower()
         if slot == 'chatter': entry['talk'] = talk_segments(tmp)
         by_slot[slot]['candidates'].append(entry)
