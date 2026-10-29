@@ -1,14 +1,14 @@
 /** Ambience: what the colony sounds like from inside the suit. Clips come from assets/audio (picked in
  * art-direction/sound-lab.html, installed by sound/install.py); soundMix turns the game's situation into a level
- * for each layer, and createAudio plays them through helmet, radio and cave effects. */
+ * for each layer, and createAudio plays them through helmet and cave effects. */
 
 const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
 const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a)); return t * t * (3 - 2 * t); };
 const rand = (a, b) => a + Math.random() * (b - a);
 
-export const LAYERS = ['day', 'clicks', 'dread', 'cave', 'skitter', 'habitat', 'mars'];
-/** How each layer reaches the ear. Radio layers are the suit radio, so walls don't muffle them. */
-const ROUTE = { day: 'outdoor', mars: 'outdoor', dread: 'direct', clicks: 'radio', cave: 'direct', skitter: 'cave3d', habitat: 'direct' };
+export const LAYERS = ['day', 'dread', 'cave', 'skitter', 'habitat', 'mars'];
+/** How each layer reaches the ear: outdoor sound is muffled by walls and rock. */
+const ROUTE = { day: 'outdoor', mars: 'outdoor', dread: 'direct', cave: 'direct', skitter: 'cave3d', habitat: 'direct' };
 
 /**
  * Levels (0..1) for every layer, grain densities, how open the outside is (1 = out on the surface) and the breathing
@@ -20,21 +20,19 @@ const ROUTE = { day: 'outdoor', mars: 'outdoor', dread: 'direct', clicks: 'radio
 export function soundMix({ sun = 1, where = 'surface', mars = false, threat = 0, raid = false, exert = 0, hurt = 0, health = 100, grabbed = false }) {
   const day = smooth(-.05, .25, sun), night = 1 - day, raidLevel = raid ? 1 : 0;
   const level = Object.fromEntries(LAYERS.map(k => [k, 0]));
-  let clicks = .3, skitter = 1, open = 1;
+  let skitter = 1, open = 1;
   if (where === 'cave') {
-    Object.assign(level, { cave: .9, skitter: .8 + .2 * threat, dread: .25 + .55 * threat, clicks: .6 * threat });
-    skitter = .5 + 2.5 * threat; clicks = .5 + 2 * threat; open = 0;
+    Object.assign(level, { cave: .9, skitter: .8 + .2 * threat, dread: .25 + .55 * threat });
+    skitter = .5 + 2.5 * threat; open = 0;
   } else {
     level.day = (mars ? .55 : .85) * day * (1 - .7 * raidLevel);
     level.mars = mars ? 1 : 0;
-    level.clicks = clamp(.8 * night + .4 * threat);
     level.dread = clamp(.55 * night + .35 * raidLevel + .3 * threat);
-    clicks = .3 + 2.2 * Math.max(threat, .6 * raidLevel, night * .3);
     if (where === 'habitat' || where === 'ship') { level.habitat = where === 'ship' ? .7 : .9; open = 0; level.dread *= .45; }
   }
   const panic = Math.max(threat * .9, hurt, grabbed ? 1 : 0, health < 30 ? .7 : 0);
   const breath = Math.max(.5 * exert, panic > .05 ? .4 + .6 * panic : 0);
-  return { level, density: { clicks, skitter }, open, breath, breathLevel: where === 'cave' ? 1 : 0 };
+  return { level, density: { skitter }, open, breath, breathLevel: where === 'cave' ? 1 : 0 };
 }
 
 const VOLUME_KEY = 'mare.audio.volume';
@@ -55,14 +53,6 @@ export function createAudio(base = './assets/audio/') {
       const hp = biquad('highpass', 140), box = biquad('peaking', 1100, 1.2, 4), lp = biquad('lowpass', 7500), d = ctx.createDelay(.05), fb = ctx.createGain(), wet = ctx.createGain();
       d.delayTime.value = .007; fb.gain.value = .3; wet.gain.value = .35;
       hp.connect(box).connect(lp).connect(out); lp.connect(d); d.connect(fb).connect(d); d.connect(wet).connect(out);
-      return { input: hp };
-    }
-    if (kind === 'radio') {
-      const hp = biquad('highpass', 380, .8), mid = biquad('peaking', 1700, 1, 5), lp = biquad('lowpass', 3200, .8), sh = ctx.createWaveShaper();
-      const n = 1024, k = 3, curve = new Float32Array(n);
-      for (let i = 0; i < n; i++) { const x = i / (n - 1) * 2 - 1; curve[i] = (1 + k) * x / (1 + k * Math.abs(x)); }
-      sh.curve = curve; sh.oversample = '2x';
-      hp.connect(mid).connect(sh).connect(lp).connect(out);
       return { input: hp };
     }
     if (kind === 'cave3d') {
@@ -137,7 +127,7 @@ export function createAudio(base = './assets/audio/') {
     for (const k of LAYERS) {
       if (!c[k]) continue;
       const fx = ROUTE[k];
-      layers[k] = c[k].loop ? loopLayer(bufs[k], fx) : grainLayer(bufs[k], fx, k === 'clicks' ? [.6, 2] : [1, 4]);
+      layers[k] = c[k].loop ? loopLayer(bufs[k], fx) : grainLayer(bufs[k], fx, [1, 4]);
     }
     breath = ['calm', 'exerted', 'panic'].map(r => c[`breath.${r}`] && (c[`breath.${r}`].loop ? loopLayer(bufs[`breath.${r}`], 'helmet') : grainLayer(bufs[`breath.${r}`], 'helmet', [.25, .6])));
   }
