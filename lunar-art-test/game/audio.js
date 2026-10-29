@@ -6,13 +6,13 @@ const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
 const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a)); return t * t * (3 - 2 * t); };
 const rand = (a, b) => a + Math.random() * (b - a);
 
-export const LAYERS = ['day', 'chatter', 'static', 'clicks', 'dread', 'cave', 'skitter', 'habitat', 'mars'];
+export const LAYERS = ['day', 'static', 'clicks', 'dread', 'cave', 'skitter', 'habitat', 'mars'];
 /** How each layer reaches the ear. Radio layers are the suit radio, so walls don't muffle them. */
-const ROUTE = { day: 'outdoor', mars: 'outdoor', dread: 'direct', chatter: 'radio', static: 'radio', clicks: 'radio', cave: 'direct', skitter: 'cave3d', habitat: 'direct' };
+const ROUTE = { day: 'outdoor', mars: 'outdoor', dread: 'direct', static: 'radio', clicks: 'radio', cave: 'direct', skitter: 'cave3d', habitat: 'direct' };
 
 /**
  * Levels (0..1) for every layer, grain densities, how open the outside is (1 = out on the surface) and the breathing
- * intensity target (0 calm, .5 exerted, 1 panic).
+ * intensity target (0 calm, .5 exerted, 1 panic). Breathing is only heard underground.
  * `sun` is the sun's height (-1..1), `where` is 'surface' | 'habitat' | 'cave' | 'ship', `threat` (0..1) how close the
  * nearest creature is, `raid` whether one is on, `exert` (0..1) how long the player has been running, `hurt` (0..1) a
  * recent hit, `health` 0..100, `grabbed` whether a crawler has them.
@@ -27,16 +27,15 @@ export function soundMix({ sun = 1, where = 'surface', mars = false, threat = 0,
   } else {
     level.day = (mars ? .55 : .85) * day * (1 - .7 * raidLevel);
     level.mars = mars ? 1 : 0;
-    level.chatter = .45 * day * (1 - raidLevel);
     level.static = clamp(.35 * night + .3 * threat + .2 * raidLevel);
     level.clicks = clamp(.8 * night + .4 * threat);
     level.dread = clamp(.55 * night + .35 * raidLevel + .3 * threat);
     clicks = .3 + 2.2 * Math.max(threat, .6 * raidLevel, night * .3);
-    if (where === 'habitat' || where === 'ship') { level.habitat = where === 'ship' ? .7 : .9; open = 0; level.chatter *= .7; level.dread *= .45; }
+    if (where === 'habitat' || where === 'ship') { level.habitat = where === 'ship' ? .7 : .9; open = 0; level.dread *= .45; }
   }
   const panic = Math.max(threat * .9, hurt, grabbed ? 1 : 0, health < 30 ? .7 : 0);
   const breath = Math.max(.5 * exert, panic > .05 ? .4 + .6 * panic : 0);
-  return { level, density: { clicks, skitter }, open, breath, breathLevel: where === 'surface' || where === 'cave' ? 1 : .45 };
+  return { level, density: { clicks, skitter }, open, breath, breathLevel: where === 'cave' ? 1 : 0 };
 }
 
 const VOLUME_KEY = 'mare.audio.volume';
@@ -90,12 +89,12 @@ export function createAudio(base = './assets/audio/') {
     return { buf, start: i / buf.sampleRate, end: Math.min(buf.duration, i / buf.sampleRate + clip.duration) };
   }
 
-  function loopLayer(clip, { buf, start, end }, fx) {
+  function loopLayer({ buf, start, end }, fx) {
     const g = ctx.createGain(), ch = chain(fx), src = ctx.createBufferSource();
     g.gain.value = 0; g.connect(ch.input);
     src.buffer = buf; src.loop = true; src.loopStart = start; src.loopEnd = end; src.connect(g);
-    const t0 = ctx.currentTime + .05; src.start(t0, start);
-    return { g, input: ch.input, t0, period: end - start, clip, tick() {} };
+    src.start(ctx.currentTime + .05, start);
+    return { g, tick() {} };
   }
 
   /** Short slices of a recording at random intervals; in the cave they climb the walls around you. */
@@ -126,29 +125,6 @@ export function createAudio(base = './assets/audio/') {
     return layer;
   }
 
-  // Quindar tones: 2525 Hz on push-to-talk, 2475 Hz on release, 250 ms each, sent down the same radio.
-  function quindar(t, f, dest) {
-    const o = ctx.createOscillator(), e = ctx.createGain(); o.frequency.value = f;
-    e.gain.setValueAtTime(0, t); e.gain.linearRampToValueAtTime(.12, t + .005); e.gain.setValueAtTime(.12, t + .245); e.gain.linearRampToValueAtTime(0, t + .25);
-    o.connect(e).connect(dest); o.start(t); o.stop(t + .26);
-  }
-  function withQuindar(layer) {
-    const talk = layer.clip.talk ?? []; if (!talk.length) return layer;
-    let k = 0, i = 0;
-    layer.tick = now => {
-      for (;;) {
-        const [a, b] = talk[i], base = layer.t0 + k * layer.period;
-        if (base + a - .3 > now + .6) break;
-        if (layer.g.gain.value > .01) {
-          if (base + a - .3 > now) quindar(base + a - .3, 2525, layer.input);
-          if (base + b + .05 > now) quindar(base + b + .05, 2475, layer.input);
-        }
-        if (++i === talk.length) { i = 0; k++; }
-      }
-    };
-    return layer;
-  }
-
   async function boot() {
     ctx = new AudioContext();
     master = ctx.createGain(); master.gain.value = volume;
@@ -162,10 +138,9 @@ export function createAudio(base = './assets/audio/') {
     for (const k of LAYERS) {
       if (!c[k]) continue;
       const fx = ROUTE[k];
-      layers[k] = c[k].loop ? loopLayer(c[k], bufs[k], fx) : grainLayer(bufs[k], fx, k === 'clicks' ? [.6, 2] : [1, 4]);
+      layers[k] = c[k].loop ? loopLayer(bufs[k], fx) : grainLayer(bufs[k], fx, k === 'clicks' ? [.6, 2] : [1, 4]);
     }
-    if (layers.chatter) withQuindar(layers.chatter);
-    breath = ['calm', 'exerted', 'panic'].map(r => c[`breath.${r}`] && (c[`breath.${r}`].loop ? loopLayer(c[`breath.${r}`], bufs[`breath.${r}`], 'helmet') : grainLayer(bufs[`breath.${r}`], 'helmet', [.25, .6])));
+    breath = ['calm', 'exerted', 'panic'].map(r => c[`breath.${r}`] && (c[`breath.${r}`].loop ? loopLayer(bufs[`breath.${r}`], 'helmet') : grainLayer(bufs[`breath.${r}`], 'helmet', [.25, .6])));
   }
 
   let starting = null;
