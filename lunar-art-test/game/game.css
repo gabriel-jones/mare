@@ -90,6 +90,8 @@ body[data-hurt=true]::after { content:'';position:fixed;inset:0;pointer-events:n
 .fps-meter { position:fixed;left:50%;top:6px;transform:translateX(-50%);z-index:30;padding:2px 7px;border-radius:4px;background:#0b1013b3;color:#9fe0a8;font:500 11px ui-monospace,SFMono-Regular,Menlo,monospace;pointer-events:none; }
 .fps-meter[data-level=ok] { color:#edbd79; }
 .fps-meter[data-level=bad] { color:#ff7a6b; }
+.sound-toggle { position:fixed;left:calc(50% + 86px);top:6px;z-index:30;padding:2px 7px;border:0;border-radius:4px;background:#0b1013b3;color:#9fe0a8;font:500 11px ui-monospace,SFMono-Regular,Menlo,monospace;cursor:pointer; }
+.sound-toggle[data-on=false] { color:#8a9199; }
 
 /* Underground: a vignette and colour drain that deepen with --cave-depth (0 at the mouth, 1 deep inside). */
 .cave-vignette { position:fixed;inset:0;z-index:2;pointer-events:none;opacity:0;transition:opacity 1.2s ease;background:radial-gradient(ellipse 72% 68% at 50% 50%,transparent 28%,rgba(1,2,4,calc(.6 + var(--cave-depth,0) * .32)) 100%); }

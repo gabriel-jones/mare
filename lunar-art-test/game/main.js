@@ -3,7 +3,7 @@ import { ZONE_NAMES } from './caves.js';
 import { lootAction, takeLoot } from './delve.js';
 import { stepPeril, dropAction, recoverDrop, craftFlares, throwFlare, flareNow, FLARE, HURT_TEXT, BLACKOUT } from './peril.js';
 import { sampleAction, takeSample, stepBrood, vatAction } from './goo.js';
-import { buildingHp, damagedNear, mend, raidNews, stepRaiders } from './raid.js';
+import { buildingHp, damagedNear, mend, raidAlert, raidNews, stepRaiders } from './raid.js';
 import { defenseAction, stepDefenses } from './defense.js';
 import { oreAction } from './ore.js';
 import {DEFS,createState,validatePlacement,placeBlueprint,construct,tick,serialize,deserialize,cancelBlueprint,deconstruct,collectStorage,setMiningArea,miningAreaReason,removeMiningArea,assignRover,rotateBelt,playerObstructs,interact,removalCheck,PROCESSOR_LOCKED,grantStarterAndroid} from './sim.js';
@@ -11,7 +11,7 @@ import {STARTER_ANDROID,androidNews,wreckAction,repairWreck,setStockTarget} from
 import {DIRS,ITEM_INFO,footprint} from './defs.js';
 import {movePlayer,nudgePlayer,nearestBlueprint,buildingCenter,resetLocomotion,interpolatePose,RUN_SPEED} from './controller.js';
 import {eat,lifeAction,setCrop,startCraft,growBeds,isStation,useLife} from './life.js';
-import {habitatLayout} from './habitat.js';
+import {habitatLayout,roomAt} from './habitat.js';
 import {isGrower} from './farm.js';
 import {createWorld} from './world.js';
 import {createUI} from './ui.js';
@@ -28,6 +28,7 @@ import {installCursors,createReticle} from './cursors.js';
 import {crateDistance,moveStack,storeAll,storeSlot,takeSlot,crates as storageCrates,crateCentre,BASE_REACH,available,baseCount,inReach} from './storage.js';
 import {worldVectorToCave} from './cave-space.js';
 import {count} from './inventory.js';
+import {createAudio} from './audio.js';
 
 // ?sandbox=1 plays a throwaway colony that never touches the real save.
 const KEY=new URLSearchParams(location.search).has('sandbox')?'lunar-frontier.sandbox':'lunar-frontier.phase-a.v1';
@@ -376,6 +377,18 @@ function fixedUpdate(dt){
  while(androidNews.length)notify(androidNews.shift());
  while(raidNews.length)notify(raidNews.shift());
 }
+let exert=0,hurt=0,lastHealth=null,indoorClock=0,indoors=false;
+/** What the ambience needs to know: where the player is, what is near them, how hard they have been running. */
+function soundSignals(dt){
+ const p=state.player,caving=p.cave!=null,health=p.health??100;
+ exert=Math.max(0,Math.min(1,exert+(p.speed>.1?dt/8:-dt/5)));
+ hurt=lastHealth!=null&&health<lastHealth-.01?1:Math.max(0,hurt-dt/4);lastHealth=health;
+ if((indoorClock-=dt)<=0){indoorClock=.25;indoors=!caving&&!!roomAt(habitatLayout(state.buildings),p.x,p.z);}
+ let near=Infinity;
+ for(const c of caving?hunt.crawlers:state.brood??[])if(c.state!=='dead'&&!c.gone)near=Math.min(near,Math.hypot(c.x-p.x,c.z-p.z));
+ return {sun:Math.sin(state.time/240*Math.PI*2+Math.PI/3),where:p.aboard?'ship':caving?'cave':indoors?'habitat':'surface',mars:planetOf(state.seed)==='mars',
+  threat:Math.max(0,Math.min(1,1-(near-3)/12)),raid:raidAlert(state),exert,hurt,health,grabbed:caving&&!!grabbedBy(hunt)};
+}
 /** Rolls the way the player is steering, or the way they face. Same everywhere: Space jumps, Shift rolls. */
 function dodge(){
  const p=state.player;if(p.y>0)return;
@@ -473,6 +486,9 @@ async function start(){
   boot.remove();document.body.dataset.ready='true';canvas.focus({preventScroll:true});
   ui.update(state,view());
   const fps=document.createElement('div');fps.className='fps-meter';document.body.append(fps);
+  const audio=createAudio(),sound=document.createElement('button');sound.type='button';sound.className='sound-toggle';
+  const showSound=()=>{sound.textContent=audio.volume?'Sound on':'Sound off';sound.dataset.on=String(!!audio.volume);};
+  sound.onclick=()=>{audio.setVolume(audio.volume?0:.8);showSound();sound.blur();canvas.focus({preventScroll:true});};showSound();document.body.append(sound);
   let fpsFrames=0,fpsSince=performance.now(),fpsWorst=0;
   function frame(now){
    fpsFrames++;fpsWorst=Math.max(fpsWorst,now-last);
@@ -480,7 +496,7 @@ async function start(){
    const dt=Math.min((now-last)/1000,.1);last=now;accumulator+=dt;
    while(accumulator>=1/30){fixedUpdate(1/30);accumulator-=1/30;}
    if(stepEncounter(encounter,state,dt)==='fled')setTimeout(()=>ui.say(ENCOUNTER_SAY),600);
-   world.update(state,dt,interpolatePose(previousPose,state.player,accumulator/(1/30)),encounter,hunt);uiClock+=dt;autoClock+=dt;
+   world.update(state,dt,interpolatePose(previousPose,state.player,accumulator/(1/30)),encounter,hunt);audio.update(soundSignals(dt),dt);uiClock+=dt;autoClock+=dt;
    const cursor=cursorMode();if(canvas.dataset.cursor!==cursor)canvas.dataset.cursor=cursor;world.setLogistics(showLogistics());world.setZones(selectedType==='mine'||!!ui?.robotsOpen?.());world.setPorts(selectedType==='conveyor');
    reticle.update(cursor==='none'&&pointerIn?reticleState():null,dt);
    if(state.ship.status==='ascent')shipCargo=state.ship.payload;

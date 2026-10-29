@@ -1,0 +1,119 @@
+{
+ "clips": {
+  "day": {
+   "file": "day.m4a",
+   "duration": 34.0,
+   "loop": true,
+   "source": "Bluezone \"Afterlife\" melodic texture"
+  },
+  "breath.calm": {
+   "file": "breath-calm.m4a",
+   "duration": 20.0,
+   "loop": true,
+   "source": "Calm: slow mouth breathing"
+  },
+  "breath.exerted": {
+   "file": "breath-exerted.m4a",
+   "duration": 2.785,
+   "loop": true,
+   "source": "Exerted: breathing in a mask while running"
+  },
+  "breath.panic": {
+   "file": "breath-panic.m4a",
+   "duration": 1.152,
+   "loop": false,
+   "source": "Panic: single scared breath"
+  },
+  "chatter": {
+   "file": "chatter.m4a",
+   "duration": 80.0,
+   "loop": true,
+   "source": "Apollo 11 onboard, busy exchange",
+   "talk": [
+    [
+     9.0,
+     31.75
+    ],
+    [
+     35.25,
+     38.0
+    ],
+    [
+     39.25,
+     42.0
+    ],
+    [
+     43.25,
+     46.5
+    ],
+    [
+     47.75,
+     50.75
+    ],
+    [
+     52.25,
+     60.25
+    ],
+    [
+     61.5,
+     66.0
+    ],
+    [
+     67.75,
+     71.5
+    ],
+    [
+     75.5,
+     77.25
+    ]
+   ]
+  },
+  "static": {
+   "file": "static.m4a",
+   "duration": 18.0,
+   "loop": true,
+   "source": "SoundMorph Lost Transmissions malfunction"
+  },
+  "clicks": {
+   "file": "clicks.m4a",
+   "duration": 30.0,
+   "loop": false,
+   "source": "Bluezone biohazard insect ambience"
+  },
+  "dread": {
+   "file": "dread.m4a",
+   "duration": 50.0,
+   "loop": true,
+   "source": "SmartSoundFX \"Dangerous Air\" pad"
+  },
+  "cave": {
+   "file": "cave.m4a",
+   "duration": 50.0,
+   "loop": true,
+   "source": "Spectravelers \"Forbidden Cave\" drone"
+  },
+  "skitter": {
+   "file": "skitter.m4a",
+   "duration": 21.874,
+   "loop": false,
+   "source": "Arachnid footsteps foley"
+  },
+  "habitat": {
+   "file": "habitat.m4a",
+   "duration": 34.0,
+   "loop": true,
+   "source": "Bluezone command-centre ambience"
+  },
+  "mars": {
+   "file": "mars.m4a",
+   "duration": 36.0,
+   "loop": true,
+   "source": "Perseverance SuperCam, sol 4 (real wind)"
+  }
+ },
+ "credits": [
+  "NASA, Apollo 11 onboard audio (public domain)",
+  "NASA/JPL-Caltech/LANL/CNES/CNRS/ISAE-Supaero (public domain)",
+  "Sonniss GDC Game Audio Bundle (royalty-free, no attribution required)"
+ ]
+}
