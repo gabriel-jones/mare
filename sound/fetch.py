@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Downloads every Sonniss candidate in candidates.tsv to raw/sonniss/SLOT-ID.wav, plus the public-domain NASA Mars
+"""fetch.py [MANIFEST]: downloads every Sonniss candidate in MANIFEST (default candidates.tsv) to raw/sonniss/SLOT-ID.wav, plus the public-domain NASA Mars
 recordings and Apollo 11 onboard clips (skips anything already there). Manifest paths may be truncated; they match
 the index by substring."""
 import os, subprocess, sys, urllib.request
@@ -12,6 +12,8 @@ PUBLIC = {
     'nasa/45827_SCAM_MIC_SOL004_RUN001.wav': MARS + '45827_SCAM_MIC_SOL004_RUN001.wav',
     'nasa/45824_SCAM_MIC_SOL001_RUN001.wav': MARS + '45824_SCAM_MIC_SOL001_RUN001.wav',
     'nasa/45704_1st_Sounds_from_Mars_filters_out_rover_self-noise.wav': MARS + '45704_1st_Sounds_from_Mars_filters_out_rover_self-noise.wav',
+    # Joe Shambro, CC BY-NC 3.0 US: credit him, and only while the game is free.
+    'shuttle/STS-124-Launch_1.flac': 'https://archive.org/download/SpaceShuttleDiscoveryLaunchSts-124/STS-124-Launch_1.flac',
     **{f'apollo/clip{i}.ogg': f'https://archive.org/download/Apollo11Audio/Apollo11OnboardAudioHighlightClip{i}.ogg' for i in (1, 2, 3)},
 }
 
@@ -47,7 +49,7 @@ def fetch(row):
 
 
 os.makedirs(OUT, exist_ok=True)
-rows = [l.rstrip('\n').split('\t') for l in open(os.path.join(HERE, 'candidates.tsv')) if l.strip()]
+rows = [l.rstrip('\n').split('\t') for l in open(os.path.join(HERE, sys.argv[1] if len(sys.argv) > 1 else 'candidates.tsv')) if l.strip()]
 with ThreadPoolExecutor(8) as pool:
     for msg in [*pool.map(fetch_public, PUBLIC.items()), *pool.map(fetch, rows)]:
         print(msg, flush=True)

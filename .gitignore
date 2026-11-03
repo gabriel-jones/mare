@@ -8,3 +8,4 @@ lunar-art-test/game/assets/audio/lab/
 # Cloudflare deploy output
 site/
 .wrangler/
+lunar-art-test/game/assets/audio/sfx-lab/

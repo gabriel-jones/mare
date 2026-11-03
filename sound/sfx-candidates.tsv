@@ -1,0 +1,127 @@
+step-ground	gravel-loop	2019	PM_SDNG_Stereo_Walk_Seamless_Loop_1.wav
+step-ground	gravel-46	2019	PM_SDNG_Single_Step_Footstep_46.wav
+step-ground	gravel-19	2019	PM_SDNG_Single_Step_Footstep_19.wav
+step-ground	gravel-loafers	2019	S23_SFX_Footsteps_Gravel_Loafers_Loops_Walk_Normal.wav
+step-ground	snow-singles	2019	S23_SFX_Footsteps_Snow_Singles_Sequence.wav
+step-floor	metal-boots	2019	S23_SFX_Footsteps_Metal_Boots_Loop_Jogging.wav
+step-floor	soldier-metal-1	2016	FS Metal Soldier Walk N01.wav
+step-floor	soldier-metal-5	2016	FS Metal Soldier Walk N05.wav
+step-floor	boot-concrete	2018	BOOT_CONC CLEAN_WALK.R.wav
+land	bodyfall-dirt	2019	RL_bodyfall_Dirt_M4_Close_Stereo_Hard_Impact_10.wav
+land	rocks-jump-land	2017	289_Foley_Footsteps_Rocks_Sneaker_Jump_Land_On_Two_Feet_Close.wav
+land	feet-concrete	2019	RL_bodyfall_Concrete_Generic_Feet_Mid_Mono_Med_Impact_02.wav
+roll	cloth-whoosh	2016	Whoosh_Cloth_Leather_Fight_174.wav
+roll	soldier-gear	2018	foley_soldier_gear_equipment_metal_cloth_heavy_movement_light_08.wav
+roll	clothing-move	2020	CLOTHING_MATERIAL_MOVEMENT_08.wav
+hurt	grunt	2016	Grunt_Pain_Male_BB_10_SCREAM LIBRARY_BRFX-004.wav
+hurt	body-thump	2017	bullet_impact_body_thump_02.wav
+hurt	low-thud	2020	IMPACT_LOW_THUD_10.wav
+hurt	punch	2015	EFX SD GORE Punch 02 B.M.wav
+pistol	glock	2016	Glock_18_1m_left_off_axis_MKH416_clean_Six_shots_x_1.wav
+pistol	beretta	2016	Beretta_93R_9mm_1m_left_on_ground_DPA4062_clean_Triple_shots_x_1.wav
+pistol	revolver	2017	gun_revolver_pistol_shot_04.wav
+pistol	magnum	2016	Smith_&_Wesson_M66_.357_Magnum_1m_left_off_axis_MKH416_clean_Double_shots_x_2.wav
+smg	mp7	2016	HK_MP7_4.6mm_on_gun_DPA4062_clean_Four_shots_x_1.wav
+smg	mini-uzi	2016	Mini_Uzi_9mm_1m_left_off_axis_MKH416_clean_Four_shots_x_1.wav
+smg	uzi	2016	Uzi_9mm_1m_right_MKH8040_1_clean_Five_shots_x_1.wav
+smg	mp5	2016	HK_MP5_9mm_2m_behind_clean_Double_shots_x_1.wav
+rifle	hk416	2016	HK_416_5.56mm_on_gun_DPA4062_clean_Seven_shots_x_1.wav
+rifle	l85	2016	Enfield_L85_rifle_5.56mm_on_gun_DPA4062_clean_Five_shots_x_1.wav
+rifle	akm	2016	AKM_7.62x39mm_1m_left_on_ground_DPA4062_clean_Triple_shots_x_1.wav
+rifle	g36c	2016	Heckler_&_Koch_G36C_5.56mm_1m_left_off_axis_MKH416_clean_Six_shots_x_1.wav
+flamer	firestorm	2018	Steampunk Weapons - Firestorm Flamer - set_1.wav
+flamer	fire-crackle	2026	FIREBurn_Loop Elements Fire Crackling Crunchy Flame Burn 03_ESM_SNLS.wav
+flamer	blue-flame	2015	Lighter_Blue Flame_E_Light_Fienup_001.wav
+rail	heavyweapon	2023	SCIWeap_Heavyweapon12 Shot 04_DDUMAIS_NONE.wav
+rail	super-blaster	2017	Weapon Shot Spaceship Super Blaster-04.wav
+rail	laser-cannon	2020	Laser_Cannon_Blast_2__calicrazed.com.wav
+rail	plasma-cannon	2020	CANNON Plasma Shot Tonal High 10.wav
+rail	experimental	2020	HeavyGun_Experimental_3.wav
+rail-charge	power-up-flash	2018	sci-fi_device_item_power_up_flash_01.wav
+rail-charge	warble-powerup	2020	Electric_Energy_Ambient_Warble_Powerup_03.wav
+rail-charge	arc-powerup	2026	ELECArc_ArcPowerUpDesign04_InMotionAudio_Arc.wav
+arc	surge	2024	Bluezone_BC0299_electricity_surge_discharge_electrical_arc_crackling_002_01.wav
+arc	zap-short	2024	SCIMisc_Zap Short 14_RSCPC_PX.wav
+arc	reverb-shock	2020	Electric_Arc_Reverberant_Shock_Long_05.wav
+swing	large-swing	2023	SWSH_Swing 3 Large 03_DDUMAIS_NONE.wav
+swing	long-blade	2026	METLFric_SWING SCRAPE Swift Melee Weapon Swing With A Long Blade 14_DDUMAIS_MWP2.wav
+swing	sword-swish	2018	Sword Slide Swish.wav
+swing	pole-whoosh	2015	Whoosh_Swing_Fishing Pole_Full_Fienup_CLASSIC_001.wav
+slash	blade-stab	2015	gore - large metal blade wet stab slash and remove from flesh - hard - 1.wav
+slash	slash-impact	2023	SWSH_Sword Slash Impact V2 Assorted 18_DDUMAIS_NONE.wav
+slash	sword-attack	2019	Melee_Sword_Attack_04.wav
+slash	crunchy-slice	2015	Slice_Crunchy_Fienup_002.wav
+reload	unload-mag	2015	EFX INT Unloading Magazine Singles 01.wav
+reload	p38-mag	2020	P38, Handling, Removing Magazine, 1m, Right, MKH8060.wav
+reload	mp40-cock	2020	MP 40, Handling, Cocking, MKH416.wav
+reload	heavy-cock	2023	GUNMech_Heavy Mech Cock 03_DDUMAIS_NONE.wav
+dry	m1911	2020	M1911A1, Handling, Dry Fire, MKH416.wav
+dry	thompson	2020	1928A1, Handling, Dry Fire, MKH416.wav
+impact	body-flesh	2020	PM_BBI_Bullet_Impact_Hit_Body_Flesh_25.wav
+impact	slime-gore	2015	Borax,Impact,Slime,Gore,Various05.wav
+impact	splat	2016	Splatter_Splat_153.wav
+impact	stab-punch	2016	Stab_Punch_Hit_136.wav
+parry	sword-metal	2020	SWORD Hit Metal 02.wav
+parry	machete-ring	2015	Machete_Hit_Ring_Fienup_001.wav
+parry	metal-swing-hit	2026	METLImpt_METAL SWING HIT Weapon Swing To Metallic Body Impact And Resonant Tail 01_DDUMAIS_MWP2.wav
+parry	knife-sword	2015	Knife_Sword_Hit_Multiple_Fienup_003.wav
+flare	match	2020	Party-Pack_Match_Ignite_02-03.wav
+flare	flare-shot	2024	Bluezone_BC0296_steampunk_weapon_flare_shot_explosion_003.wav
+shriek	screeches	2015	Creature Screeches 12.M.wav
+shriek	screech-monster	2015	TheLibrarybyMTC_ScreechMonster_Roar_34_96k.wav
+shriek	screeching	2020	Screeching Monster 2-1.wav
+shriek	insectoid	2026	CREAInsc_Insectoid Creature Tremble Attack Long 1_SNDBTS_VB-SE.wav
+shriek	insect-attack-vo	2020	MR - Insect Creature Attack VO 02.wav
+lunge	cave-attack	2020	Bluezone_BC0272_creature_attack_whoosh_impact_003.wav
+lunge	crab-attack	2020	Bluezone_BC0263_creature_crab_organic_texture_attack_impact_009.wav
+lunge	monster-attack	2017	Creature_Monster_Attack_09.wav
+lunge	monster06	2023	MonsterPack2_Monster06_Attack13.wav
+bite	monster-bite	2018	Monster Bite 3.wav
+bite	zombie-bite	2023	Zombie Bite 04.wav
+bite	flesh-rip	2019	Attack_Gore_Flesh_Rip_01.wav
+bite	crunch-rip	2016	Crunch_Rip_024.wav
+death	alien-death	2017	Creature_Alien_Death_01.wav
+death	monster09	2023	MonsterPack2_Monster09_Death02.wav
+death	twinhead	2018	6Monsters_TwinHead_Death_03.wav
+death	monster9	2020	Monster9_Death10.wav
+hiss	creature-hiss	2015	Creature Hiss 4.M.wav
+hiss	dry-hiss	2015	Hisses Dry 11.M.wav
+burst	juicy-smash	2019	Smash_Gore_Juicy_Smash_07.wav
+burst	slime-22	2015	Borax,Impact,Slime,Gore,Various22.wav
+burst	head-explode	2018	GORE - Head_Explode_6.wav
+burst	gore-transient	2026	GORESplt_Gore Designed Transient Heavy Impact Smash 01_ESM_HALG.wav
+emerge	soil-debris	2016	soil and dirt debris heavy 13.wav
+emerge	animal-dig	2015	AnimalDiggingDirt.wav
+emerge	shovel-grit	2019	impact_gritty_grit_sandy_dirt_dig_shovel_shingle_roof_02.wav
+build	drill-burst	2024	TOOLPowr_Drill Burst, Rev, Mechanical Tool, Electric,_Jake Fielding_Drill_09.wav
+build	power-drill	2015	PowerDrill_Run_Stop_Fienup_010.wav
+build	weld-grind	2024	METLFric_Steel Welding & Grinding, Machine, Industrial_JF_SoS.wav
+build	screwdriver	2017	screwdriver screwing 4 mono.wav
+built	bay-lock	2016	Spacecraft_Bay Door_Lock Down_Large_01.wav
+built	hydraulic-release	2023	MECHHydr_Hydraulic Pressure Releasing_JSE_IR_01_Stereo.wav
+built	tower-deploy	2026	ROBTMvmt_Tower Deploy Hitech Robot Motor Dark Thump Servo Whine 04_ESM_TDG.wav
+built	hydraulic-2	2017	Machine_2_mono_02.wav
+place	nanotech-109	2020	PM_NANOTECH_ONESHOT_109 Robotic
+place	positive	2020	The Mooseman - Digital Sci Fi UI Kit 1/positive_1.wav
+place	digital-button	2017	InterfaceButtonDigital-06.wav
+dismantle	scrap-drop	2015	Drop Fall Metal Rattle Scrap Debris_UC 10.wav
+dismantle	metal-debris	2018	Bluezone_BC0236_metal_debris_055.wav
+dismantle	mech-parts	2017	Robot_Movement_Mechanical Parts_14.wav
+dismantle	servo-fall	2020	Broken_Robot_Servo_Short_Falling_Pitch_02.wav
+turret	browning	2016	M1919A4_Browning_Machine_Gun_.30cal_on_turret_1m_left_blanks_Triple_shots_x_2.wav
+turret	future-rifle	2018	Future Weapons 3 - Assault Rifle - Shot Single 4.wav
+turret	rpu-fire	2023	GUNAuto_RPU1 Fire_02_SFRMS_SCIWPNS.wav
+turret	scifi-gunshot	2020	PM_SFG_VOL1_WEAPON_8_2_GUN_GUNSHOT_FUTURISTIC.wav
+zap	bug-zapper	2023	ELECZap_Bug zapper zapping
+zap	arc-buzz	2019	Accent,Sound Design,Electric,Arc,Buzz,Resonant,Fizzle,Surges,Long.wav
+zap	zap-short	2024	SCIMisc_Zap Short 14_RSCPC_PX.wav
+airlock	scifi-door	2017	Door - Sci-Fi - 04.wav
+airlock	hydraulic-release	2023	MECHHydr_Hydraulic Pressure Releasing_JSE_IR_01_Stereo.wav
+airlock	bay-door	2016	Spacecraft_Bay Door_Lock Down_Large_01.wav
+dig	hammer-drill	2020	270901 - Rotary Hammer Drill in Wall 01.wav
+hum	electric-hum	2017	electric_hum_buzz_01.wav
+hum	server-room	2020	DRONE Server Room Loop.wav
+hum	emf-idle	2023	SCIMach_EMF_Toolkit_Machine_Idle_013.wav
+hum	metal-roll	2017	Rotation,Metal,Shallow,Roll,Rattle,Loose,Churning,Steady,Loop.wav
+launch	lightbike	2015	lightbike_takeoff_03.wav
+launch	boom	2016	Impact_Boom_Distorted_02.wav

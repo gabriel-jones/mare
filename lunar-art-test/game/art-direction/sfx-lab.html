@@ -1,0 +1,237 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Mare · Effects lab</title>
+<style>
+html{background:#0a0b0d}
+body{margin:0;font:13px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;color:#e4e1dc}
+header{position:sticky;top:0;z-index:5;display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:10px 18px;background:#121418ee;border-bottom:1px solid #2a2e35;backdrop-filter:blur(6px)}
+header h1{margin:0;font-size:13px;letter-spacing:.16em;font-weight:700}
+header small{color:#8d939c;letter-spacing:.12em}
+button{font:inherit;color:#e4e1dc;background:#1d2127;border:1px solid #363c45;border-radius:7px;padding:5px 9px;cursor:pointer}
+button:hover{background:#262b33}
+button.on{background:#20492b;border-color:#4fbf62;color:#fff}
+button.play{width:30px;padding:5px 0}
+button.mini{padding:3px 7px;font-size:11px}
+label{display:inline-flex;gap:6px;align-items:center;cursor:pointer}
+input[type=range]{accent-color:#c9a36a}
+.scenes{padding:12px 18px;border-bottom:1px solid #22262c;display:grid;gap:8px}
+.scenes .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.caption{font:12px ui-monospace,monospace;color:#c9a36a;min-height:1.4em}
+.seg{display:inline-flex;border:1px solid #363c45;border-radius:7px;overflow:hidden}.seg button{border:0;border-radius:0}
+h3{margin:18px 18px 0;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#7f8792}
+main{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:12px;padding:10px 18px 10px}
+.slot{background:#121418;border:1px solid #262a31;border-radius:10px;padding:10px 12px}
+.slot h2{margin:0;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#c9a36a}
+.slot p{margin:3px 0 8px;color:#8d939c;font-size:12px}
+.slot .demo{float:right;display:flex;gap:6px}
+.cand{display:grid;grid-template-columns:30px 1fr auto auto auto;gap:8px;align-items:center;padding:4px 6px;border:1px solid transparent;border-radius:7px}
+.cand.picked{border-color:#4fbf62;background:#16241a}
+.cand.playing{background:#1c2129}
+.cand .meta{color:#7f8792;font-size:11px}
+.tag{font-size:10px;letter-spacing:.06em;padding:1px 5px;border-radius:4px;border:1px solid #3a4049;color:#aab1bb;white-space:nowrap}
+.tag.cc{border-color:#8a6a3d;color:#e6c08c}.tag.dz{border-color:#6a8a3d;color:#c4e68c}
+footer{padding:0 18px 30px;color:#7f8792;font-size:11px}
+textarea{width:100%;height:110px;background:#0d0f12;color:#cfd3d9;border:1px solid #2a2e35;border-radius:6px;font:11px ui-monospace,monospace}
+</style></head>
+<body>
+<header>
+ <h1>MARE</h1><small>SOUND LAB · EFFECTS</small>
+ <label>Volume <input type="range" id="vol" min="0" max="1" step=".01" value=".8"></label>
+ <button id="stop">Stop all (space)</button>
+ <button id="copy">Copy picks</button>
+ <span id="summary" class="caption"></span>
+</header>
+<section class="scenes">
+ <div class="row"><b>Hear it</b>
+  <span class="seg" id="where"><button data-where="vacuum" class="on">Outside on the Moon (vacuum)</button><button data-where="air">Inside or in a cave (air)</button></span>
+  <span class="caption" id="where-note"></span></div>
+ <div class="row"><b>Together</b> (uses your picks; slots without one use their first option):
+  <button data-scene="walk">Run, jump, roll</button><button data-scene="fight">Cave fight</button><button data-scene="build">Build</button><button data-scene="raid">Raid on the base</button><button data-scene="launch">Launch</button>
+  <span class="caption" id="caption"></span></div>
+</section>
+<div id="slots"></div>
+<footer><b>Credits needed if picked</b> <span id="credits"></span><br><br>Picks are saved in this browser. "Copy picks" puts them on the clipboard as JSON.<textarea id="out" readonly></textarea></footer>
+<script type="module">
+const BASE = '../assets/audio/sfx-lab/', KEY = 'mare.sfx-lab.picks';
+const lab = await (await fetch(BASE + 'sfx-lab.json', { cache: 'no-store' })).json();
+const slots = Object.fromEntries(lab.slots.map(s => [s.id, s]));
+const picks = JSON.parse(localStorage.getItem(KEY) || '{}');
+const $ = id => document.getElementById(id), rand = (a, b) => a + Math.random() * (b - a), sleep = ms => new Promise(r => setTimeout(r, ms));
+// Hybrid vacuum: what you touch or wear reaches you through the suit; everything else only through the ground.
+const SELF = new Set(['step-ground', 'step-floor', 'land', 'roll', 'hurt', 'pistol', 'smg', 'rifle', 'flamer', 'rail-charge', 'rail', 'arc', 'swing', 'slash', 'reload', 'dry', 'parry', 'bite', 'build', 'dismantle']);
+const DRY = new Set(['place']);
+let where = 'vacuum';
+const treatment = slot => where === 'air' || DRY.has(slot) ? 'air' : SELF.has(slot) ? 'suit' : 'ground';
+
+// ---------- audio graph ----------
+let ctx, master;
+function audio() {
+  if (ctx) return ctx;
+  ctx = new AudioContext();
+  master = ctx.createGain(); master.gain.value = +$('vol').value;
+  const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -10; comp.ratio.value = 4;
+  master.connect(comp).connect(ctx.destination);
+  return ctx;
+}
+const buffers = new Map();
+function buffer(c) {
+  if (!buffers.has(c.file)) buffers.set(c.file, fetch(BASE + c.file).then(r => r.arrayBuffer()).then(b => ctx.decodeAudioData(b)).then(buf => {
+    // AAC decodes with encoder priming silence in front; every take time shifts by it.
+    const d = buf.getChannelData(0); let i = 0; while (i < Math.min(d.length, 8192) && Math.abs(d[i]) < 1e-6) i++;
+    buf.offset = i / buf.sampleRate; return buf;
+  }));
+  return buffers.get(c.file);
+}
+const biquad = (type, f, q = .7, g = 0) => { const n = ctx.createBiquadFilter(); n.type = type; n.frequency.value = f; n.Q.value = q; n.gain.value = g; return n; };
+/** An input node routed through the treatment for `slot` into the master. */
+function route(slot) {
+  const kind = treatment(slot), out = ctx.createGain(); out.connect(master);
+  if (kind === 'suit') {
+    // Through the suit: the highs gone, the body thump up, a few ms of helmet.
+    const hp = biquad('highpass', 35), lp = biquad('lowpass', 1500, .5), shelf = biquad('lowshelf', 160, .7, 6), d = ctx.createDelay(.05), wet = ctx.createGain();
+    d.delayTime.value = .006; wet.gain.value = .25;
+    hp.connect(shelf).connect(lp).connect(out); lp.connect(d).connect(wet).connect(out);
+    return hp;
+  }
+  if (kind === 'ground') {
+    // No air to carry it: only what comes up through the regolith and your boots.
+    const lp = biquad('lowpass', 260, .6), lp2 = biquad('lowpass', 260, .6), shelf = biquad('lowshelf', 90, .7, 5);
+    out.gain.value = .6; lp.connect(lp2).connect(shelf).connect(out);
+    return lp;
+  }
+  return out;
+}
+const live = new Set();
+/** Plays one take (random unless `k` given) with a little pitch variation. Returns the source. */
+async function hit(slot, c, { k, when = 0, gain = 1, detune = 120 } = {}) {
+  audio(); const buf = await buffer(c), [a, b] = c.hits ? c.hits[k ?? Math.floor(Math.random() * c.hits.length)] : [0, c.duration];
+  const src = ctx.createBufferSource(), g = ctx.createGain(); src.buffer = buf; src.detune.value = rand(-detune, detune); g.gain.value = gain;
+  src.connect(g).connect(route(slot));
+  src.start(ctx.currentTime + when, buf.offset + a, b - a); live.add(src); src.onended = () => live.delete(src);
+  return src;
+}
+async function loop(slot, c, gain = 1) {
+  audio(); const buf = await buffer(c), src = ctx.createBufferSource(), g = ctx.createGain();
+  src.buffer = buf; src.loop = true; src.loopStart = buf.offset; src.loopEnd = buf.offset + c.duration;
+  g.gain.value = 0; g.gain.setTargetAtTime(gain, ctx.currentTime, .03);
+  src.connect(g).connect(route(slot)); src.start(ctx.currentTime, buf.offset); live.add(src);
+  return { stop() { g.gain.setTargetAtTime(0, ctx.currentTime, .06); src.stop(ctx.currentTime + .4); live.delete(src); } };
+}
+let held = [], timers = [];
+function stopAll() {
+  for (const s of live) try { s.stop(); } catch {}
+  live.clear(); held.forEach(h => h.stop()); held = []; timers.forEach(clearTimeout); timers = [];
+  document.querySelectorAll('.playing').forEach(e => e.classList.remove('playing'));
+  document.querySelectorAll('[data-scene].on').forEach(b => b.classList.remove('on'));
+  $('caption').textContent = '';
+}
+const later = (s, f) => timers.push(setTimeout(f, s * 1000));
+
+// ---------- how each slot is demonstrated ----------
+const chosen = slot => slots[slot].candidates.find(c => c.id === picks[slot]) ?? slots[slot].candidates[0];
+const DEMO = {
+  'step-ground': [['Run', (s, c) => { for (let i = 0; i < 10; i++) later(i * .3, () => hit(s, c, { gain: i % 2 ? .85 : 1 })); }]],
+  'step-floor': [['Run', (s, c) => { for (let i = 0; i < 10; i++) later(i * .3, () => hit(s, c, { gain: i % 2 ? .85 : 1 })); }]],
+  smg: [['Burst', (s, c) => { for (let i = 0; i < 3; i++) hit(s, c, { when: i * .07 }); }]],
+  rifle: [['Rapid', (s, c) => { for (let i = 0; i < 4; i++) hit(s, c, { when: i * .16 }); }]],
+  rail: [['Charge + fire', (s, c) => { hit('rail-charge', chosen('rail-charge')).then(src => later(.8, () => { try { src.stop(); } catch {} hit(s, c); })); }]],
+  turret: [['Volley', (s, c) => { for (let i = 0; i < 5; i++) hit(s, c, { when: i * .22 }); }]],
+};
+async function play(slot, c, row, btn) {
+  const was = row.classList.contains('playing'); stopAll(); if (was) return;
+  audio(); await ctx.resume(); row.classList.add('playing');
+  if (c.loop) { held.push(await loop(slot, c)); return; }
+  const src = await hit(slot, c); src.addEventListener('ended', () => row.classList.remove('playing'));
+}
+async function allTakes(slot, c, row) {
+  stopAll(); audio(); await ctx.resume(); row.classList.add('playing');
+  let t = 0; for (let k = 0; k < c.hits.length; k++) { hit(slot, c, { k, when: t, detune: 0 }); t += c.hits[k][1] - c.hits[k][0] + .35; }
+  later(t, () => row.classList.remove('playing'));
+}
+
+// ---------- scenes ----------
+const pick = (slot, o) => hit(slot, chosen(slot), o);
+const SCENES = {
+  walk() {
+    const steps = where === 'air' ? 'step-floor' : 'step-ground';
+    for (let i = 0; i < 8; i++) later(i * .3, () => pick(steps, { gain: i % 2 ? .85 : 1 }));
+    later(2.6, () => { $('caption').textContent = 'Jump… low gravity, long hang'; });
+    later(3.9, () => pick('land')); later(4.2, () => pick(steps));
+    later(4.6, () => { $('caption').textContent = 'Roll'; pick('roll'); });
+    for (let i = 0; i < 4; i++) later(5.6 + i * .3, () => pick(steps));
+  },
+  fight() {
+    const say = t => $('caption').textContent = t;
+    say('Something in the dark…'); later(0, () => pick('hiss', { gain: .7 }));
+    later(1.6, () => { say('It has seen you'); pick('shriek'); });
+    later(3.2, () => { say('SMG'); for (let b = 0; b < 3; b++) for (let i = 0; i < 3; i++) pick('smg', { when: b * .42 + i * .07 }); for (let i = 0; i < 3; i++) pick('impact', { when: .05 + i * .42 }); });
+    later(4.8, () => { say('It lunges'); pick('lunge'); });
+    later(5.4, () => { say('Parry'); pick('parry'); });
+    later(6.2, () => { say('Katana'); pick('swing'); later(.12, () => pick('slash')); });
+    later(7.2, () => { say('Dead'); pick('death'); });
+    later(9, () => { say('Reload'); pick('reload'); });
+  },
+  build() {
+    const say = t => $('caption').textContent = t;
+    say('Blueprint placed'); pick('place');
+    later(1, () => say('Holding E…')); for (let i = 0; i < 3; i++) later(1 + i * 1.6, () => pick('build'));
+    later(6, () => { say('Complete'); pick('built'); });
+    later(8.5, () => { say('Airlock'); pick('airlock'); });
+  },
+  async raid() {
+    const say = t => $('caption').textContent = t;
+    say('Turrets open up'); for (let i = 0; i < 8; i++) later(i * .25, () => pick('turret'));
+    later(1.2, () => pick('impact')); later(2.3, () => { say('Fence'); pick('zap'); });
+    later(3.6, () => { say('A big one bursts'); pick('burst'); }); later(4.4, () => pick('emerge'));
+    later(5.4, () => { say('Flare'); pick('flare'); });
+    later(6.2, () => { say('Flamethrower'); loop('flamer', chosen('flamer')).then(h => { held.push(h); later(2.2, () => h.stop()); }); });
+    later(9, () => { say('Arc projector'); loop('arc', chosen('arc')).then(h => { held.push(h); later(2, () => h.stop()); }); });
+  },
+  launch() { $('caption').textContent = where === 'vacuum' ? 'Through the ground: no air to carry the roar' : 'In air: the full roar'; pick('launch'); },
+};
+async function startScene(name, btn) { stopAll(); audio(); await ctx.resume(); btn.classList.add('on'); await SCENES[name](); later(14, () => btn.classList.remove('on')); }
+
+// ---------- UI ----------
+const tag = c => c.credit.includes('CC BY') ? '<span class="tag cc">CC-BY-NC, CREDIT</span>' : c.credit.startsWith('Designed') ? '<span class="tag dz">DESIGNED</span>' : '<span class="tag">SONNISS</span>';
+const NOTE = { vacuum: 'Your own actions come through the suit, muffled and heavy; the rest only through the ground.', air: 'Air carries everything: habitats and caves.' };
+function render() {
+  $('slots').innerHTML = '';
+  let group = null, grid;
+  for (const s of lab.slots) {
+    if (s.group !== group) { group = s.group; $('slots').insertAdjacentHTML('beforeend', `<h3>${group}</h3>`); grid = document.createElement('main'); $('slots').append(grid); }
+    const el = document.createElement('section'); el.className = 'slot';
+    const demos = DEMO[s.id] ?? [];
+    el.innerHTML = `<span class="demo">${demos.map((d, i) => `<button class="mini" data-demo="${i}">${d[0]}</button>`).join('')}<span class="tag">${{ suit: 'SUIT', ground: 'GROUND', air: 'AIR' }[treatment(s.id)]}</span></span><h2>${s.label}</h2><p>${s.description}</p>`;
+    el.querySelectorAll('[data-demo]').forEach(b => b.onclick = async () => { stopAll(); audio(); await ctx.resume(); demos[+b.dataset.demo][1](s.id, chosen(s.id)); });
+    for (const c of s.candidates) {
+      const row = document.createElement('div');
+      row.className = 'cand' + (picks[s.id] === c.id ? ' picked' : '');
+      const meta = c.loop ? `${c.duration.toFixed(1)} s loop` : c.hits ? `${c.hits.length} take${c.hits.length > 1 ? 's' : ''}` : `${c.duration.toFixed(0)} s`;
+      row.innerHTML = `<button class="play">${c.loop ? '⟳' : '▶'}</button><div>${c.label}<div class="meta">${meta}</div></div>${c.hits?.length > 1 ? '<button class="mini all">All takes</button>' : '<span></span>'}${tag(c)}<button class="pick">${picks[s.id] === c.id ? 'Picked' : 'Pick'}</button>`;
+      const btn = row.querySelector('.play');
+      btn.onclick = () => play(s.id, c, row, btn);
+      row.querySelector('.all')?.addEventListener('click', () => allTakes(s.id, c, row));
+      row.querySelector('.pick').onclick = () => { picks[s.id] === c.id ? delete picks[s.id] : picks[s.id] = c.id; save(); render(); };
+      el.append(row);
+    }
+    grid.append(el);
+  }
+  summary();
+}
+function summary() {
+  const need = Object.keys(slots), done = need.filter(k => picks[k]);
+  $('summary').textContent = `${done.length} of ${need.length} picked`;
+  const credits = new Set(done.map(k => slots[k].candidates.find(c => c.id === picks[k])?.credit).filter(c => c && c.includes('CC BY')));
+  $('credits').textContent = credits.size ? [...credits].join(' · ') : 'none so far.';
+  $('out').value = JSON.stringify(picks, null, 1);
+}
+function save() { localStorage.setItem(KEY, JSON.stringify(picks)); }
+$('vol').oninput = e => master && master.gain.setTargetAtTime(+e.target.value, ctx.currentTime, .05);
+$('stop').onclick = stopAll;
+$('copy').onclick = async () => { $('out').select(); try { await navigator.clipboard.writeText($('out').value); $('copy').textContent = 'Copied'; } catch { document.execCommand('copy'); } setTimeout(() => $('copy').textContent = 'Copy picks', 1200); };
+document.querySelectorAll('[data-where]').forEach(b => b.onclick = () => { where = b.dataset.where; document.querySelectorAll('[data-where]').forEach(o => o.classList.toggle('on', o === b)); $('where-note').textContent = NOTE[where]; stopAll(); render(); });
+$('where-note').textContent = NOTE[where];
+document.querySelectorAll('[data-scene]').forEach(b => b.onclick = () => { const on = b.classList.contains('on'); stopAll(); if (!on) startScene(b.dataset.scene, b); });
+addEventListener('keydown', e => { if (e.code === 'Space' && e.target.tagName !== 'TEXTAREA') { e.preventDefault(); stopAll(); } });
+render();
+window.sfxLab = { lab, picks, buffer: c => (audio(), buffer(c)), get ctx() { return ctx; } };
+</script>
+</body></html>
