@@ -38,6 +38,7 @@ const canvas=document.querySelector('#game'),boot=document.querySelector('#boot'
 let state=createState(),selectedType=null,rotation=0,world,ui,selectedSlot=0;
 let placeOk=true,placeFar=null,pointerIn=false,placementReason='',constructionReason='',hover=null,targetId=null,constructing=false,speed=1,saveStatus='Not saved',beltPath=null,paintPath=null,erasing=null;
 let orbit=null,research=null,shipStatus='pad',shipCrew=false,shipCargo=0,stationId=null;
+let audio=null;
 let jumpVelocity=0,accumulator=0,last=performance.now(),uiClock=0,autoClock=0,salvageReason='';
 const encounter=createEncounter();
 const keys=new Set();
@@ -54,7 +55,7 @@ function load(){try{const raw=localStorage.getItem(KEY);if(!raw){notify('No save
 function select(type){selectedType=type;if(type!=='conveyor'&&type!=='airlock')rotation=0;placementReason='';beltPath=null;paintPath=null;erasing=null;if(!type)world?.clearGhost();canvas.focus({preventScroll:true});if(type==='mine')notify('Click the ground to set where the rover digs.');}
 function cancel(){
  const b=state.buildings.find(b=>b.id===targetId);
- if(b){const r=b.built?deconstruct(state,b.id):cancelBlueprint(state,b.id);notify(r.reason);targetId=null;refreshGhost();}
+ if(b){const r=b.built?deconstruct(state,b.id):cancelBlueprint(state,b.id);if(r.ok&&b.built)audio?.play('dismantle');notify(r.reason);targetId=null;refreshGhost();}
  else select(null);
 }
 /** Dismantle tool: removes whatever the pointer is over, once per structure per drag. */
@@ -63,7 +64,7 @@ function eraseAt(){
  if(!b||erasing.tried.has(b.id))return;
  erasing.tried.add(b.id);
  const r=b.built?deconstruct(state,b.id):cancelBlueprint(state,b.id);
- if(r.ok){erasing.removed++;erasing.done=r.reason;}else erasing.reason=r.reason;
+ if(r.ok){erasing.removed++;erasing.done=r.reason;if(b.built)audio?.play('dismantle');}else erasing.reason=r.reason;
  targetId=null;
 }
 function finishErase(){
@@ -167,6 +168,7 @@ function paintLine(){
 function placePaint(){
  let placed=0,reason='';
  for(const c of paintLine()){if(!c.valid){reason||=c.reason;continue;}const r=placeBlueprint(state,selectedType,c.x,c.z,0);if(r.ok){placed++;targetId=r.id;}else reason||=r.reason;}
+ if(placed)audio?.play('place');
  notify(placed?`${placed} ${DEFS[selectedType].name.toLowerCase()} ${DEFS[selectedType].unit??'square'}${placed>1?'s':''} · walk over and hold E to build`:reason);
  paintPath=null;refreshGhost();
 }
@@ -223,7 +225,7 @@ function eatSelected(){notify(eat(state,foodSlot()).reason);}
  * the pointer, V patches the suit. True when `k` was one of them. */
 function useKey(k){
  if(k==='q'){const i=foodSlot();notify(ITEM_INFO[state.inventory[i]?.item]?.food?eat(state,i).reason:'Nothing to eat.');return true;}
- if(k==='f'){const r=throwFlare(state,aimClient&&world.aim(aimClient.x,aimClient.y)).reason;if(r)notify(r);return true;}
+ if(k==='f'){flare();return true;}
  if(k==='v'){const i=state.inventory.findIndex(s=>ITEM_INFO[s?.item]?.heal);notify(i<0?'No medkits.':eat(state,i).reason);return true;}
  return false;
 }
@@ -298,6 +300,7 @@ function placeBelts(){
   const r=placeBlueprint(state,'conveyor',c.x,c.z,c.rotation);if(r.ok){placed++;targetId=r.id;}else reason||=r.reason;
  }
  if(line.length)rotation=line[line.length-1].rotation;
+ if(placed)audio?.play('place');
  const skipped=line.length-placed-line.filter(c=>c.existing!=null).length;
  notify(placed||turned?[placed&&`${placed} belt blueprint${placed>1?'s':''}`,turned&&`${turned} redirected`,skipped&&`${skipped} blocked`].filter(Boolean).join(' · '):reason||'Belts already face this way.');
  beltPath=null;refreshGhost();
@@ -308,7 +311,7 @@ function commandPlace(){
  // A solid foundation cannot be placed underneath the player.
  if(!DEFS[selectedType].walkable&&playerObstructs(state,{type:selectedType,x:hover.x,z:hover.z,rotation,built:false})){notify('Step out of the footprint before placing.');return;}
  const r=placeBlueprint(state,selectedType,hover.x,hover.z,rotation);
- if(r.ok){targetId=r.id;notify(`${DEFS[selectedType].name} blueprint`);}else notify(r.reason);
+ if(r.ok){targetId=r.id;audio?.play('place');notify(`${DEFS[selectedType].name} blueprint`);}else notify(r.reason);
  refreshGhost();
 }
 let hazardNow=null;
@@ -327,7 +330,7 @@ function updatePortals(dt){
  if(crossed){resetPlayer();portalCooldown=1.2;select(null);hover=null;targetId=null;if(crossed==='down'||crossed==='up')notify(ZONE_NAMES[state.player.zone??0]);}
 }
 function completed(b){
- notify(`${DEFS[b.type].name} complete.`);
+ notify(`${DEFS[b.type].name} complete.`);audio?.play('built');
  if(b.type==='hopper'&&!state.miningAreas.length)setTimeout(()=>notify('Rover ready: press M and click nearby ground to mark a mining zone.'),2300);
 }
 /** On the surface a weapon is out while its slot is selected and no build tool is; underground it always is. */
@@ -353,10 +356,12 @@ function fixedUpdate(dt){
   // Raids go on at the base while the player is underground.
   const raids=stepRaiders(state,dt,fires);
   for(const e of raids)if(e.type==='parried'){hunt.events.push(e);hunt.parryCool=Math.min(hunt.parryCool??0,PARRY.again);}
+  if(!caving)raidSounds(raids);
   world.raided(raids);
  }
  // Turrets and fences fight on whether or not anything is loose, and while the player is underground.
- world.defended(stepDefenses(state,dt,state.power.powered!==false));
+ const defended=stepDefenses(state,dt,state.power.powered!==false);world.defended(defended);
+ if(!caving)for(const e of defended)if(e.type==='turret'||e.type==='zap')audio?.play(e.type,{at:e.type==='turret'?buildingCenter(state.buildings.find(b=>b.id===e.building)??{type:'turret',x:e.x,z:e.z,rotation:0},DEFS):e});
  updatePortals(dt);
  updatePeril(dt);
  if((state.player.y??0)>0||jumpVelocity>0){jumpVelocity-=gravityOf(state.seed)*dt;state.player.y=Math.max(0,(state.player.y??0)+jumpVelocity*dt);if(state.player.y===0)jumpVelocity=0;}
@@ -385,17 +390,64 @@ function fixedUpdate(dt){
  while(androidNews.length)notify(androidNews.shift());
  while(raidNews.length)notify(raidNews.shift());
 }
-let exert=0,hurt=0,lastHealth=null,indoorClock=0,indoors=false;
+let exert=0,hurt=0,lastHealth=null,indoorClock=0,indoors=false,hurtDrop=0,hurtCool=0;
 /** What the ambience needs to know: where the player is, what is near them, how hard they have been running. */
 function soundSignals(dt){
  const p=state.player,caving=p.cave!=null,health=p.health??100;
  exert=Math.max(0,Math.min(1,exert+(p.speed>.1?dt/8:-dt/5)));
- hurt=lastHealth!=null&&health<lastHealth-.01?1:Math.max(0,hurt-dt/4);lastHealth=health;
- if((indoorClock-=dt)<=0){indoorClock=.25;indoors=!caving&&!!roomAt(habitatLayout(state.buildings),p.x,p.z);}
+ hurt=lastHealth!=null&&health<lastHealth-.01?1:Math.max(0,hurt-dt/4);
+ // A thump on the suit for each real hit, not every frame of a slow drain.
+ hurtDrop+=Math.max(0,(lastHealth??health)-health);hurtCool-=dt;
+ if(hurtDrop>=4&&hurtCool<=0){audio?.play('hurt');hurtDrop=0;hurtCool=.6;}
+ lastHealth=health;
+ if((indoorClock-=dt)<=0){indoorClock=.25;const was=indoors;indoors=!caving&&!!roomAt(habitatLayout(state.buildings),p.x,p.z);if(was!==indoors&&!caving&&!p.aboard)audio?.play('airlock');}
  let near=Infinity;
  for(const c of caving?hunt.crawlers:state.brood??[])if(c.state!=='dead'&&!c.gone)near=Math.min(near,Math.hypot(c.x-p.x,c.z-p.z));
- return {sun:Math.sin(state.time/240*Math.PI*2+Math.PI/3),where:p.aboard?'ship':caving?'cave':indoors?'habitat':'surface',mars:planetOf(state.seed)==='mars',
+ return {x:p.x,z:p.z,sun:Math.sin(state.time/240*Math.PI*2+Math.PI/3),where:p.aboard?'ship':caving?'cave':indoors?'habitat':'surface',mars:planetOf(state.seed)==='mars',
   threat:Math.max(0,Math.min(1,1-(near-3)/12)),raid:raidAlert(state),exert,hurt,health,grabbed:caving&&!!grabbedBy(hunt)};
+}
+function flare(){const r=throwFlare(state,aimClient&&world.aim(aimClient.x,aimClient.y));if(r.ok)audio?.play('flare');if(r.reason)notify(r.reason);}
+function reloadHeld(){const r=reload(state);if(r.ok)audio?.play('reload');if(r.reason)notify(r.reason);}
+const SHOTS={pistol:'pistol',smg:'smg',rifle:'rifle'};
+const HUNT_SOUNDS={shriek:'shriek',lunge:'lunge',grab:'bite',devour:'bite',swing:'swing',parried:'parry',roll:'roll',killed:'death'};
+let charging=null;
+/** Sounds for what happened in combat this frame. Read before the combat view drains hunt.events. */
+function huntSounds(){
+ for(const e of hunt.events){
+  const at=e.crawler?{x:e.crawler.x,z:e.crawler.z}:e.x!=null?{x:e.x,z:e.z}:null;
+  if(e.type==='shot'&&SHOTS[e.weapon])audio.play(SHOTS[e.weapon]);
+  else if(e.type==='charge'){try{charging?.stop();}catch{}charging=audio.play('rail-charge');}
+  else if(e.type==='rail'){try{charging?.stop();}catch{}charging=null;audio.play('rail');}
+  else if(e.type==='impact'&&(e.crawler||e.nest))audio.play(e.weapon==='katana'?'slash':'impact',{at});
+  else if(e.type==='spawned')audio.play(e.emerge?'emerge':'hiss',{at});
+  else if(HUNT_SOUNDS[e.type])audio.play(HUNT_SOUNDS[e.type],{at:e.type==='killed'||e.type==='shriek'||e.type==='lunge'?at:null});
+ }
+}
+/** Raiders on the surface: their bites on you, bursting into brood, and dying. */
+function raidSounds(events){
+ for(const e of events){
+  const at=e.crawler&&{x:e.crawler.x,z:e.crawler.z};
+  if(e.type==='bite')audio?.play('bite',{at:e.android==null?null:at});
+  else if(e.type==='burst')audio?.play('burst',{at});
+  else if(e.type==='killed')audio?.play('death',{at});
+ }
+}
+const MACHINES=new Set(['processor','melter','fabricator','assembler','electrolyser','foundry','drill','furnace','mill','recycler','galley']);
+let stepTravel=0,wasGrounded=true,buildClock=0;
+/** Footsteps, landings, held weapons, tools, and the loops of nearby machines and digging rovers. */
+function bodySounds(dt){
+ const p=state.player,caving=p.cave!=null;
+ if(p.animation==='run'&&p.grounded&&!p.aboard){stepTravel+=(p.speed??0)*dt;if(stepTravel>=1.9){stepTravel=0;audio.play(indoors?'step-floor':'step-ground');}}else stepTravel=1.2;
+ if(p.grounded&&!wasGrounded)audio.play('land');wasGrounded=!!p.grounded;
+ const w=heldWeapon(state),a=armsOf(state),spraying=!!(hunt.drawn&&w&&WEAPONS[w]?.stream&&hunt.trigger&&a.loaded[w]>0&&!a.reloading);
+ audio.hold('flamer',spraying&&w==='flamethrower'?1:0);audio.hold('arc',spraying&&w==='arc'?1:0);
+ if(constructing){if((buildClock-=dt)<=0){audio.play('build');buildClock=1.6;}}else buildClock=0;
+ let dig=null,hum=null;
+ if(!caving&&!p.aboard){
+  for(const r of state.robots??[])if(r.task==='mining'&&(!dig||Math.hypot(r.x-p.x,r.z-p.z)<Math.hypot(dig.x-p.x,dig.z-p.z)))dig=r;
+  if(state.power.powered!==false)for(const b of state.buildings)if(b.built&&MACHINES.has(b.type)){const c=buildingCenter(b,DEFS);if(!hum||Math.hypot(c.x-p.x,c.z-p.z)<Math.hypot(hum.x-p.x,hum.z-p.z))hum=c;}
+ }
+ audio.hold('dig',dig?1:0,dig);audio.hold('hum',hum?1:0,hum);
 }
 /** Rolls the way the player is steering, or the way they face. Same everywhere: Space jumps, Shift rolls. */
 function dodge(){
@@ -410,14 +462,14 @@ function dodge(){
 /** Thrown flares, food and medkits are used by clicking with them in hand. True when the click was used. */
 function useHeld(){
  const item=state.inventory[selectedSlot]?.item;
- if(item==='flare'){const r=throwFlare(state,aimClient&&world.aim(aimClient.x,aimClient.y)).reason;if(r)notify(r);return true;}
+ if(item==='flare'){flare();return true;}
  if(ITEM_INFO[item]?.food||ITEM_INFO[item]?.heal){notify(eat(state,selectedSlot).reason);return true;}
  return false;
 }
 /** Underground controls: E breaks a grab, R reloads. True when handled. */
 function caveKey(k){
  if(k==='e'&&grabbedBy(hunt)){wrench(hunt,state);return true;}
- if(k==='r'){const r=reload(state);if(r.reason)notify(r.reason);return true;}
+ if(k==='r'){reloadHeld();return true;}
  return false;
 }
 async function start(){
@@ -442,7 +494,7 @@ async function start(){
    aimClient={x:e.clientX,y:e.clientY};
    if(!selectedType&&state.player.cave==null&&clickStation(world.pick(e.clientX,e.clientY)))return;
    if(!selectedType&&useHeld())return;
-   if(drawn()){const r=fire(hunt,state);if(r.reason)notify(r.reason);try{canvas.setPointerCapture(e.pointerId);}catch{}return;}
+   if(drawn()){const r=fire(hunt,state);if(r.reason)notify(r.reason);if(!r.ok&&r.weapon&&!armsOf(state).loaded[r.weapon])audio?.play(armsOf(state).reloading?'reload':'dry');try{canvas.setPointerCapture(e.pointerId);}catch{}return;}
    point(e);
    if(selectedType==='conveyor'&&hover){beltPath=[{x:hover.x,z:hover.z}];try{canvas.setPointerCapture(e.pointerId);}catch{}refreshGhost();}
    else if(DEFS[selectedType]?.paint&&hover){paintPath=[{x:hover.x,z:hover.z}];try{canvas.setPointerCapture(e.pointerId);}catch{}refreshGhost();}
@@ -475,7 +527,7 @@ async function start(){
    if(k==='b')ui.toggleMenu();
    if(k==='g')ui.toggleRobots();
    if(k==='i')ui.toggleStock();
-   if(k==='r'){if(drawn()){const r=reload(state);if(r.reason)notify(r.reason);}else{rotation=(rotation+1)%4;refreshGhost();}}
+   if(k==='r'){if(drawn())reloadHeld();else{rotation=(rotation+1)%4;refreshGhost();}}
    const mission=k==='e'?missionAction(state):null;
    const ship=k==='e'&&!mission?shipAction(state):null;
    if(mission&&!mission.hold)notify(installCore(state).reason);
@@ -495,7 +547,7 @@ async function start(){
   boot.remove();document.body.dataset.ready='true';canvas.focus({preventScroll:true});
   ui.update(state,view());
   const fps=document.createElement('div');fps.className='fps-meter';document.body.append(fps);
-  const audio=createAudio(),sound=document.createElement('button');sound.type='button';sound.className='sound-toggle';
+  audio=createAudio();const sound=document.createElement('button');sound.type='button';sound.className='sound-toggle';
   const showSound=()=>{sound.textContent=audio.volume?'Sound on':'Sound off';sound.dataset.on=String(!!audio.volume);};
   sound.onclick=()=>{audio.setVolume(audio.volume?0:.8);showSound();sound.blur();canvas.focus({preventScroll:true});};showSound();document.body.append(sound);
   let fpsFrames=0,fpsSince=performance.now(),fpsWorst=0;
@@ -505,12 +557,13 @@ async function start(){
    const dt=Math.min((now-last)/1000,.1);last=now;accumulator+=dt;
    while(accumulator>=1/30){fixedUpdate(1/30);accumulator-=1/30;}
    if(stepEncounter(encounter,state,dt)==='fled')setTimeout(()=>ui.say(ENCOUNTER_SAY),600);
-   world.update(state,dt,interpolatePose(previousPose,state.player,accumulator/(1/30)),encounter,hunt);audio.update(soundSignals(dt),dt);uiClock+=dt;autoClock+=dt;
+   huntSounds();bodySounds(dt);world.update(state,dt,interpolatePose(previousPose,state.player,accumulator/(1/30)),encounter,hunt);audio.update(soundSignals(dt),dt);uiClock+=dt;autoClock+=dt;
    const cursor=cursorMode();if(canvas.dataset.cursor!==cursor)canvas.dataset.cursor=cursor;world.setLogistics(showLogistics());world.setZones(selectedType==='mine'||!!ui?.robotsOpen?.());world.setPorts(selectedType==='conveyor');
    reticle.update(cursor==='none'&&pointerIn?reticleState():null,dt);
    if(state.ship.status==='ascent')shipCargo=state.ship.payload;
    if(state.ship.status!==shipStatus){
     const s=state.ship,place=PLANETS[s.dest??planetOf(state.seed)]?.name;
+    if(s.status==='ascent'&&shipStatus!=='ascent')audio.play('launch');
     if(s.status==='orbit'&&shipStatus==='ascent'){notify(`Satellite${shipCargo>1?'s':''} deployed · +${shipCargo*SATELLITE_POINTS} research points (T).`);orbit.show();}
     if(s.status==='transfer'){notify(`Escape burn complete. Coasting the Hohmann transfer to ${place}…`);research.close();orbit.show();orbit.goTo('system');}
     if(s.status==='descent'&&s.crew){orbit.close();notify(`Aerocapture, then powered descent onto ${place}.`);}

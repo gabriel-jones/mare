@@ -35,11 +35,29 @@ export function soundMix({ sun = 1, where = 'surface', mars = false, threat = 0,
   return { level, density: { skitter }, open, breath, breathLevel: where === 'cave' ? 1 : 0 };
 }
 
+/** Effects that are your own body or kit: in vacuum they reach you only through the suit. */
+const SELF = new Set(['step-ground', 'step-floor', 'land', 'roll', 'hurt', 'pistol', 'smg', 'rifle', 'flamer', 'rail-charge', 'rail', 'arc', 'swing', 'slash', 'reload', 'dry', 'parry', 'bite', 'build', 'dismantle']);
+/** Relative level of each effect in the mix. */
+const EFFECT_GAIN = { 'step-ground': .35, 'step-floor': .35, land: .6, roll: .5, hurt: .8, pistol: 1, smg: .9, rifle: 1, flamer: .7, 'rail-charge': .7,
+  rail: 1, arc: .7, swing: .6, slash: .8, reload: .6, dry: .6, impact: .7, parry: .9, flare: .6, shriek: .9, lunge: .8, bite: .9, death: .8, hiss: .6,
+  burst: .9, emerge: .7, build: .45, built: .7, place: .4, dismantle: .6, turret: .7, zap: .7, airlock: .6, dig: .5, hum: .35, launch: 1 };
+
+/** How an effect reaches the ear. Out on the airless Moon your own actions come through the suit and everything else
+ * only through the ground; habitats, caves, ships and Mars have air. The blueprint marker is a HUD sound. */
+export function effectRoute(slot, where, mars = false) {
+  if (where !== 'surface' || mars || slot === 'place') return 'air';
+  return SELF.has(slot) ? 'suit' : 'ground';
+}
+/** Level for an effect `d` metres away: full within 3 m, fading out by 40 m. */
+export const falloff = d => d <= 3 ? 1 : d >= 40 ? 0 : (1 / (1 + (d - 3) / 5)) * (1 - (d - 3) / 37);
+
 const VOLUME_KEY = 'mare.audio.volume';
 
 /** Starts silent; the first key press or click unlocks Web Audio and fetches the clips. */
 export function createAudio(base = './assets/audio/') {
-  let ctx = null, master = null, outdoor = null, muffle = null, layers = null, breath = null, manifest = null;
+  let ctx = null, master = null, outdoor = null, muffle = null, layers = null, breath = null, manifest = null, effects = null, buses = null;
+  let here = { where: 'surface', mars: false, x: 0, z: 0 };
+  const voices = new Map(), loops = new Map();
   let volume = Number(localStorage.getItem(VOLUME_KEY) ?? .8);
   if (!(volume >= 0 && volume <= 1)) volume = .8;
   const biquad = (type, f, q = .7, g = 0) => { const n = ctx.createBiquadFilter(); n.type = type; n.frequency.value = f; n.Q.value = q; n.gain.value = g; return n; };
@@ -130,7 +148,23 @@ export function createAudio(base = './assets/audio/') {
       layers[k] = c[k].loop ? loopLayer(bufs[k], fx) : grainLayer(bufs[k], fx, [1, 4]);
     }
     breath = ['calm', 'exerted', 'panic'].map(r => c[`breath.${r}`] && (c[`breath.${r}`].loop ? loopLayer(bufs[`breath.${r}`], 'helmet') : grainLayer(bufs[`breath.${r}`], 'helmet', [.25, .6])));
+    buses = effectBuses();
+    const sfx = await (await fetch(base + 'sfx.json')).json();
+    effects = Object.fromEntries(await Promise.all(Object.entries(sfx.effects).map(async ([k, e]) => [k, { ...e, ...(await load(e)) }])));
   }
+
+  function effectBuses() {
+    const air = ctx.createGain(); air.connect(master);
+    // Through the suit: the highs gone, the body thump up, a few milliseconds of helmet.
+    const suit = biquad('highpass', 35), shelf = biquad('lowshelf', 160, .7, 6), lp = biquad('lowpass', 1500, .5), d = ctx.createDelay(.05), wet = ctx.createGain();
+    d.delayTime.value = .006; wet.gain.value = .25;
+    suit.connect(shelf).connect(lp).connect(master); lp.connect(d).connect(wet).connect(master);
+    // No air to carry it: only what comes up through the regolith and your boots.
+    const ground = biquad('lowpass', 260, .6), lp2 = biquad('lowpass', 260, .6), thump = biquad('lowshelf', 90, .7, 5), quiet = ctx.createGain();
+    quiet.gain.value = .6; ground.connect(lp2).connect(thump).connect(quiet).connect(master);
+    return { air, suit, ground };
+  }
+  const level = (slot, at) => (EFFECT_GAIN[slot] ?? 1) * (at ? falloff(Math.hypot(at.x - here.x, at.z - here.z)) : 1);
 
   let starting = null;
   function unlock() {
@@ -147,6 +181,7 @@ export function createAudio(base = './assets/audio/') {
     /** Called every frame with the situation soundMix describes. */
     update(signals, dt) {
       if (!layers || ctx.state !== 'running') return;
+      here = { where: signals.where ?? 'surface', mars: !!signals.mars, x: signals.x ?? 0, z: signals.z ?? 0 };
       const now = ctx.currentTime, mix = soundMix(signals);
       for (const [k, l] of Object.entries(layers)) {
         set(l.g.gain, mix.level[k], 1.2);
@@ -159,6 +194,35 @@ export function createAudio(base = './assets/audio/') {
       intensity += (mix.breath - intensity) * clamp(dt * (mix.breath > intensity ? 2.5 : .35));
       const x = intensity, w = [clamp(1 - 2 * x), 1 - Math.abs(2 * x - 1), clamp(2 * x - 1)];
       breath.forEach((l, i) => { if (!l) return; set(l.g.gain, Math.sqrt(w[i]) * mix.breathLevel, .4); l.tick(now); });
+    },
+    /** One take of an effect, `at` a position in the player's space for distance; returns its source (stoppable) or null. */
+    play(slot, { at = null, gain = 1 } = {}) {
+      const e = effects?.[slot];
+      if (!e || ctx.state !== 'running') return null;
+      const v = level(slot, at) * gain, busy = voices.get(slot) ?? 0;
+      if (v < .01 || busy >= 4) return null;
+      const [a, b] = e.hits ? e.hits[Math.floor(Math.random() * e.hits.length)] : [0, e.duration];
+      const src = ctx.createBufferSource(), g = ctx.createGain();
+      src.buffer = e.buf; src.detune.value = rand(-100, 100); g.gain.value = v;
+      src.connect(g).connect(buses[effectRoute(slot, here.where, here.mars)]);
+      src.start(0, e.start + a, b - a);
+      voices.set(slot, busy + 1); src.onended = () => { voices.set(slot, (voices.get(slot) ?? 1) - 1); g.disconnect(); };
+      return src;
+    },
+    /** A looping effect held at `on` (0..1) every frame it should sound, e.g. a flamethrower while the trigger is down. */
+    hold(slot, on, at = null) {
+      const e = effects?.[slot];
+      if (!e || ctx.state !== 'running') return;
+      let l = loops.get(slot);
+      if (!l && !on) return;
+      if (!l) {
+        const src = ctx.createBufferSource(), g = ctx.createGain();
+        src.buffer = e.buf; src.loop = true; src.loopStart = e.start; src.loopEnd = e.end; g.gain.value = 0;
+        src.connect(g); src.start(0, e.start); loops.set(slot, l = { g, route: null });
+      }
+      const route = effectRoute(slot, here.where, here.mars);
+      if (route !== l.route) { l.g.disconnect(); l.g.connect(buses[route]); l.route = route; }
+      set(l.g.gain, on * level(slot, at), on ? .04 : .12);
     },
     get credits() { return manifest?.credits ?? []; },
   };
