@@ -390,12 +390,10 @@ function fixedUpdate(dt){
  while(androidNews.length)notify(androidNews.shift());
  while(raidNews.length)notify(raidNews.shift());
 }
-let exert=0,hurt=0,lastHealth=null,indoorClock=0,indoors=false,hurtDrop=0,hurtCool=0;
-/** What the ambience needs to know: where the player is, what is near them, how hard they have been running. */
+let lastHealth=null,indoorClock=0,indoors=false,hurtDrop=0,hurtCool=0;
+/** What the ambience needs to know: where the player is and what is near them. */
 function soundSignals(dt){
  const p=state.player,caving=p.cave!=null,health=p.health??100;
- exert=Math.max(0,Math.min(1,exert+(p.speed>.1?dt/8:-dt/5)));
- hurt=lastHealth!=null&&health<lastHealth-.01?1:Math.max(0,hurt-dt/4);
  // A thump on the suit for each real hit, not every frame of a slow drain.
  hurtDrop+=Math.max(0,(lastHealth??health)-health);hurtCool-=dt;
  if(hurtDrop>=4&&hurtCool<=0){audio?.play('hurt');hurtDrop=0;hurtCool=.6;}
@@ -404,7 +402,7 @@ function soundSignals(dt){
  let near=Infinity;
  for(const c of caving?hunt.crawlers:state.brood??[])if(c.state!=='dead'&&!c.gone)near=Math.min(near,Math.hypot(c.x-p.x,c.z-p.z));
  return {x:p.x,z:p.z,sun:Math.sin(state.time/240*Math.PI*2+Math.PI/3),where:p.aboard?'ship':caving?'cave':indoors?'habitat':'surface',mars:planetOf(state.seed)==='mars',
-  threat:Math.max(0,Math.min(1,1-(near-3)/12)),raid:raidAlert(state),exert,hurt,health,grabbed:caving&&!!grabbedBy(hunt)};
+  threat:Math.max(0,Math.min(1,1-(near-3)/12)),raid:raidAlert(state)};
 }
 function flare(){const r=throwFlare(state,aimClient&&world.aim(aimClient.x,aimClient.y));if(r.ok)audio?.play('flare');if(r.reason)notify(r.reason);}
 function reloadHeld(){const r=reload(state);if(r.ok)audio?.play('reload');if(r.reason)notify(r.reason);}

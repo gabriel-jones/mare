@@ -1,6 +1,6 @@
 /** Ambience: what the colony sounds like from inside the suit. Clips come from assets/audio (picked in
  * art-direction/sound-lab.html, installed by sound/install.py); soundMix turns the game's situation into a level
- * for each layer, and createAudio plays them through helmet and cave effects. */
+ * for each layer, and createAudio plays them through outdoor and cave effects. */
 
 const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
 const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a)); return t * t * (3 - 2 * t); };
@@ -11,13 +11,11 @@ export const LAYERS = ['day', 'dread', 'cave', 'skitter', 'habitat', 'mars'];
 const ROUTE = { day: 'outdoor', mars: 'outdoor', dread: 'direct', cave: 'direct', skitter: 'cave3d', habitat: 'direct' };
 
 /**
- * Levels (0..1) for every layer, grain densities, how open the outside is (1 = out on the surface) and the breathing
- * intensity target (0 calm, .5 exerted, 1 panic). Breathing is only heard underground.
+ * Levels (0..1) for every layer, grain densities and how open the outside is (1 = out on the surface).
  * `sun` is the sun's height (-1..1), `where` is 'surface' | 'habitat' | 'cave' | 'ship', `threat` (0..1) how close the
- * nearest creature is, `raid` whether one is on, `exert` (0..1) how long the player has been running, `hurt` (0..1) a
- * recent hit, `health` 0..100, `grabbed` whether a crawler has them.
+ * nearest creature is, `raid` whether one is on.
  */
-export function soundMix({ sun = 1, where = 'surface', mars = false, threat = 0, raid = false, exert = 0, hurt = 0, health = 100, grabbed = false }) {
+export function soundMix({ sun = 1, where = 'surface', mars = false, threat = 0, raid = false }) {
   const day = smooth(-.05, .25, sun), night = 1 - day, raidLevel = raid ? 1 : 0;
   const level = Object.fromEntries(LAYERS.map(k => [k, 0]));
   let skitter = 1, open = 1;
@@ -30,9 +28,7 @@ export function soundMix({ sun = 1, where = 'surface', mars = false, threat = 0,
     level.dread = clamp(.55 * night + .35 * raidLevel + .3 * threat);
     if (where === 'habitat' || where === 'ship') { level.habitat = where === 'ship' ? .7 : .9; open = 0; level.dread *= .45; }
   }
-  const panic = Math.max(threat * .9, hurt, grabbed ? 1 : 0, health < 30 ? .7 : 0);
-  const breath = Math.max(.5 * exert, panic > .05 ? .4 + .6 * panic : 0);
-  return { level, density: { skitter }, open, breath, breathLevel: where === 'cave' ? 1 : 0 };
+  return { level, density: { skitter }, open };
 }
 
 /** Effects that are your own body or kit: in vacuum they reach you only through the suit. */
@@ -55,7 +51,7 @@ const VOLUME_KEY = 'mare.audio.volume';
 
 /** Starts silent; the first key press or click unlocks Web Audio and fetches the clips. */
 export function createAudio(base = './assets/audio/') {
-  let ctx = null, master = null, outdoor = null, muffle = null, layers = null, breath = null, manifest = null, effects = null, buses = null;
+  let ctx = null, master = null, outdoor = null, muffle = null, layers = null, manifest = null, effects = null, buses = null;
   let here = { where: 'surface', mars: false, x: 0, z: 0 };
   const voices = new Map(), loops = new Map();
   let volume = Number(localStorage.getItem(VOLUME_KEY) ?? .8);
@@ -66,13 +62,6 @@ export function createAudio(base = './assets/audio/') {
     const out = ctx.createGain();
     if (kind === 'outdoor') { out.connect(outdoor); return { input: out }; }
     out.connect(master);
-    if (kind === 'helmet') {
-      // Inside a helmet: no lows, boxy mids, a few milliseconds of visor reflection.
-      const hp = biquad('highpass', 140), box = biquad('peaking', 1100, 1.2, 4), lp = biquad('lowpass', 7500), d = ctx.createDelay(.05), fb = ctx.createGain(), wet = ctx.createGain();
-      d.delayTime.value = .007; fb.gain.value = .3; wet.gain.value = .35;
-      hp.connect(box).connect(lp).connect(out); lp.connect(d); d.connect(fb).connect(d); d.connect(wet).connect(out);
-      return { input: hp };
-    }
     if (kind === 'cave3d') {
       // Close rock walls: dense early reflections and a short tail.
       const input = ctx.createGain(), conv = ctx.createConvolver(), wet = ctx.createGain();
@@ -147,7 +136,6 @@ export function createAudio(base = './assets/audio/') {
       const fx = ROUTE[k];
       layers[k] = c[k].loop ? loopLayer(bufs[k], fx) : grainLayer(bufs[k], fx, [1, 4]);
     }
-    breath = ['calm', 'exerted', 'panic'].map(r => c[`breath.${r}`] && (c[`breath.${r}`].loop ? loopLayer(bufs[`breath.${r}`], 'helmet') : grainLayer(bufs[`breath.${r}`], 'helmet', [.25, .6])));
     buses = effectBuses();
     const sfx = await (await fetch(base + 'sfx.json')).json();
     effects = Object.fromEntries(await Promise.all(Object.entries(sfx.effects).map(async ([k, e]) => [k, { ...e, ...(await load(e)) }])));
@@ -173,7 +161,6 @@ export function createAudio(base = './assets/audio/') {
   }
   for (const type of ['pointerdown', 'keydown']) window.addEventListener(type, unlock, { capture: true });
 
-  let intensity = 0;
   const set = (gain, v, tc = .6) => gain.setTargetAtTime(v, ctx.currentTime, tc);
   return {
     get volume() { return volume; },
@@ -190,10 +177,6 @@ export function createAudio(base = './assets/audio/') {
       }
       set(muffle.frequency, mix.open ? 18000 : 380, .4);
       set(outdoor.gain, mix.open ? 1 : .35, .4);
-      // Breathing eases toward its target: quick to panic, slow to calm down.
-      intensity += (mix.breath - intensity) * clamp(dt * (mix.breath > intensity ? 2.5 : .35));
-      const x = intensity, w = [clamp(1 - 2 * x), 1 - Math.abs(2 * x - 1), clamp(2 * x - 1)];
-      breath.forEach((l, i) => { if (!l) return; set(l.g.gain, Math.sqrt(w[i]) * mix.breathLevel, .4); l.tick(now); });
     },
     /** One take of an effect, `at` a position in the player's space for distance; returns its source (stoppable) or null. */
     play(slot, { at = null, gain = 1 } = {}) {

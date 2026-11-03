@@ -6,24 +6,6 @@
    "loop": true,
    "source": "Bluezone \"Afterlife\" melodic texture"
   },
-  "breath.calm": {
-   "file": "breath-calm.m4a",
-   "duration": 20.0,
-   "loop": true,
-   "source": "Calm: slow mouth breathing"
-  },
-  "breath.exerted": {
-   "file": "breath-exerted.m4a",
-   "duration": 2.785,
-   "loop": true,
-   "source": "Exerted: breathing in a mask while running"
-  },
-  "breath.panic": {
-   "file": "breath-panic.m4a",
-   "duration": 1.152,
-   "loop": false,
-   "source": "Panic: single scared breath"
-  },
   "dread": {
    "file": "dread.m4a",
    "duration": 50.0,

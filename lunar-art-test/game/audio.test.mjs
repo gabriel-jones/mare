@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import {readFileSync,existsSync} from 'node:fs';
 import {soundMix,LAYERS,effectRoute,falloff} from './audio.js';
 
-test('every ambience layer and breathing role has an installed clip',()=>{
+test('every ambience layer has an installed clip',()=>{
  const {clips}=JSON.parse(readFileSync(new URL('./assets/audio/audio.json',import.meta.url)));
- for(const k of [...LAYERS,'breath.calm','breath.exerted','breath.panic']){
+ for(const k of LAYERS){
   assert.ok(clips[k],k);assert.ok(existsSync(new URL(`./assets/audio/${clips[k].file}`,import.meta.url)),clips[k].file);
  }
 });
@@ -29,15 +29,9 @@ test('habitats bring the air back and muffle the outside; Mars has wind',()=>{
  assert.ok(inside.level.habitat>.5);assert.equal(inside.open,0);
  assert.equal(soundMix({sun:.8}).level.mars,0);assert.equal(soundMix({sun:.8,mars:true}).level.mars,1);
 });
-test('breathing: calm at rest, exerted after running, panicked when hurt, grabbed or hunted',()=>{
- assert.equal(soundMix({}).breath,0);
- assert.equal(soundMix({exert:1}).breath,.5);
- for(const s of [{hurt:1},{grabbed:true},{threat:1}])assert.ok(soundMix(s).breath>.9,JSON.stringify(s));
- assert.ok(soundMix({health:20}).breath>.8);
-});
-test('breathing is only heard in caves',()=>{
- assert.equal(soundMix({where:'cave'}).breathLevel,1);
- for(const where of ['surface','habitat','ship'])assert.equal(soundMix({where,exert:1}).breathLevel,0);
+test('no breathing anywhere',()=>{
+ const {clips}=JSON.parse(readFileSync(new URL('./assets/audio/audio.json',import.meta.url)));
+ assert.deepEqual(Object.keys(clips).filter(k=>k.startsWith('breath')),[]);
 });
 test('every effect the game plays has an installed clip with takes inside it',()=>{
  const {effects}=JSON.parse(readFileSync(new URL('./assets/audio/sfx.json',import.meta.url)));
