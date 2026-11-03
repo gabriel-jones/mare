@@ -20,7 +20,20 @@ cp "$src"/node_modules/three/build/three.{module,core}.js "$out/node_modules/thr
 cp -R "$src/node_modules/three/examples/jsm" "$out/node_modules/three/examples/"
 
 cat > "$out/_redirects" <<'EOF'
-/ /game/ 302
+/ /game/ 301
+EOF
+
+cat > "$out/robots.txt" <<'EOF'
+User-agent: *
+Allow: /game/
+Disallow: /node_modules/
+
+Sitemap: https://mare.gdev.bm/sitemap.xml
+EOF
+
+cat > "$out/sitemap.xml" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://mare.gdev.bm/game/</loc></url></urlset>
 EOF
 
 # Modules are not fingerprinted, so make browsers revalidate rather than mix fresh and stale ones.
